@@ -45,6 +45,15 @@ gdb ./target/debug/wezterm
 # In gdb: break rust_panic, run, bt
 ```
 
+### Development process
+The general workflow you should use is:
+-Understand the desired change thoroughly. Ask the user questions if you're not sure about any aspects
+-Think carefully about how to properly implement the change within the codebase
+-Create an outline of the proposed work for the user to review
+-Once in agreement, implement the change
+-Run a type check and then release mode build to test if changes compile successfully
+-Git commit
+
 ## High-Level Architecture
 
 ### Core Components
