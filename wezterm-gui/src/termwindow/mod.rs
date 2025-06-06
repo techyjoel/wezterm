@@ -28,6 +28,7 @@ use crate::termwindow::render::{
 use crate::termwindow::webgpu::WebGpuState;
 use ::wezterm_term::input::{ClickPosition, MouseButton as TMB};
 use ::window::*;
+use ::window::os::parameters;
 use anyhow::{anyhow, ensure, Context};
 use config::keyassignment::{
     Confirmation, KeyAssignment, LauncherActionArgs, PaneDirection, Pattern, PromptInputLine,
@@ -1815,6 +1816,9 @@ impl TermWindow {
             self.apply_scale_change(&dimensions, self.fonts.get_font_scale());
             self.apply_dimensions(&dimensions, None, &window);
             window.config_did_change(&config);
+            if let Err(err) = self.update_os_window_border(&window) {
+                log::error!("Failed to update OS window border: {:#}", err);
+            }
             window.invalidate();
         }
 
@@ -1838,6 +1842,57 @@ impl TermWindow {
                 window.invalidate();
             }
         }
+    }
+
+    fn update_os_window_border(&self, window: &dyn WindowOps) -> anyhow::Result<()> {
+        if self.config.window_frame.os_window_border_enabled {
+            let border_style = self.compute_os_border_style()?;
+            window.update_window_border(Some(&border_style));
+        } else {
+            window.update_window_border(None);
+        }
+        Ok(())
+    }
+
+    fn compute_os_border_style(&self) -> anyhow::Result<parameters::OsBorderStyle> {
+        let config = &self.config.window_frame.os_window_border;
+        
+        // Evaluate dimensions
+        let border_width = config.width.evaluate_as_pixels(config::DimensionContext {
+            dpi: self.dimensions.dpi as f32,
+            pixel_max: self.dimensions.pixel_width as f32,
+            pixel_cell: self.render_metrics.cell_size.width as f32,
+        });
+
+        let radius = if let Some(user_radius) = &config.radius {
+            user_radius.evaluate_as_pixels(config::DimensionContext {
+                dpi: self.dimensions.dpi as f32,
+                pixel_max: self.dimensions.pixel_width as f32,
+                pixel_cell: self.render_metrics.cell_size.width as f32,
+            })
+        } else {
+            // Auto-detect from OS parameters
+            self.os_parameters
+                .as_ref()
+                .and_then(|p| p.os_border_style.as_ref())
+                .map(|s| s.radius)
+                .unwrap_or(0.0)
+        };
+
+        // Convert color
+        let color = if let Some(user_color) = config.color {
+            let linear = user_color.to_linear();
+            (linear.0, linear.1, linear.2, linear.3)
+        } else {
+            (0.8, 0.8, 0.8, 1.0) // Default light gray
+        };
+
+        Ok(parameters::OsBorderStyle {
+            width: border_width,
+            color,
+            radius,
+            style: config.style.into(),
+        })
     }
 
     pub fn cancel_modal(&self) {

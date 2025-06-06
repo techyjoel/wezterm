@@ -565,6 +565,49 @@ fn default_window_close() -> String {
     " X ".to_string()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
+pub enum OsBorderStyle {
+    Solid,
+    Dashed,
+    Dotted,
+}
+
+impl Default for OsBorderStyle {
+    fn default() -> Self {
+        Self::Solid
+    }
+}
+
+#[derive(Debug, Clone, FromDynamic, ToDynamic)]
+pub struct OsWindowBorderConfig {
+    #[dynamic(try_from = "crate::units::PixelUnit", default = "default_border_width")]
+    pub width: Dimension,
+    
+    #[dynamic(default)]
+    pub color: Option<RgbaColor>,
+    
+    #[dynamic(try_from = "crate::units::OptPixelUnit", default)]
+    pub radius: Option<Dimension>,
+    
+    #[dynamic(default)]
+    pub style: OsBorderStyle,
+}
+
+impl Default for OsWindowBorderConfig {
+    fn default() -> Self {
+        Self {
+            width: default_border_width(),
+            color: None,
+            radius: None,
+            style: OsBorderStyle::default(),
+        }
+    }
+}
+
+fn default_border_width() -> Dimension {
+    Dimension::Pixels(2.0)
+}
+
 #[derive(Debug, Clone, FromDynamic, ToDynamic)]
 pub struct WindowFrameConfig {
     #[dynamic(default = "default_inactive_titlebar_bg")]
@@ -606,6 +649,14 @@ pub struct WindowFrameConfig {
     pub border_right_color: Option<RgbaColor>,
     pub border_top_color: Option<RgbaColor>,
     pub border_bottom_color: Option<RgbaColor>,
+
+    /// Enable OS-level window border (renders outside content area)
+    #[dynamic(default)]
+    pub os_window_border_enabled: bool,
+
+    /// OS window border configuration
+    #[dynamic(default)]
+    pub os_window_border: OsWindowBorderConfig,
 }
 
 const fn default_zero_pixel() -> Dimension {
@@ -635,6 +686,8 @@ impl Default for WindowFrameConfig {
             border_right_color: None,
             border_top_color: None,
             border_bottom_color: None,
+            os_window_border_enabled: false,
+            os_window_border: OsWindowBorderConfig::default(),
         }
     }
 }

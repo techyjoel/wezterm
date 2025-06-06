@@ -322,6 +322,13 @@ pub trait WindowOps {
     /// Set window level. Depending on the environment and user preferences
     fn set_window_level(&self, _level: WindowLevel) {}
 
+    /// Set OS-level window border style
+    /// Similar to set_window_level, but for border decoration
+    fn set_window_border(&self, _border: Option<&os::parameters::OsBorderStyle>) {}
+
+    /// Update border when config changes (similar to blur update)
+    fn update_window_border(&self, _border: Option<&os::parameters::OsBorderStyle>) {}
+
     /// Set the icon for the window.
     /// Depending on the system this may be shown in its titlebar
     /// and/or in the task manager/task switcher

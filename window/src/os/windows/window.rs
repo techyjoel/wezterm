@@ -683,6 +683,14 @@ impl WindowInner {
         self.apply_decoration();
     }
 
+    fn set_window_border(&mut self, border: Option<&crate::os::parameters::OsBorderStyle>) {
+        self.apply_windows_border(border);
+    }
+
+    fn update_window_border(&mut self, border: Option<&crate::os::parameters::OsBorderStyle>) {
+        self.apply_windows_border(border);
+    }
+
     fn toggle_fullscreen(&mut self) {
         unsafe {
             let hwnd = self.hwnd.0;
@@ -740,6 +748,87 @@ impl HasDisplayHandle for Window {
             Ok(DisplayHandle::borrow_raw(RawDisplayHandle::Windows(
                 WindowsDisplayHandle::new(),
             )))
+        }
+    }
+
+    fn apply_windows_border(&mut self, border: Option<&crate::os::parameters::OsBorderStyle>) {
+        unsafe {
+            let hwnd = self.hwnd.0;
+            
+            if let Some(border_style) = border {
+                // Use DWM (Desktop Window Manager) for modern border rendering
+                // This approach works on Windows 10/11 with DWM composition enabled
+                
+                // Option 1: Use DWM window attributes for border color (Windows 11)
+                // This only works on Windows 11 build 22000+
+                if let Ok(dwm_lib) = libloaderapi::LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8) {
+                    let set_border_color_fn = libloaderapi::GetProcAddress(
+                        dwm_lib, 
+                        b"DwmSetWindowAttribute\0".as_ptr() as *const i8
+                    );
+                    
+                    if !set_border_color_fn.is_null() {
+                        // Convert RGBA to Windows COLORREF (BGR format)
+                        let color_bgr = ((border_style.color.2 * 255.0) as u32) << 16
+                                      | ((border_style.color.1 * 255.0) as u32) << 8
+                                      | ((border_style.color.0 * 255.0) as u32);
+                        
+                        // DWMWA_BORDER_COLOR = 34 (Windows 11 only)
+                        let dwm_set_attr: extern "system" fn(HWND, DWORD, *const std::ffi::c_void, DWORD) -> HRESULT 
+                            = std::mem::transmute(set_border_color_fn);
+                        
+                        let _result = dwm_set_attr(
+                            hwnd,
+                            34, // DWMWA_BORDER_COLOR
+                            &color_bgr as *const u32 as *const std::ffi::c_void,
+                            std::mem::size_of::<u32>() as DWORD,
+                        );
+                        
+                        // Enable border
+                        let enable_border = 1u32;
+                        let _result = dwm_set_attr(
+                            hwnd,
+                            2, // DWMWA_NCRENDERING_ENABLED
+                            &enable_border as *const u32 as *const std::ffi::c_void,
+                            std::mem::size_of::<u32>() as DWORD,
+                        );
+                    }
+                    
+                    libloaderapi::FreeLibrary(dwm_lib);
+                }
+                
+                // Option 2: Force window to redraw frame
+                SetWindowPos(
+                    hwnd,
+                    null_mut(),
+                    0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+                );
+            } else {
+                // Remove border by disabling DWM border
+                if let Ok(dwm_lib) = libloaderapi::LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8) {
+                    let set_border_color_fn = libloaderapi::GetProcAddress(
+                        dwm_lib, 
+                        b"DwmSetWindowAttribute\0".as_ptr() as *const i8
+                    );
+                    
+                    if !set_border_color_fn.is_null() {
+                        let dwm_set_attr: extern "system" fn(HWND, DWORD, *const std::ffi::c_void, DWORD) -> HRESULT 
+                            = std::mem::transmute(set_border_color_fn);
+                        
+                        // Reset to default border
+                        let default_color = 0xFFFFFFFF_u32; // Default/automatic color
+                        let _result = dwm_set_attr(
+                            hwnd,
+                            34, // DWMWA_BORDER_COLOR
+                            &default_color as *const u32 as *const std::ffi::c_void,
+                            std::mem::size_of::<u32>() as DWORD,
+                        );
+                    }
+                    
+                    libloaderapi::FreeLibrary(dwm_lib);
+                }
+            }
         }
     }
 }
@@ -977,6 +1066,36 @@ impl WindowOps for Window {
         });
     }
 
+    fn set_window_border(&self, border: Option<&crate::os::parameters::OsBorderStyle>) {
+        if let Some(border_style) = border {
+            let border_clone = border_style.clone();
+            Connection::with_window_inner(self.0, move |inner| {
+                inner.set_window_border(Some(&border_clone));
+                Ok(())
+            });
+        } else {
+            Connection::with_window_inner(self.0, move |inner| {
+                inner.set_window_border(None);
+                Ok(())
+            });
+        }
+    }
+
+    fn update_window_border(&self, border: Option<&crate::os::parameters::OsBorderStyle>) {
+        if let Some(border_style) = border {
+            let border_clone = border_style.clone();
+            Connection::with_window_inner(self.0, move |inner| {
+                inner.update_window_border(Some(&border_clone));
+                Ok(())
+            });
+        } else {
+            Connection::with_window_inner(self.0, move |inner| {
+                inner.update_window_border(None);
+                Ok(())
+            });
+        }
+    }
+
     fn get_os_parameters(
         &self,
         config: &ConfigHandle,
@@ -1041,6 +1160,7 @@ impl WindowOps for Window {
                 right: BASE_BORDER,
                 color: top_border_color,
             }),
+            os_border_style: None,
         }))
     }
 }

@@ -793,6 +793,36 @@ impl WindowOps for Window {
         });
     }
 
+    fn set_window_border(&self, border: Option<&crate::os::parameters::OsBorderStyle>) {
+        if let Some(border_style) = border {
+            let border_clone = border_style.clone();
+            Connection::with_window_inner(self.id, move |inner| {
+                inner.set_window_border(Some(&border_clone));
+                Ok(())
+            });
+        } else {
+            Connection::with_window_inner(self.id, move |inner| {
+                inner.set_window_border(None);
+                Ok(())
+            });
+        }
+    }
+
+    fn update_window_border(&self, border: Option<&crate::os::parameters::OsBorderStyle>) {
+        if let Some(border_style) = border {
+            let border_clone = border_style.clone();
+            Connection::with_window_inner(self.id, move |inner| {
+                inner.update_window_border(Some(&border_clone));
+                Ok(())
+            });
+        } else {
+            Connection::with_window_inner(self.id, move |inner| {
+                inner.update_window_border(None);
+                Ok(())
+            });
+        }
+    }
+
     fn set_inner_size(&self, width: usize, height: usize) {
         Connection::with_window_inner(self.id, move |inner| {
             inner.set_inner_size(width, height);
@@ -930,6 +960,7 @@ impl WindowOps for Window {
                 font_and_size: None,
             },
             border_dimensions,
+            os_border_style: None,
         }))
     }
 }
@@ -1161,6 +1192,15 @@ impl WindowInner {
             );
         }
     }
+
+    fn apply_macos_border(&mut self, _border: Option<&crate::os::parameters::OsBorderStyle>) {
+        // TODO: Implement true OS-level border for macOS
+        // For now, this is a placeholder implementation
+        // The border would need to be implemented using NSWindow's border
+        // or by creating a custom NSWindow subclass
+        log::debug!("OS window border not yet implemented for macOS");
+    }
+
 }
 
 impl WindowInner {
@@ -1252,6 +1292,14 @@ impl WindowInner {
             // Dispatch a resize event with the updated window state
             WindowView::did_resize(&mut **self.view, sel!(windowDidResize:), nil);
         }
+    }
+
+    fn set_window_border(&mut self, border: Option<&crate::os::parameters::OsBorderStyle>) {
+        self.apply_macos_border(border);
+    }
+
+    fn update_window_border(&mut self, border: Option<&crate::os::parameters::OsBorderStyle>) {
+        self.apply_macos_border(border);
     }
 
     fn set_inner_size(&mut self, width: usize, height: usize) {
