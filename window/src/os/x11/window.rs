@@ -1917,6 +1917,66 @@ impl XWindowInner {
 
         Ok(())
     }
+
+    fn apply_x11_border(&mut self, border: Option<&crate::os::parameters::OsBorderStyle>) {
+        log::info!("apply_x11_border called with border: {:?}", border.is_some());
+        
+        if let Some(border_style) = border {
+            log::info!("Applying X11 border: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}", 
+                      border_style.width, border_style.color.0, border_style.color.1, 
+                      border_style.color.2, border_style.color.3, border_style.radius);
+
+            // For X11, we have limited options for OS-level borders
+            // We can set window border width and color using standard X11 properties
+            let conn = self.conn();
+            
+            // Convert RGBA color to X11 pixel value
+            let color_r = (border_style.color.0 * 255.0) as u8;
+            let color_g = (border_style.color.1 * 255.0) as u8; 
+            let color_b = (border_style.color.2 * 255.0) as u8;
+            
+            // X11 uses BGR format for pixels
+            let pixel_value = ((color_r as u32) << 16) | ((color_g as u32) << 8) | (color_b as u32);
+            
+            // Set border width and color
+            let border_width = border_style.width as u32;
+            
+            if let Err(err) = conn.change_window_attributes(
+                self.window_id,
+                &xcb::x::ChangeWindowAttributesAux::new()
+                    .border_width(border_width)
+                    .border_pixel(pixel_value),
+            ) {
+                log::warn!("Failed to set X11 window border: {}", err);
+            } else {
+                log::info!("Successfully applied X11 border");
+            }
+            
+            // Note: X11 doesn't have native support for border radius
+            // Corner radius would require compositing window manager support
+            // or custom rendering which is beyond the scope of OS-level borders
+            if border_style.radius > 0.0 {
+                log::debug!("X11 border radius not supported at OS level - ignoring radius setting");
+            }
+            
+            let _ = conn.flush();
+        } else {
+            log::info!("Removing X11 border");
+            
+            // Reset to default border (typically 0 width)
+            let conn = self.conn();
+            if let Err(err) = conn.change_window_attributes(
+                self.window_id,
+                &xcb::x::ChangeWindowAttributesAux::new().border_width(0),
+            ) {
+                log::warn!("Failed to remove X11 window border: {}", err);
+            } else {
+                log::info!("X11 border removed");
+            }
+            
+            let _ = conn.flush();
+        }
+    }
 }
 
 impl HasDisplayHandle for XWindow {
@@ -2165,6 +2225,22 @@ impl WindowOps for XWindow {
                 .clipboard_mut(clipboard)
                 .replace(text.clone());
             inner.update_selection_owner(clipboard)?;
+            Ok(())
+        });
+    }
+
+    fn set_window_border(&self, border: Option<&crate::os::parameters::OsBorderStyle>) {
+        let window_id = self.0;
+        XConnection::with_window_inner(window_id, move |inner| {
+            inner.apply_x11_border(border);
+            Ok(())
+        });
+    }
+
+    fn update_window_border(&self, border: Option<&crate::os::parameters::OsBorderStyle>) {
+        let window_id = self.0;
+        XConnection::with_window_inner(window_id, move |inner| {
+            inner.apply_x11_border(border);
             Ok(())
         });
     }

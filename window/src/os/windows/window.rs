@@ -37,12 +37,12 @@ use winapi::shared::ntdef::*;
 use winapi::shared::windef::*;
 use winapi::shared::winerror::S_OK;
 use winapi::um::imm::*;
-use winapi::um::libloaderapi::GetModuleHandleW;
+use winapi::um::libloaderapi::{GetModuleHandleW, LoadLibraryA, GetProcAddress, FreeLibrary};
 use winapi::um::shellapi::{DragAcceptFiles, DragFinish, DragQueryFileW, HDROP};
 use winapi::um::shellscalingapi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use winapi::um::sysinfoapi::{GetTickCount, GetVersionExW};
 use winapi::um::uxtheme::{
-    CloseThemeData, GetThemeFont, GetThemeSysFont, OpenThemeData, SetWindowTheme,
+    CloseThemeData, GetThemeFont, GetThemeSysFont, OpenThemeData, SetWindowTheme, MARGINS,
 };
 use winapi::um::wingdi::{LOGFONTW, MAKEPOINTS};
 use winapi::um::winnt::OSVERSIONINFOW;
@@ -740,6 +740,192 @@ impl WindowInner {
             }
         }
     }
+
+    fn apply_windows_border(&mut self, border: Option<&crate::os::parameters::OsBorderStyle>) {
+        unsafe {
+            let hwnd = self.hwnd.0;
+            
+            log::info!("apply_windows_border called with border: {:?}", border.is_some());
+
+            if let Some(border_style) = border {
+                log::info!("Applying Windows border: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}", 
+                          border_style.width, border_style.color.0, border_style.color.1, 
+                          border_style.color.2, border_style.color.3, border_style.radius);
+
+                // Use DWM (Desktop Window Manager) for modern border rendering
+                // This approach works on Windows 10/11 with DWM composition enabled
+                let mut border_applied = false;
+
+                // Try Windows 11 DWM border color API first
+                if let Ok(dwm_lib) = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8) {
+                    let set_border_color_fn = GetProcAddress(
+                        dwm_lib,
+                        b"DwmSetWindowAttribute\0".as_ptr() as *const i8,
+                    );
+
+                    if !set_border_color_fn.is_null() {
+                        let dwm_set_attr: extern "system" fn(
+                            HWND,
+                            DWORD,
+                            *const std::ffi::c_void,
+                            DWORD,
+                        ) -> HRESULT = std::mem::transmute(set_border_color_fn);
+
+                        // Convert RGBA to Windows COLORREF (BGR format)
+                        let color_bgr = ((border_style.color.2 * 255.0) as u32) << 16
+                            | ((border_style.color.1 * 255.0) as u32) << 8
+                            | ((border_style.color.0 * 255.0) as u32);
+
+                        // Try to set border color (Windows 11 build 22000+)
+                        let result = dwm_set_attr(
+                            hwnd,
+                            34, // DWMWA_BORDER_COLOR
+                            &color_bgr as *const u32 as *const std::ffi::c_void,
+                            std::mem::size_of::<u32>() as DWORD,
+                        );
+
+                        if result == S_OK {
+                            log::info!("Successfully set Windows 11 DWM border color");
+                            border_applied = true;
+
+                            // Enable window border rendering
+                            let enable_border = 1u32;
+                            let _result = dwm_set_attr(
+                                hwnd,
+                                2, // DWMWA_NCRENDERING_ENABLED
+                                &enable_border as *const u32 as *const std::ffi::c_void,
+                                std::mem::size_of::<u32>() as DWORD,
+                            );
+                        } else {
+                            log::debug!("Windows 11 DWM border API not available, trying fallback");
+                        }
+                    }
+
+                    FreeLibrary(dwm_lib);
+                }
+
+                // Fallback for Windows 10 or if DWM border API failed
+                if !border_applied {
+                    log::info!("Using Windows 10 fallback border approach");
+                    
+                    // For Windows 10, we can enable DWM extended frame
+                    if let Ok(dwm_lib) = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8) {
+                        let extend_frame_fn = GetProcAddress(
+                            dwm_lib,
+                            b"DwmExtendFrameIntoClientArea\0".as_ptr() as *const i8,
+                        );
+
+                        if !extend_frame_fn.is_null() {
+                            let dwm_extend_frame: extern "system" fn(
+                                HWND,
+                                *const MARGINS,
+                            ) -> HRESULT = std::mem::transmute(extend_frame_fn);
+
+                            // Create a small border using DWM extended frame
+                            let border_width = border_style.width as i32;
+                            let margins = MARGINS {
+                                cxLeftWidth: border_width,
+                                cxRightWidth: border_width,
+                                cyTopHeight: border_width,
+                                cyBottomHeight: border_width,
+                            };
+
+                            let result = dwm_extend_frame(hwnd, &margins);
+                            if result == S_OK {
+                                log::info!("Successfully applied Windows 10 DWM extended frame border");
+                                border_applied = true;
+                            }
+                        }
+
+                        FreeLibrary(dwm_lib);
+                    }
+                }
+
+                // Force window frame redraw to ensure border is visible
+                SetWindowPos(
+                    hwnd,
+                    null_mut(),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+                );
+
+                if border_applied {
+                    log::info!("Successfully applied Windows border");
+                } else {
+                    log::warn!("Failed to apply Windows border - APIs not available");
+                }
+            } else {
+                log::info!("Removing Windows border");
+                
+                // Remove border by resetting DWM attributes
+                if let Ok(dwm_lib) = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8) {
+                    let set_border_color_fn = GetProcAddress(
+                        dwm_lib,
+                        b"DwmSetWindowAttribute\0".as_ptr() as *const i8,
+                    );
+
+                    if !set_border_color_fn.is_null() {
+                        let dwm_set_attr: extern "system" fn(
+                            HWND,
+                            DWORD,
+                            *const std::ffi::c_void,
+                            DWORD,
+                        ) -> HRESULT = std::mem::transmute(set_border_color_fn);
+
+                        // Reset to default/automatic border color
+                        let default_color = 0xFFFFFFFF_u32;
+                        let _result = dwm_set_attr(
+                            hwnd,
+                            34, // DWMWA_BORDER_COLOR
+                            &default_color as *const u32 as *const std::ffi::c_void,
+                            std::mem::size_of::<u32>() as DWORD,
+                        );
+                    }
+
+                    // Also try to reset extended frame
+                    let extend_frame_fn = GetProcAddress(
+                        dwm_lib,
+                        b"DwmExtendFrameIntoClientArea\0".as_ptr() as *const i8,
+                    );
+
+                    if !extend_frame_fn.is_null() {
+                        let dwm_extend_frame: extern "system" fn(
+                            HWND,
+                            *const MARGINS,
+                        ) -> HRESULT = std::mem::transmute(extend_frame_fn);
+
+                        // Reset to no extended frame
+                        let margins = MARGINS {
+                            cxLeftWidth: 0,
+                            cxRightWidth: 0,
+                            cyTopHeight: 0,
+                            cyBottomHeight: 0,
+                        };
+
+                        let _result = dwm_extend_frame(hwnd, &margins);
+                    }
+
+                    FreeLibrary(dwm_lib);
+                }
+
+                // Force window frame redraw
+                SetWindowPos(
+                    hwnd,
+                    null_mut(),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+                );
+                
+                log::info!("Windows border removed");
+            }
+        }
+    }
 }
 
 impl HasDisplayHandle for Window {
@@ -748,87 +934,6 @@ impl HasDisplayHandle for Window {
             Ok(DisplayHandle::borrow_raw(RawDisplayHandle::Windows(
                 WindowsDisplayHandle::new(),
             )))
-        }
-    }
-
-    fn apply_windows_border(&mut self, border: Option<&crate::os::parameters::OsBorderStyle>) {
-        unsafe {
-            let hwnd = self.hwnd.0;
-            
-            if let Some(border_style) = border {
-                // Use DWM (Desktop Window Manager) for modern border rendering
-                // This approach works on Windows 10/11 with DWM composition enabled
-                
-                // Option 1: Use DWM window attributes for border color (Windows 11)
-                // This only works on Windows 11 build 22000+
-                if let Ok(dwm_lib) = libloaderapi::LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8) {
-                    let set_border_color_fn = libloaderapi::GetProcAddress(
-                        dwm_lib, 
-                        b"DwmSetWindowAttribute\0".as_ptr() as *const i8
-                    );
-                    
-                    if !set_border_color_fn.is_null() {
-                        // Convert RGBA to Windows COLORREF (BGR format)
-                        let color_bgr = ((border_style.color.2 * 255.0) as u32) << 16
-                                      | ((border_style.color.1 * 255.0) as u32) << 8
-                                      | ((border_style.color.0 * 255.0) as u32);
-                        
-                        // DWMWA_BORDER_COLOR = 34 (Windows 11 only)
-                        let dwm_set_attr: extern "system" fn(HWND, DWORD, *const std::ffi::c_void, DWORD) -> HRESULT 
-                            = std::mem::transmute(set_border_color_fn);
-                        
-                        let _result = dwm_set_attr(
-                            hwnd,
-                            34, // DWMWA_BORDER_COLOR
-                            &color_bgr as *const u32 as *const std::ffi::c_void,
-                            std::mem::size_of::<u32>() as DWORD,
-                        );
-                        
-                        // Enable border
-                        let enable_border = 1u32;
-                        let _result = dwm_set_attr(
-                            hwnd,
-                            2, // DWMWA_NCRENDERING_ENABLED
-                            &enable_border as *const u32 as *const std::ffi::c_void,
-                            std::mem::size_of::<u32>() as DWORD,
-                        );
-                    }
-                    
-                    libloaderapi::FreeLibrary(dwm_lib);
-                }
-                
-                // Option 2: Force window to redraw frame
-                SetWindowPos(
-                    hwnd,
-                    null_mut(),
-                    0, 0, 0, 0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
-                );
-            } else {
-                // Remove border by disabling DWM border
-                if let Ok(dwm_lib) = libloaderapi::LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8) {
-                    let set_border_color_fn = libloaderapi::GetProcAddress(
-                        dwm_lib, 
-                        b"DwmSetWindowAttribute\0".as_ptr() as *const i8
-                    );
-                    
-                    if !set_border_color_fn.is_null() {
-                        let dwm_set_attr: extern "system" fn(HWND, DWORD, *const std::ffi::c_void, DWORD) -> HRESULT 
-                            = std::mem::transmute(set_border_color_fn);
-                        
-                        // Reset to default border
-                        let default_color = 0xFFFFFFFF_u32; // Default/automatic color
-                        let _result = dwm_set_attr(
-                            hwnd,
-                            34, // DWMWA_BORDER_COLOR
-                            &default_color as *const u32 as *const std::ffi::c_void,
-                            std::mem::size_of::<u32>() as DWORD,
-                        );
-                    }
-                    
-                    libloaderapi::FreeLibrary(dwm_lib);
-                }
-            }
         }
     }
 }

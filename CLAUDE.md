@@ -433,3 +433,92 @@ end)
 3. Manual testing of drag/drop and animations
 4. Performance testing with 100+ hosts
 5. Accessibility testing for keyboard navigation
+
+## TODOs
+
+### Window Management Features
+
+#### OS Window Border System
+**Status**: Core implementation complete, cross-platform testing needed
+
+**Completed ✅**
+- **Configuration System**: Full integration with `window_frame.os_window_border_enabled` and `window_frame.os_window_border`
+- **macOS Implementation**: Complete with Core Animation layers, resize handling, and performance optimizations
+- **Windows Implementation**: Fixed critical placement issues, added Windows 10/11 dual approach with DWM APIs
+- **X11 Implementation**: Native border width/color support using standard X11 attributes
+- **Wayland Implementation**: Standards-compliant approach with clear documentation of limitations
+
+**Pending Testing 🧪**
+- **Windows Integration Testing**: Manual testing on Windows 10 and Windows 11 systems
+  - Test DWM border color API on Windows 11 build 22000+
+  - Test DWM extended frame fallback on Windows 10
+  - Verify resize behavior and performance
+  - Test with different DPI settings and multiple monitors
+- **Linux Integration Testing**: Manual testing on various Linux distributions
+  - Test X11 implementation across different window managers (GNOME, KDE, i3, etc.)
+  - Test Wayland implementation across different compositors (GNOME, KDE, Sway, etc.)
+  - Verify behavior with different display servers and graphics drivers
+  - Test resize behavior and performance on Linux
+
+**Known Limitations 📝**
+- **Corner Radius Support**:
+  - ❌ Windows: Not supported by DWM APIs
+  - ❌ X11: Requires compositing window manager extensions
+  - ❌ Wayland: Requires compositor-specific protocols
+  - ✅ macOS: Fully supported via Core Animation
+- **Color Precision**:
+  - ❌ Windows 10: DWM extended frame doesn't support custom colors
+  - ⚠️ Wayland: Compositor-dependent, may ignore color preferences
+- **Platform-Specific Behavior**:
+  - Windows: Border appears outside window content area
+  - macOS: Border includes title bar area
+  - X11: Traditional window manager border behavior
+  - Wayland: Compositor controls all decoration aspects
+
+**Future Enhancements 🚀**
+- **Windows Corner Radius**: Investigate Windows 11 build 22621+ rounded corner APIs
+- **Wayland Compositor Extensions**: Add support for KDE/GNOME-specific decoration protocols
+- **X11 Compositing**: Add support for compositing window managers with border effects
+- **Performance**: Add frame rate monitoring for border animation performance
+- **Documentation**: Add user documentation with platform-specific behavior notes
+
+**Configuration Example**
+```lua
+-- Enable OS window border
+config.window_frame.os_window_border_enabled = true
+config.window_frame.os_window_border = {
+  width = "6px",                    -- All platforms
+  color = "#ff0000",               -- macOS, X11, Windows 11
+  radius = "12px",                 -- macOS only
+}
+```
+
+### UI/UX Features
+
+#### SSH Sidebar (Planned)
+**Status**: Design phase - see SSH Sidebar Implementation Plan above
+
+**Next Steps**
+- Begin Phase 1: Data model and configuration implementation
+- Create basic widget framework integration
+- Design host management UI workflows
+
+### Performance & Optimization
+
+#### Border Animation Performance
+**Status**: macOS optimized, other platforms need testing
+
+**Pending Work**
+- Benchmark border update performance across platforms
+- Add frame rate monitoring for border animations
+- Optimize resize handling on Windows/Linux
+
+### Documentation & Testing
+
+#### Cross-Platform Testing Framework
+**Status**: Manual testing approach defined
+
+**Pending Work**
+- Create automated testing strategy for window border features
+- Set up CI testing environments for Windows/Linux border validation
+- Document platform-specific behavior differences for users

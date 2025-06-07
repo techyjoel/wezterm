@@ -565,32 +565,16 @@ fn default_window_close() -> String {
     " X ".to_string()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
-pub enum OsBorderStyle {
-    Solid,
-    Dashed,
-    Dotted,
-}
-
-impl Default for OsBorderStyle {
-    fn default() -> Self {
-        Self::Solid
-    }
-}
-
 #[derive(Debug, Clone, FromDynamic, ToDynamic)]
 pub struct OsWindowBorderConfig {
     #[dynamic(try_from = "crate::units::PixelUnit", default = "default_border_width")]
     pub width: Dimension,
-    
+
     #[dynamic(default)]
     pub color: Option<RgbaColor>,
-    
+
     #[dynamic(try_from = "crate::units::OptPixelUnit", default)]
     pub radius: Option<Dimension>,
-    
-    #[dynamic(default)]
-    pub style: OsBorderStyle,
 }
 
 impl Default for OsWindowBorderConfig {
@@ -599,7 +583,6 @@ impl Default for OsWindowBorderConfig {
             width: default_border_width(),
             color: None,
             radius: None,
-            style: OsBorderStyle::default(),
         }
     }
 }
