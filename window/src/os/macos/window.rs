@@ -1203,36 +1203,40 @@ impl WindowInner {
         unsafe {
             if let Some(border_layer) = self.get_border_layer() {
                 let content_view: id = msg_send![*self.window, contentView];
-                
+
                 // Find the target view (same logic as create_window_border_layer)
                 let content_superview: id = msg_send![content_view, superview];
                 let mut target_view = content_view;
                 let mut current_view = content_superview;
-                
+
                 // Walk up the view hierarchy to find the highest level view we can access
                 while !current_view.is_null() {
                     let class_name: id = msg_send![current_view, className];
                     let class_str = nsstring_to_str(class_name);
-                    
+
                     // The NSThemeFrame is what we want - it includes the title bar
                     if class_str.contains("ThemeFrame") || class_str.contains("NSWindow") {
                         target_view = current_view;
                         break;
                     }
-                    
+
                     target_view = current_view;
                     current_view = msg_send![current_view, superview];
                 }
-                
+
                 // Get updated target view bounds
                 let target_bounds: NSRect = msg_send![target_view, bounds];
-                log::debug!("Updating border layer bounds to: ({}, {}, {}, {})",
-                           target_bounds.origin.x, target_bounds.origin.y, 
-                           target_bounds.size.width, target_bounds.size.height);
-                
+                log::debug!(
+                    "Updating border layer bounds to: ({}, {}, {}, {})",
+                    target_bounds.origin.x,
+                    target_bounds.origin.y,
+                    target_bounds.size.width,
+                    target_bounds.size.height
+                );
+
                 // Update the border layer frame to match new bounds
                 let _: () = msg_send![border_layer, setFrame: target_bounds];
-                
+
                 // Force display update
                 let _: () = msg_send![border_layer, setNeedsDisplay];
             }
@@ -1240,18 +1244,27 @@ impl WindowInner {
     }
 
     fn apply_macos_border(&mut self, border: Option<&crate::os::parameters::OsBorderStyle>) {
-        log::info!("apply_macos_border called with border: {:?}", border.is_some());
+        log::info!(
+            "apply_macos_border called with border: {:?}",
+            border.is_some()
+        );
         unsafe {
             if let Some(border_style) = border {
-                log::info!("Applying border: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}", 
-                          border_style.width, border_style.color.0, border_style.color.1, 
-                          border_style.color.2, border_style.color.3, border_style.radius);
+                log::info!(
+                    "Applying border: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}",
+                    border_style.width,
+                    border_style.color.0,
+                    border_style.color.1,
+                    border_style.color.2,
+                    border_style.color.3,
+                    border_style.radius
+                );
                 // Create a border using CALayer on the window itself
                 let window_view: id = msg_send![*self.window, contentView];
-                
+
                 // Clean up any existing border layers first to prevent duplicates
                 self.cleanup_border_layers();
-                
+
                 // Get or create the border layer
                 let border_layer: id = if let Some(existing_layer) = self.get_border_layer() {
                     log::info!("Using existing border layer");
@@ -1260,45 +1273,51 @@ impl WindowInner {
                     log::info!("Creating new border layer");
                     self.create_window_border_layer(window_view)
                 };
-                
+
                 if !border_layer.is_null() {
                     log::info!("Border layer found/created successfully");
-                    
+
                     // Use the original CALayer border properties instead of background
                     let border_width = border_style.width as CGFloat;
                     log::info!("Setting border width: {}", border_width);
                     let _: () = msg_send![border_layer, setBorderWidth: border_width];
-                    
+
                     // Convert RGBA to CGColor for border
                     let (r, g, b, a) = border_style.color;
-                    log::info!("Setting border color: ({:.2},{:.2},{:.2},{:.2})", r, g, b, a);
+                    log::info!(
+                        "Setting border color: ({:.2},{:.2},{:.2},{:.2})",
+                        r,
+                        g,
+                        b,
+                        a
+                    );
                     let border_color = CGColorCreateSRGB(r as _, g as _, b as _, a as _);
                     let _: () = msg_send![border_layer, setBorderColor: border_color];
-                    
+
                     // Set corner radius if specified
                     let corner_radius = border_style.radius as CGFloat;
                     log::info!("Setting corner radius: {}", corner_radius);
                     let _: () = msg_send![border_layer, setCornerRadius: corner_radius];
-                    
+
                     // Make background transparent so content shows through
                     log::info!("Setting transparent background");
                     let clear_color = CGColorCreateSRGB(0.0, 0.0, 0.0, 0.0);
                     let _: () = msg_send![border_layer, setBackgroundColor: clear_color];
-                    
+
                     // Make the layer visible
                     log::info!("Setting layer properties for visibility");
                     let _: () = msg_send![border_layer, setHidden: NO];
                     let _: () = msg_send![border_layer, setOpacity: 1.0f32];
-                    
+
                     // Move it to the back so content renders on top
                     let _: () = msg_send![border_layer, setZPosition: -1.0f32];
-                    
+
                     // Update the border layer bounds to match current window size
                     self.update_border_layer_bounds();
-                    
+
                     // Force the window to redraw to ensure the border becomes visible
                     let _: () = msg_send![*self.window, display];
-                    
+
                     log::info!("Successfully applied macOS border: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}", 
                                border_width, r, g, b, a, corner_radius);
                 } else {
@@ -1313,45 +1332,45 @@ impl WindowInner {
             }
         }
     }
-    
+
     fn cleanup_border_layers(&self) {
         unsafe {
             let content_view: id = msg_send![*self.window, contentView];
-            
+
             // Find the target view (same logic as create_window_border_layer)
             let content_superview: id = msg_send![content_view, superview];
             let mut target_view = content_view;
             let mut current_view = content_superview;
-            
+
             // Walk up the view hierarchy to find the highest level view we can access
             while !current_view.is_null() {
                 let class_name: id = msg_send![current_view, className];
                 let class_str = nsstring_to_str(class_name);
-                
+
                 // The NSThemeFrame is what we want - it includes the title bar
                 if class_str.contains("ThemeFrame") || class_str.contains("NSWindow") {
                     target_view = current_view;
                     break;
                 }
-                
+
                 target_view = current_view;
                 current_view = msg_send![current_view, superview];
             }
-            
+
             let layer: id = msg_send![target_view, layer];
             if layer.is_null() {
                 return;
             }
-            
+
             // Look for and remove any existing border layers by name
             let sublayers: id = msg_send![layer, sublayers];
             if sublayers.is_null() {
                 return;
             }
-            
+
             let count: NSUInteger = msg_send![sublayers, count];
             let mut layers_to_remove = Vec::new();
-            
+
             for i in 0..count {
                 let sublayer: id = msg_send![sublayers, objectAtIndex: i];
                 let name: id = msg_send![sublayer, name];
@@ -1362,7 +1381,7 @@ impl WindowInner {
                     }
                 }
             }
-            
+
             // Remove all found border layers
             for layer_to_remove in layers_to_remove {
                 log::info!("Removing existing border layer");
@@ -1374,38 +1393,38 @@ impl WindowInner {
     fn get_border_layer(&self) -> Option<id> {
         unsafe {
             let content_view: id = msg_send![*self.window, contentView];
-            
+
             // Find the target view (same logic as create_window_border_layer)
             let content_superview: id = msg_send![content_view, superview];
             let mut target_view = content_view;
             let mut current_view = content_superview;
-            
+
             // Walk up the view hierarchy to find the highest level view we can access
             while !current_view.is_null() {
                 let class_name: id = msg_send![current_view, className];
                 let class_str = nsstring_to_str(class_name);
-                
+
                 // The NSThemeFrame is what we want - it includes the title bar
                 if class_str.contains("ThemeFrame") || class_str.contains("NSWindow") {
                     target_view = current_view;
                     break;
                 }
-                
+
                 target_view = current_view;
                 current_view = msg_send![current_view, superview];
             }
-            
+
             let layer: id = msg_send![target_view, layer];
             if layer.is_null() {
                 return None;
             }
-            
+
             // Look for our border sublayer by name
             let sublayers: id = msg_send![layer, sublayers];
             if sublayers.is_null() {
                 return None;
             }
-            
+
             let count: NSUInteger = msg_send![sublayers, count];
             for i in 0..count {
                 let sublayer: id = msg_send![sublayers, objectAtIndex: i];
@@ -1420,103 +1439,112 @@ impl WindowInner {
             None
         }
     }
-    
+
     fn create_window_border_layer(&self, content_view: id) -> id {
         unsafe {
             log::info!("create_window_border_layer: Attempting to create window-level border including title bar");
-            
+
             // Try to access the window's theme frame view which contains the title bar
             // This is the NSThemeFrame that wraps the entire window including decorations
             let content_superview: id = msg_send![content_view, superview];
-            log::info!("Content view superview: {:?}", content_superview as *const _);
-            
+            log::info!(
+                "Content view superview: {:?}",
+                content_superview as *const _
+            );
+
             // Verify that the view hierarchy is properly set up
             if content_superview.is_null() {
                 log::warn!("Content superview is null - view hierarchy not ready yet");
                 return std::ptr::null_mut();
             }
-            
+
             let mut target_view = content_view;
             let mut current_view = content_superview;
-            
+
             // Walk up the view hierarchy to find the highest level view we can access
             while !current_view.is_null() {
                 let class_name: id = msg_send![current_view, className];
                 let class_str = nsstring_to_str(class_name);
                 log::info!("Found parent view class: {}", class_str);
-                
+
                 // The NSThemeFrame is what we want - it includes the title bar
                 if class_str.contains("ThemeFrame") || class_str.contains("NSWindow") {
                     log::info!("Found window frame view: {}", class_str);
                     target_view = current_view;
                     break;
                 }
-                
+
                 target_view = current_view;
                 current_view = msg_send![current_view, superview];
             }
-            
+
             log::info!("Using target view: {:?}", target_view as *const _);
-            
+
             // Enable layer hosting on the target view
             let _: () = msg_send![target_view, setWantsLayer: YES];
-            
+
             // Force layer creation and wait for it to be ready
             let _: () = msg_send![target_view, displayIfNeeded];
             let target_layer: id = msg_send![target_view, layer];
-            
+
             if target_layer.is_null() {
                 log::error!("Failed to get layer from target view after displayIfNeeded");
                 return std::ptr::null_mut();
             }
-            
+
             // Create CALayer for the border
             let layer_class = class!(CALayer);
             let border_layer: id = msg_send![layer_class, layer];
-            
+
             if border_layer.is_null() {
                 log::error!("Failed to create CALayer for border");
                 return std::ptr::null_mut();
             }
-            
+
             // Set layer name for identification
             let layer_name = nsstring("WezTermBorderLayer");
             let _: () = msg_send![border_layer, setName: layer_name];
-            
+
             // Get target view bounds
             let target_bounds: NSRect = msg_send![target_view, bounds];
-            log::info!("Target view bounds: ({}, {}, {}, {})",
-                      target_bounds.origin.x, target_bounds.origin.y, 
-                      target_bounds.size.width, target_bounds.size.height);
-            
+            log::info!(
+                "Target view bounds: ({}, {}, {}, {})",
+                target_bounds.origin.x,
+                target_bounds.origin.y,
+                target_bounds.size.width,
+                target_bounds.size.height
+            );
+
             // Verify bounds are reasonable
             if target_bounds.size.width <= 0.0 || target_bounds.size.height <= 0.0 {
-                log::warn!("Target view has invalid bounds: {}x{}", 
-                          target_bounds.size.width, target_bounds.size.height);
+                log::warn!(
+                    "Target view has invalid bounds: {}x{}",
+                    target_bounds.size.width,
+                    target_bounds.size.height
+                );
                 return std::ptr::null_mut();
             }
-            
+
             // Set the border layer to match target view bounds exactly
             let _: () = msg_send![border_layer, setFrame: target_bounds];
-            
+
             // Set auto-resizing properties so the layer follows view bounds automatically
-            let _: () = msg_send![border_layer, setAutoresizingMask: 
+            let _: () = msg_send![border_layer, setAutoresizingMask:
                 kCALayerWidthSizable | kCALayerHeightSizable];
-            
+
             // Disable implicit animations to prevent lag during resize
             let _: () = msg_send![border_layer, setActions: nil];
-            
+
             // Add to target layer - use insertSublayer to control z-ordering
             let _: () = msg_send![target_layer, insertSublayer:border_layer atIndex:0];
-            
+
             // Force immediate update
             let _: () = msg_send![target_layer, setNeedsDisplay];
-            
+
             log::info!("Created window-level border layer on target view");
             return border_layer;
         }
     }
-
 }
 
 impl WindowInner {
@@ -3280,7 +3308,7 @@ impl WindowView {
             if let Some(gl_context_pair) = inner.gl_context_pair.as_ref() {
                 gl_context_pair.backend.update();
             }
-            
+
             // Update border layer bounds to follow window resize
             // Trigger border update through the window connection system
             let window_id = inner.window_id;
