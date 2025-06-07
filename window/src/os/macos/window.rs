@@ -59,6 +59,12 @@ const NSViewLayerContentsPlacementTopLeft: NSInteger = 11;
 #[allow(non_upper_case_globals)]
 const NSViewLayerContentsRedrawDuringViewResize: NSInteger = 2;
 
+// Core Animation layer autoresizing masks
+#[allow(non_upper_case_globals)]
+const kCALayerWidthSizable: NSUInteger = 1 << 1;
+#[allow(non_upper_case_globals)]
+const kCALayerHeightSizable: NSUInteger = 1 << 4;
+
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGSMainConnectionID() -> id;
@@ -1193,6 +1199,46 @@ impl WindowInner {
         }
     }
 
+    fn update_border_layer_bounds(&self) {
+        unsafe {
+            if let Some(border_layer) = self.get_border_layer() {
+                let content_view: id = msg_send![*self.window, contentView];
+                
+                // Find the target view (same logic as create_window_border_layer)
+                let content_superview: id = msg_send![content_view, superview];
+                let mut target_view = content_view;
+                let mut current_view = content_superview;
+                
+                // Walk up the view hierarchy to find the highest level view we can access
+                while !current_view.is_null() {
+                    let class_name: id = msg_send![current_view, className];
+                    let class_str = nsstring_to_str(class_name);
+                    
+                    // The NSThemeFrame is what we want - it includes the title bar
+                    if class_str.contains("ThemeFrame") || class_str.contains("NSWindow") {
+                        target_view = current_view;
+                        break;
+                    }
+                    
+                    target_view = current_view;
+                    current_view = msg_send![current_view, superview];
+                }
+                
+                // Get updated target view bounds
+                let target_bounds: NSRect = msg_send![target_view, bounds];
+                log::debug!("Updating border layer bounds to: ({}, {}, {}, {})",
+                           target_bounds.origin.x, target_bounds.origin.y, 
+                           target_bounds.size.width, target_bounds.size.height);
+                
+                // Update the border layer frame to match new bounds
+                let _: () = msg_send![border_layer, setFrame: target_bounds];
+                
+                // Force display update
+                let _: () = msg_send![border_layer, setNeedsDisplay];
+            }
+        }
+    }
+
     fn apply_macos_border(&mut self, border: Option<&crate::os::parameters::OsBorderStyle>) {
         log::info!("apply_macos_border called with border: {:?}", border.is_some());
         unsafe {
@@ -1246,6 +1292,9 @@ impl WindowInner {
                     
                     // Move it to the back so content renders on top
                     let _: () = msg_send![border_layer, setZPosition: -1.0f32];
+                    
+                    // Update the border layer bounds to match current window size
+                    self.update_border_layer_bounds();
                     
                     // Force the window to redraw to ensure the border becomes visible
                     let _: () = msg_send![*self.window, display];
@@ -1449,6 +1498,13 @@ impl WindowInner {
             
             // Set the border layer to match target view bounds exactly
             let _: () = msg_send![border_layer, setFrame: target_bounds];
+            
+            // Set auto-resizing properties so the layer follows view bounds automatically
+            let _: () = msg_send![border_layer, setAutoresizingMask: 
+                kCALayerWidthSizable | kCALayerHeightSizable];
+            
+            // Disable implicit animations to prevent lag during resize
+            let _: () = msg_send![border_layer, setActions: nil];
             
             // Add to target layer - use insertSublayer to control z-ordering
             let _: () = msg_send![target_layer, insertSublayer:border_layer atIndex:0];
@@ -3224,6 +3280,14 @@ impl WindowView {
             if let Some(gl_context_pair) = inner.gl_context_pair.as_ref() {
                 gl_context_pair.backend.update();
             }
+            
+            // Update border layer bounds to follow window resize
+            // Trigger border update through the window connection system
+            let window_id = inner.window_id;
+            Connection::with_window_inner(window_id, move |window_inner| {
+                window_inner.update_border_layer_bounds();
+                Ok(())
+            });
         }
 
         let frame = unsafe { NSView::frame(this as *mut _) };
