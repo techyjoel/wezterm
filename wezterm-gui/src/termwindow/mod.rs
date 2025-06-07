@@ -833,6 +833,28 @@ impl TermWindow {
         .await?;
         tw.borrow_mut().window.replace(window.clone());
 
+        // Apply initial OS window border - defer to avoid timing issues
+        window.config_did_change(&tw.borrow().config);
+        if let Err(err) = tw.borrow().update_os_window_border(&window) {
+            log::warn!("Failed to apply initial OS window border: {:#}", err);
+        }
+        
+        // Schedule deferred border application after window is fully rendered
+        let window_for_timer = window.clone();
+        promise::spawn::spawn(async move {
+            // Wait for window to be fully rendered
+            smol::Timer::after(std::time::Duration::from_millis(200)).await;
+            
+            log::info!("Applying deferred OS window border after window setup");
+            window_for_timer.notify(TermWindowNotif::Apply(Box::new(|tw| {
+                if let Some(window) = tw.window.as_ref() {
+                    if let Err(err) = tw.update_os_window_border(window) {
+                        log::warn!("Failed to apply deferred OS window border: {:#}", err);
+                    }
+                }
+            })));
+        }).detach();
+
         Self::apply_icon(&window)?;
 
         let config_subscription = config::subscribe_to_config_reload({
@@ -1845,8 +1867,12 @@ impl TermWindow {
     }
 
     fn update_os_window_border(&self, window: &dyn WindowOps) -> anyhow::Result<()> {
+        log::info!("update_os_window_border: enabled={}", self.config.window_frame.os_window_border_enabled);
         if self.config.window_frame.os_window_border_enabled {
             let border_style = self.compute_os_border_style()?;
+            log::info!("Border style: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}", 
+                      border_style.width, border_style.color.0, border_style.color.1, 
+                      border_style.color.2, border_style.color.3, border_style.radius);
             window.update_window_border(Some(&border_style));
         } else {
             window.update_window_border(None);
@@ -1856,6 +1882,7 @@ impl TermWindow {
 
     fn compute_os_border_style(&self) -> anyhow::Result<parameters::OsBorderStyle> {
         let config = &self.config.window_frame.os_window_border;
+        log::info!("compute_os_border_style: config={:?}", config);
         
         // Evaluate dimensions
         let border_width = config.width.evaluate_as_pixels(config::DimensionContext {
