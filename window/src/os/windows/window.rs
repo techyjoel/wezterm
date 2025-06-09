@@ -749,8 +749,9 @@ impl WindowInner {
     }
 
     fn apply_pending_borders(&mut self) {
-        let border = self.pending_border.as_ref();
-        self.apply_windows_border(border);
+        // Clone the border to avoid borrowing conflicts
+        let border = self.pending_border.clone();
+        self.apply_windows_border(border.as_ref());
     }
 
     fn apply_windows_border(&mut self, border: Option<&crate::os::parameters::OsBorderStyle>) {
