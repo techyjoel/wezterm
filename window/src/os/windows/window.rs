@@ -577,8 +577,10 @@ impl Window {
         apply_theme(hwnd.0);
         enable_blur_behind(hwnd.0);
         
-        // Apply pending border during window creation
-        inner.borrow_mut().apply_pending_borders();
+        // Post a message to apply borders safely after window creation is complete
+        unsafe {
+            PostMessageW(hwnd.0, WM_USER + 1000, 0, 0);
+        }
 
         // Make window capable of accepting drag and drop
         unsafe {
@@ -1190,23 +1192,29 @@ impl WindowOps for Window {
     fn set_window_border(&self, border: Option<&crate::os::parameters::OsBorderStyle>) {
         let border_clone = border.cloned();
         Connection::with_window_inner(self.0, move |inner| {
-            // Store border state and trigger theme update to apply it
+            // Store border state - it will be applied during the next safe window event
             inner.pending_border = border_clone;
-            // Apply the border immediately using the established pattern
-            inner.apply_pending_borders();
             Ok(())
         });
+        
+        // Trigger a safe window message to apply borders at the right time
+        unsafe {
+            PostMessageW(self.0 .0, WM_USER + 1000, 0, 0);
+        }
     }
 
     fn update_window_border(&self, border: Option<&crate::os::parameters::OsBorderStyle>) {
         let border_clone = border.cloned();
         Connection::with_window_inner(self.0, move |inner| {
-            // Store border state and trigger theme update to apply it
+            // Store border state - it will be applied during the next safe window event
             inner.pending_border = border_clone;
-            // Apply the border immediately using the established pattern
-            inner.apply_pending_borders();
             Ok(())
         });
+        
+        // Trigger a safe window message to apply borders at the right time
+        unsafe {
+            PostMessageW(self.0 .0, WM_USER + 1000, 0, 0);
+        }
     }
 
     fn get_os_parameters(
@@ -3170,6 +3178,13 @@ unsafe fn do_wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> 
                 inner.borrow_mut().apply_pending_borders();
             }
             None
+        }
+        WM_USER + 1000 => {
+            // Custom message to safely apply pending borders
+            if let Some(inner) = rc_from_hwnd(hwnd) {
+                inner.borrow_mut().apply_pending_borders();
+            }
+            Some(0)
         }
         WM_IME_SETCONTEXT => ime_set_context(hwnd, msg, wparam, lparam),
         WM_IME_COMPOSITION => ime_composition(hwnd, msg, wparam, lparam),
