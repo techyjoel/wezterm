@@ -123,6 +123,9 @@ pub(crate) struct WindowInner {
 
     keyboard_info: KeyboardLayoutInfo,
     appearance: Appearance,
+    
+    /// Pending border style to apply during next theme update
+    pending_border: Option<crate::os::parameters::OsBorderStyle>,
 
     config: ConfigHandle,
     paint_throttled: bool,
@@ -544,6 +547,7 @@ impl Window {
             track_mouse_leave: false,
             window_drag_position: None,
             maximize_button_position: None,
+            pending_border: None,
             config: config.clone(),
             paint_throttled: false,
             invalidated: true,
@@ -572,6 +576,9 @@ impl Window {
 
         apply_theme(hwnd.0);
         enable_blur_behind(hwnd.0);
+        
+        // Apply pending border during window creation
+        inner.borrow_mut().apply_pending_borders();
 
         // Make window capable of accepting drag and drop
         unsafe {
@@ -739,6 +746,11 @@ impl WindowInner {
                 .detach();
             }
         }
+    }
+
+    fn apply_pending_borders(&mut self) {
+        let border = self.pending_border.as_ref();
+        self.apply_windows_border(border);
     }
 
     fn apply_windows_border(&mut self, border: Option<&crate::os::parameters::OsBorderStyle>) {
@@ -1175,33 +1187,25 @@ impl WindowOps for Window {
     }
 
     fn set_window_border(&self, border: Option<&crate::os::parameters::OsBorderStyle>) {
-        if let Some(border_style) = border {
-            let border_clone = border_style.clone();
-            Connection::with_window_inner(self.0, move |inner| {
-                inner.apply_windows_border(Some(&border_clone));
-                Ok(())
-            });
-        } else {
-            Connection::with_window_inner(self.0, move |inner| {
-                inner.apply_windows_border(None);
-                Ok(())
-            });
-        }
+        let border_clone = border.cloned();
+        Connection::with_window_inner(self.0, move |inner| {
+            // Store border state and trigger theme update to apply it
+            inner.pending_border = border_clone;
+            // Apply the border immediately using the established pattern
+            inner.apply_pending_borders();
+            Ok(())
+        });
     }
 
     fn update_window_border(&self, border: Option<&crate::os::parameters::OsBorderStyle>) {
-        if let Some(border_style) = border {
-            let border_clone = border_style.clone();
-            Connection::with_window_inner(self.0, move |inner| {
-                inner.apply_windows_border(Some(&border_clone));
-                Ok(())
-            });
-        } else {
-            Connection::with_window_inner(self.0, move |inner| {
-                inner.apply_windows_border(None);
-                Ok(())
-            });
-        }
+        let border_clone = border.cloned();
+        Connection::with_window_inner(self.0, move |inner| {
+            // Store border state and trigger theme update to apply it
+            inner.pending_border = border_clone;
+            // Apply the border immediately using the established pattern
+            inner.apply_pending_borders();
+            Ok(())
+        });
     }
 
     fn get_os_parameters(
@@ -3158,7 +3162,14 @@ unsafe fn do_wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> 
             crate::spawn::SPAWN_QUEUE.run();
             None
         }
-        WM_SETTINGCHANGE | WM_DWMCOMPOSITIONCHANGED => apply_theme(hwnd),
+        WM_SETTINGCHANGE | WM_DWMCOMPOSITIONCHANGED => {
+            apply_theme(hwnd);
+            // Also apply pending borders when theme changes
+            if let Some(inner) = rc_from_hwnd(hwnd) {
+                inner.borrow_mut().apply_pending_borders();
+            }
+            None
+        }
         WM_IME_SETCONTEXT => ime_set_context(hwnd, msg, wparam, lparam),
         WM_IME_COMPOSITION => ime_composition(hwnd, msg, wparam, lparam),
         WM_IME_ENDCOMPOSITION => ime_end_composition(hwnd, msg, wparam, lparam),
