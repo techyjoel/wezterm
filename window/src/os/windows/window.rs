@@ -1178,12 +1178,12 @@ impl WindowOps for Window {
         if let Some(border_style) = border {
             let border_clone = border_style.clone();
             Connection::with_window_inner(self.0, move |inner| {
-                inner.set_window_border(Some(&border_clone));
+                inner.apply_windows_border(Some(&border_clone));
                 Ok(())
             });
         } else {
             Connection::with_window_inner(self.0, move |inner| {
-                inner.set_window_border(None);
+                inner.apply_windows_border(None);
                 Ok(())
             });
         }
@@ -1193,12 +1193,12 @@ impl WindowOps for Window {
         if let Some(border_style) = border {
             let border_clone = border_style.clone();
             Connection::with_window_inner(self.0, move |inner| {
-                inner.update_window_border(Some(&border_clone));
+                inner.apply_windows_border(Some(&border_clone));
                 Ok(())
             });
         } else {
             Connection::with_window_inner(self.0, move |inner| {
-                inner.update_window_border(None);
+                inner.apply_windows_border(None);
                 Ok(())
             });
         }
