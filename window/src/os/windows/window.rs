@@ -757,7 +757,8 @@ impl WindowInner {
                 let mut border_applied = false;
 
                 // Try Windows 11 DWM border color API first
-                if let Ok(dwm_lib) = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8) {
+                let dwm_lib = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8);
+                if !dwm_lib.is_null() {
                     let set_border_color_fn = GetProcAddress(
                         dwm_lib,
                         b"DwmSetWindowAttribute\0".as_ptr() as *const i8,
@@ -809,7 +810,8 @@ impl WindowInner {
                     log::info!("Using Windows 10 fallback border approach");
                     
                     // For Windows 10, we can enable DWM extended frame
-                    if let Ok(dwm_lib) = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8) {
+                    let dwm_lib = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8);
+                    if !dwm_lib.is_null() {
                         let extend_frame_fn = GetProcAddress(
                             dwm_lib,
                             b"DwmExtendFrameIntoClientArea\0".as_ptr() as *const i8,
@@ -861,7 +863,8 @@ impl WindowInner {
                 log::info!("Removing Windows border");
                 
                 // Remove border by resetting DWM attributes
-                if let Ok(dwm_lib) = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8) {
+                let dwm_lib = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8);
+                if !dwm_lib.is_null() {
                     let set_border_color_fn = GetProcAddress(
                         dwm_lib,
                         b"DwmSetWindowAttribute\0".as_ptr() as *const i8,
