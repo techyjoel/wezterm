@@ -1,7 +1,7 @@
-# Contributing to wezterm
+# Contributing
 
-Thanks for considering donating your time and energy!  I value any contribution,
-even if it is just to highlight a typo.
+Thanks for considering donating your time and energy!  We value any contribution,
+even if it is just to fix a typo.
 
 Included here are some guidelines that can help streamline taking in your contribution.
 They are just guidelines and not hard-and-fast rules. Things will probably go faster
@@ -54,7 +54,7 @@ about the GUI you want to be in the `src` dir.
 
 ### Iterating
 
-I tend to iterate and sanity check as I develop using `cargo check`; it
+It helps to iterate and sanity check as you develop using `cargo check`; it
 will type-check your code without generating code which is much faster
 than building everything in release mode:
 
@@ -101,9 +101,10 @@ clarify the intent of the test!
 
 ### Please also include documentation if you are adding or changing behavior
 
-This helps to keep things well-understood and working in the long term.
+The documentation code is in docs/.
+Updating it helps to keep things well-understood and working in the long term.
 Don't worry if you're not a wordsmith or English isn't your first language as
-I can help with that. It is more important to capture the intent of the
+we can help with that. It is more important to capture the intent of the
 feature and having this written out in English also helps when it comes
 to reviewing the code.
 
