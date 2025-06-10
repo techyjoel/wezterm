@@ -55,6 +55,7 @@ use winreg::RegKey;
 const GCS_RESULTSTR: DWORD = 0x800;
 const GCS_COMPSTR: DWORD = 0x8;
 const ISC_SHOWUICOMPOSITIONWINDOW: DWORD = 0x80000000;
+const WM_APPLY_PENDING_BORDERS: UINT = WM_USER + 1000;
 
 #[allow(non_snake_case)]
 #[repr(C)]
@@ -579,7 +580,7 @@ impl Window {
         
         // Post a message to apply borders safely after window creation is complete
         unsafe {
-            PostMessageW(hwnd.0, WM_USER + 1000, 0, 0);
+            PostMessageW(hwnd.0, WM_APPLY_PENDING_BORDERS, 0, 0);
         }
 
         // Make window capable of accepting drag and drop
@@ -1199,7 +1200,7 @@ impl WindowOps for Window {
         
         // Trigger a safe window message to apply borders at the right time
         unsafe {
-            PostMessageW(self.0 .0, WM_USER + 1000, 0, 0);
+            PostMessageW(self.0 .0, WM_APPLY_PENDING_BORDERS, 0, 0);
         }
     }
 
@@ -1213,7 +1214,7 @@ impl WindowOps for Window {
         
         // Trigger a safe window message to apply borders at the right time
         unsafe {
-            PostMessageW(self.0 .0, WM_USER + 1000, 0, 0);
+            PostMessageW(self.0 .0, WM_APPLY_PENDING_BORDERS, 0, 0);
         }
     }
 
@@ -1580,6 +1581,127 @@ fn enable_blur_behind(hwnd: HWND) {
     }
 }
 
+unsafe fn apply_windows_border_direct(hwnd: HWND, border: Option<&crate::os::parameters::OsBorderStyle>) {
+    log::info!("apply_windows_border_direct called with border: {:?}", border.is_some());
+
+    if let Some(border_style) = border {
+        log::info!("Applying Windows border: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}", 
+                  border_style.width, border_style.color.0, border_style.color.1, 
+                  border_style.color.2, border_style.color.3, border_style.radius);
+
+        // Use DWM (Desktop Window Manager) for modern border rendering
+        let mut border_applied = false;
+
+        // Try Windows 11 DWM border color API first
+        let dwm_lib = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8);
+        if !dwm_lib.is_null() {
+            let set_border_color_fn = GetProcAddress(
+                dwm_lib,
+                b"DwmSetWindowAttribute\0".as_ptr() as *const i8,
+            );
+
+            if !set_border_color_fn.is_null() {
+                let dwm_set_attr: extern "system" fn(
+                    HWND,
+                    DWORD,
+                    *const std::ffi::c_void,
+                    DWORD,
+                ) -> HRESULT = std::mem::transmute(set_border_color_fn);
+
+                // Convert RGBA to Windows COLORREF (BGR format)
+                let color_bgr = ((border_style.color.2 * 255.0) as u32) << 16
+                    | ((border_style.color.1 * 255.0) as u32) << 8
+                    | ((border_style.color.0 * 255.0) as u32);
+
+                // Try to set border color (Windows 11 build 22000+)
+                let result = dwm_set_attr(
+                    hwnd,
+                    34, // DWMWA_BORDER_COLOR
+                    &color_bgr as *const u32 as *const std::ffi::c_void,
+                    std::mem::size_of::<u32>() as DWORD,
+                );
+
+                if result == S_OK {
+                    log::info!("Successfully set Windows 11 DWM border color");
+                    border_applied = true;
+
+                    // Enable window border rendering
+                    let enable_border = 1u32;
+                    dwm_set_attr(
+                        hwnd,
+                        35, // DWMWA_BORDER_VISIBLE
+                        &enable_border as *const u32 as *const std::ffi::c_void,
+                        std::mem::size_of::<u32>() as DWORD,
+                    );
+                }
+            }
+            FreeLibrary(dwm_lib);
+        }
+
+        // Fallback: Windows 10 extended frame approach
+        if !border_applied {
+            log::info!("Falling back to Windows 10 DWM extended frame border");
+            
+            use winapi::um::dwmapi::DwmExtendFrameIntoClientArea;
+            use winapi::um::uxtheme::MARGINS;
+            
+            let border_width = border_style.width as i32;
+            let margins = MARGINS {
+                cxLeftWidth: border_width,
+                cxRightWidth: border_width,
+                cyTopHeight: border_width,
+                cyBottomHeight: border_width,
+            };
+            
+            DwmExtendFrameIntoClientArea(hwnd, &margins);
+            log::info!("Applied Windows 10 DWM extended frame border");
+        }
+    } else {
+        log::info!("Removing Windows border");
+        
+        // Remove border by disabling DWM effects
+        let dwm_lib = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8);
+        if !dwm_lib.is_null() {
+            let set_border_color_fn = GetProcAddress(
+                dwm_lib,
+                b"DwmSetWindowAttribute\0".as_ptr() as *const i8,
+            );
+
+            if !set_border_color_fn.is_null() {
+                let dwm_set_attr: extern "system" fn(
+                    HWND,
+                    DWORD,
+                    *const std::ffi::c_void,
+                    DWORD,
+                ) -> HRESULT = std::mem::transmute(set_border_color_fn);
+
+                // Disable border rendering
+                let disable_border = 0u32;
+                dwm_set_attr(
+                    hwnd,
+                    35, // DWMWA_BORDER_VISIBLE
+                    &disable_border as *const u32 as *const std::ffi::c_void,
+                    std::mem::size_of::<u32>() as DWORD,
+                );
+            }
+            FreeLibrary(dwm_lib);
+        }
+        
+        // Reset extended frame
+        use winapi::um::dwmapi::DwmExtendFrameIntoClientArea;
+        use winapi::um::uxtheme::MARGINS;
+        
+        let margins = MARGINS {
+            cxLeftWidth: 0,
+            cxRightWidth: 0,
+            cyTopHeight: 0,
+            cyBottomHeight: 0,
+        };
+        
+        DwmExtendFrameIntoClientArea(hwnd, &margins);
+    }
+}
+
 fn apply_theme(hwnd: HWND) -> Option<LRESULT> {
     // Check for OS app theme, and set window attributes accordingly.
     // Note that the MS terminal app uses the logic found here for this stuff:
@@ -1672,6 +1794,14 @@ fn apply_theme(hwnd: HWND) -> Option<LRESULT> {
             );
         };
 
+        // Extract border parameters while inner is borrowed, then apply after release
+        let pending_border = if let Some(inner) = rc_from_hwnd(hwnd) {
+            let inner_ref = inner.borrow();
+            inner_ref.pending_border.clone()
+        } else {
+            None
+        };
+
         if let Some(inner) = rc_from_hwnd(hwnd) {
             let mut inner = inner.borrow_mut();
 
@@ -1762,6 +1892,13 @@ fn apply_theme(hwnd: HWND) -> Option<LRESULT> {
                 inner
                     .events
                     .dispatch(WindowEvent::AppearanceChanged(appearance));
+            }
+        } // Release the borrow here
+
+        // Now safely apply borders outside the borrowed context
+        if let Some(border) = pending_border {
+            unsafe {
+                apply_windows_border_direct(hwnd, Some(&border));
             }
         }
     }
@@ -3173,16 +3310,22 @@ unsafe fn do_wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> 
         }
         WM_SETTINGCHANGE | WM_DWMCOMPOSITIONCHANGED => {
             apply_theme(hwnd);
-            // Also apply pending borders when theme changes
-            if let Some(inner) = rc_from_hwnd(hwnd) {
-                inner.borrow_mut().apply_pending_borders();
-            }
             None
         }
-        WM_USER + 1000 => {
+        WM_APPLY_PENDING_BORDERS => {
             // Custom message to safely apply pending borders
-            if let Some(inner) = rc_from_hwnd(hwnd) {
-                inner.borrow_mut().apply_pending_borders();
+            let pending_border = if let Some(inner) = rc_from_hwnd(hwnd) {
+                let inner_ref = inner.borrow();
+                inner_ref.pending_border.clone()
+            } else {
+                None
+            };
+            
+            // Apply borders outside borrowed context
+            if let Some(border) = pending_border {
+                unsafe {
+                    apply_windows_border_direct(hwnd, Some(&border));
+                }
             }
             Some(0)
         }
