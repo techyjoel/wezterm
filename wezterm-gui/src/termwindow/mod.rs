@@ -845,7 +845,7 @@ impl TermWindow {
             // Wait for window to be fully rendered
             smol::Timer::after(std::time::Duration::from_millis(200)).await;
 
-            log::info!("Applying deferred OS window border after window setup");
+            log::debug!("Applying deferred OS window border after window setup");
             window_for_timer.notify(TermWindowNotif::Apply(Box::new(|tw| {
                 if let Some(window) = tw.window.as_ref() {
                     if let Err(err) = tw.update_os_window_border(window) {
@@ -1868,13 +1868,13 @@ impl TermWindow {
     }
 
     fn update_os_window_border(&self, window: &dyn WindowOps) -> anyhow::Result<()> {
-        log::info!(
+        log::debug!(
             "update_os_window_border: enabled={}",
             self.config.window_frame.os_window_border_enabled
         );
         if self.config.window_frame.os_window_border_enabled {
             let border_style = self.compute_os_border_style()?;
-            log::info!(
+            log::debug!(
                 "Border style: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}",
                 border_style.width,
                 border_style.color.0,
@@ -1892,7 +1892,7 @@ impl TermWindow {
 
     fn compute_os_border_style(&self) -> anyhow::Result<parameters::OsBorderStyle> {
         let config = &self.config.window_frame.os_window_border;
-        log::info!("compute_os_border_style: config={:?}", config);
+        log::debug!("compute_os_border_style: config={:?}", config);
 
         // Evaluate dimensions
         let border_width = config.width.evaluate_as_pixels(config::DimensionContext {

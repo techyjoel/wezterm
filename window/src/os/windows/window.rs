@@ -761,13 +761,13 @@ impl WindowInner {
         unsafe {
             let hwnd = self.hwnd.0;
 
-            log::info!(
+            log::debug!(
                 "apply_windows_border called with border: {:?}",
                 border.is_some()
             );
 
             if let Some(border_style) = border {
-                log::info!(
+                log::debug!(
                     "Applying Windows border: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}",
                     border_style.width,
                     border_style.color.0,
@@ -809,7 +809,7 @@ impl WindowInner {
                         );
 
                         if result == S_OK {
-                            log::info!("Successfully set Windows 11 DWM border color");
+                            log::debug!("Successfully set Windows 11 DWM border color");
                             border_applied = true;
 
                             // Enable window border rendering
@@ -830,7 +830,7 @@ impl WindowInner {
 
                 // Fallback for Windows 10 or if DWM border API failed
                 if !border_applied {
-                    log::info!("Using Windows 10 fallback border approach");
+                    log::debug!("Using Windows 10 fallback border approach");
 
                     // For Windows 10, we can enable DWM extended frame
                     let dwm_lib = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8);
@@ -858,7 +858,7 @@ impl WindowInner {
 
                             let result = dwm_extend_frame(hwnd, &margins);
                             if result == S_OK {
-                                log::info!(
+                                log::debug!(
                                     "Successfully applied Windows 10 DWM extended frame border"
                                 );
                                 border_applied = true;
@@ -881,12 +881,12 @@ impl WindowInner {
                 );
 
                 if border_applied {
-                    log::info!("Successfully applied Windows border");
+                    log::debug!("Successfully applied Windows border");
                 } else {
                     log::warn!("Failed to apply Windows border - APIs not available");
                 }
             } else {
-                log::info!("Removing Windows border");
+                log::debug!("Removing Windows border");
 
                 // Remove border by resetting DWM attributes
                 let dwm_lib = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8);
@@ -947,7 +947,7 @@ impl WindowInner {
                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
                 );
 
-                log::info!("Windows border removed");
+                log::debug!("Windows border removed");
             }
         }
     }
@@ -1591,13 +1591,13 @@ unsafe fn apply_windows_border_direct(
     hwnd: HWND,
     border: Option<&crate::os::parameters::OsBorderStyle>,
 ) {
-    log::info!(
+    log::debug!(
         "apply_windows_border_direct called with border: {:?}",
         border.is_some()
     );
 
     if let Some(border_style) = border {
-        log::info!(
+        log::debug!(
             "Applying Windows border: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}",
             border_style.width,
             border_style.color.0,
@@ -1638,7 +1638,7 @@ unsafe fn apply_windows_border_direct(
                 );
 
                 if result == S_OK {
-                    log::info!("Successfully set Windows 11 DWM border color");
+                    log::debug!("Successfully set Windows 11 DWM border color");
                     border_applied = true;
 
                     // Enable window border rendering
@@ -1656,7 +1656,7 @@ unsafe fn apply_windows_border_direct(
 
         // Fallback: Windows 10 extended frame approach
         if !border_applied {
-            log::info!("Falling back to Windows 10 DWM extended frame border");
+            log::debug!("Falling back to Windows 10 DWM extended frame border");
 
             use winapi::um::dwmapi::DwmExtendFrameIntoClientArea;
             use winapi::um::uxtheme::MARGINS;
@@ -1670,10 +1670,10 @@ unsafe fn apply_windows_border_direct(
             };
 
             DwmExtendFrameIntoClientArea(hwnd, &margins);
-            log::info!("Applied Windows 10 DWM extended frame border");
+            log::debug!("Applied Windows 10 DWM extended frame border");
         }
     } else {
-        log::info!("Removing Windows border");
+        log::debug!("Removing Windows border");
 
         // Remove border by disabling DWM effects
         let dwm_lib = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8);

@@ -1244,13 +1244,13 @@ impl WindowInner {
     }
 
     fn apply_macos_border(&mut self, border: Option<&crate::os::parameters::OsBorderStyle>) {
-        log::info!(
+        log::debug!(
             "apply_macos_border called with border: {:?}",
             border.is_some()
         );
         unsafe {
             if let Some(border_style) = border {
-                log::info!(
+                log::debug!(
                     "Applying border: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}",
                     border_style.width,
                     border_style.color.0,
@@ -1267,24 +1267,24 @@ impl WindowInner {
 
                 // Get or create the border layer
                 let border_layer: id = if let Some(existing_layer) = self.get_border_layer() {
-                    log::info!("Using existing border layer");
+                    log::debug!("Using existing border layer");
                     existing_layer
                 } else {
-                    log::info!("Creating new border layer");
+                    log::debug!("Creating new border layer");
                     self.create_window_border_layer(window_view)
                 };
 
                 if !border_layer.is_null() {
-                    log::info!("Border layer found/created successfully");
+                    log::debug!("Border layer found/created successfully");
 
                     // Use the original CALayer border properties instead of background
                     let border_width = border_style.width as CGFloat;
-                    log::info!("Setting border width: {}", border_width);
+                    log::debug!("Setting border width: {}", border_width);
                     let _: () = msg_send![border_layer, setBorderWidth: border_width];
 
                     // Convert RGBA to CGColor for border
                     let (r, g, b, a) = border_style.color;
-                    log::info!(
+                    log::debug!(
                         "Setting border color: ({:.2},{:.2},{:.2},{:.2})",
                         r,
                         g,
@@ -1296,16 +1296,16 @@ impl WindowInner {
 
                     // Set corner radius if specified
                     let corner_radius = border_style.radius as CGFloat;
-                    log::info!("Setting corner radius: {}", corner_radius);
+                    log::debug!("Setting corner radius: {}", corner_radius);
                     let _: () = msg_send![border_layer, setCornerRadius: corner_radius];
 
                     // Make background transparent so content shows through
-                    log::info!("Setting transparent background");
+                    log::debug!("Setting transparent background");
                     let clear_color = CGColorCreateSRGB(0.0, 0.0, 0.0, 0.0);
                     let _: () = msg_send![border_layer, setBackgroundColor: clear_color];
 
                     // Make the layer visible
-                    log::info!("Setting layer properties for visibility");
+                    log::debug!("Setting layer properties for visibility");
                     let _: () = msg_send![border_layer, setHidden: NO];
                     let _: () = msg_send![border_layer, setOpacity: 1.0f32];
 
@@ -1318,7 +1318,7 @@ impl WindowInner {
                     // Force the window to redraw to ensure the border becomes visible
                     let _: () = msg_send![*self.window, display];
 
-                    log::info!("Successfully applied macOS border: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}", 
+                    log::debug!("Successfully applied macOS border: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}", 
                                border_width, r, g, b, a, corner_radius);
                 } else {
                     log::error!("Failed to create or find border layer");
@@ -1384,7 +1384,7 @@ impl WindowInner {
 
             // Remove all found border layers
             for layer_to_remove in layers_to_remove {
-                log::info!("Removing existing border layer");
+                log::debug!("Removing existing border layer");
                 let _: () = msg_send![layer_to_remove, removeFromSuperlayer];
             }
         }
@@ -1442,12 +1442,12 @@ impl WindowInner {
 
     fn create_window_border_layer(&self, content_view: id) -> id {
         unsafe {
-            log::info!("create_window_border_layer: Attempting to create window-level border including title bar");
+            log::debug!("create_window_border_layer: Attempting to create window-level border including title bar");
 
             // Try to access the window's theme frame view which contains the title bar
             // This is the NSThemeFrame that wraps the entire window including decorations
             let content_superview: id = msg_send![content_view, superview];
-            log::info!(
+            log::debug!(
                 "Content view superview: {:?}",
                 content_superview as *const _
             );
@@ -1465,11 +1465,11 @@ impl WindowInner {
             while !current_view.is_null() {
                 let class_name: id = msg_send![current_view, className];
                 let class_str = nsstring_to_str(class_name);
-                log::info!("Found parent view class: {}", class_str);
+                log::debug!("Found parent view class: {}", class_str);
 
                 // The NSThemeFrame is what we want - it includes the title bar
                 if class_str.contains("ThemeFrame") || class_str.contains("NSWindow") {
-                    log::info!("Found window frame view: {}", class_str);
+                    log::debug!("Found window frame view: {}", class_str);
                     target_view = current_view;
                     break;
                 }
@@ -1478,7 +1478,7 @@ impl WindowInner {
                 current_view = msg_send![current_view, superview];
             }
 
-            log::info!("Using target view: {:?}", target_view as *const _);
+            log::debug!("Using target view: {:?}", target_view as *const _);
 
             // Enable layer hosting on the target view
             let _: () = msg_send![target_view, setWantsLayer: YES];
