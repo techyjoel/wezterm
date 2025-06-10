@@ -1149,6 +1149,58 @@ impl WindowInner {
         }
     }
 
+    /// Calculates the perceived brightness of an RGB color using luminance formula
+    /// Returns a value between 0.0 (black) and 1.0 (white)
+    fn calculate_color_brightness(color: &RgbaColor) -> f64 {
+        // Convert linear RGB to perceived brightness using standard luminance weights
+        // These weights account for human eye sensitivity to different wavelengths
+        let r = color.0 as f64;
+        let g = color.1 as f64;
+        let b = color.2 as f64;
+
+        // Standard ITU-R BT.709 luminance formula
+        0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+
+    /// Sets the window appearance (light/dark) based on background color brightness
+    /// to ensure the title text remains readable
+    fn set_window_appearance_for_background_color(&self, background_color: &RgbaColor) {
+        let brightness = Self::calculate_color_brightness(background_color);
+
+        // If background is dark (brightness < 0.5), use dark appearance to get light title text
+        // If background is light (brightness >= 0.5), use light appearance to get dark title text
+        let appearance_name = if brightness < 0.5 {
+            // Dark background -> use dark appearance (gives white title text)
+            "NSAppearanceNameDarkAqua"
+        } else {
+            // Light background -> use light appearance (gives black title text)
+            "NSAppearanceNameAqua"
+        };
+
+        unsafe {
+            // Get the NSAppearance class and create appearance object
+            let appearance_class = class!(NSAppearance);
+            let appearance: id =
+                msg_send![appearance_class, appearanceNamed: *nsstring(appearance_name)];
+
+            if !appearance.is_null() {
+                // Set the window appearance
+                let _: () = msg_send![*self.window, setAppearance: appearance];
+                log::debug!(
+                    "Set window appearance based on background brightness {:.3}: {}",
+                    brightness,
+                    if brightness < 0.5 {
+                        "dark (light text)"
+                    } else {
+                        "light (dark text)"
+                    }
+                );
+            } else {
+                log::warn!("Failed to create NSAppearance object");
+            }
+        }
+    }
+
     fn update_titlebar_background(&self) {
         if !self
             .config
@@ -1165,6 +1217,11 @@ impl WindowInner {
             .resolved_palette
             .background
             .unwrap_or(RgbaColor::from(SrgbaTuple(0., 0., 0., 255.)));
+
+        // Auto-adjust window appearance based on background brightness to ensure readable title text
+        // This prevents dark text on dark backgrounds or light text on light backgrounds
+        // TODO: Could add manual control via config.window_frame.macos_title_appearance = "auto"|"light"|"dark"
+        self.set_window_appearance_for_background_color(&color);
 
         unsafe {
             if let Some(titlebar_view_container) = get_titlebar_view_container(&self.window) {
