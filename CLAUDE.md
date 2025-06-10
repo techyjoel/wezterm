@@ -47,12 +47,15 @@ gdb ./target/debug/wezterm
 
 ### Development process
 The general workflow you should use is:
--Understand the desired change thoroughly. Ask the user questions if you're not sure about any aspects
--Think carefully about how to properly implement the change within the codebase
--Create an outline of the proposed work for the user to review
--Once in agreement, implement the change
--Run a type check and then release mode build to test if changes compile successfully
--Git commit
+1. Understand the desired change thoroughly. Ask the user questions if you're not sure about any aspects
+2. Think carefully about how to properly implement the change within the codebase
+3. Create an outline of the proposed work for the user to review
+4. Once in agreement, implement the change
+5. Run auto-format of code
+6. Run a type check and then release mode build to test if changes compile successfully
+7. Git add and commit
+   - Include "Created with AI assistance" in your git commit messages. Don't say anything else about AI
+   - Don't use any emojii in git commit messages
 
 ## High-Level Architecture
 
@@ -133,8 +136,6 @@ The project uses Cargo workspaces with these key members:
 - Use `cargo check` for rapid iteration during development
 - The terminal model (`term/`) is separate from GUI - test terminal logic independently
 - For xterm compatibility reference: https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
-- Tests use `cargo nextest` instead of standard `cargo test`
-- Always run `cargo fmt --all` before submitting PRs
 
 ## GUI Development Infrastructure
 

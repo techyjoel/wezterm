@@ -10,9 +10,9 @@ config.use_fancy_tab_bar = true
 config.window_frame = {
   os_window_border_enabled = true,
   os_window_border = {
-    width = "6px",    -- Make it thick so it's easier to see
-    color = "#ff0000", -- Red color for visibility
-    radius = "12px"
+    width = "1px",
+    color = "#ff0000",
+    radius = "10px"
   }
 }
 
