@@ -449,11 +449,8 @@ end)
 
 ### Performance & Optimization
 
-#### Border Animation Performance
-
-**Pending Work**
-- Benchmark border update performance across platforms
-- Add frame rate monitoring for border animations
+- Benchmark OS window border update performance across platforms
+- Add frame rate monitoring?
 
 ### Documentation & Testing
 

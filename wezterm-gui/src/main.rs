@@ -133,6 +133,21 @@ enum SubCommand {
     ShowKeys(ShowKeysCommand),
 }
 
+fn set_builtin_config_file() -> anyhow::Result<()> {
+    let exe_path = std::env::current_exe()?;
+    let exe_dir = exe_path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Unable to determine executable directory"))?;
+
+    let builtin_config = exe_dir.join("clibuddy").join("wezterm.lua");
+
+    // Always override, regardless of existing WEZTERM_CONFIG_FILE
+    std::env::set_var("WEZTERM_CONFIG_FILE", &builtin_config);
+    log::info!("Using built-in config: {}", builtin_config.display());
+
+    Ok(())
+}
+
 async fn async_run_ssh(opts: SshCommand) -> anyhow::Result<()> {
     let mut ssh_option = HashMap::new();
     if opts.verbose {
@@ -1208,6 +1223,9 @@ fn run() -> anyhow::Result<()> {
 
     stats::Stats::init()?;
     let _saver = umask::UmaskSaver::new();
+
+    // Set built-in config file path, always overriding any user WEZTERM_CONFIG_FILE
+    set_builtin_config_file()?;
 
     config::common_init(
         opts.config_file.as_ref(),

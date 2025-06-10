@@ -1,6 +1,37 @@
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
+    // Copy clibuddy config directory to output directory
+    {
+        let profile = std::env::var("PROFILE").unwrap();
+        let repo_dir = std::env::current_dir()
+            .ok()
+            .and_then(|cwd| cwd.parent().map(|p| p.to_path_buf()))
+            .unwrap();
+        let exe_output_dir = repo_dir.join("target").join(&profile);
+
+        let src_clibuddy = repo_dir.join("clibuddy");
+        let dest_clibuddy = exe_output_dir.join("clibuddy");
+
+        // Create clibuddy directory in output
+        if src_clibuddy.exists() {
+            std::fs::create_dir_all(&dest_clibuddy).ok();
+
+            // Copy wezterm.lua
+            let src_lua = src_clibuddy.join("wezterm.lua");
+            let dest_lua = dest_clibuddy.join("wezterm.lua");
+            if src_lua.exists()
+                && (!dest_lua.exists()
+                    || src_lua.metadata().unwrap().modified().unwrap()
+                        > dest_lua.metadata().unwrap().modified().unwrap())
+            {
+                std::fs::copy(&src_lua, &dest_lua).ok();
+            }
+
+            println!("cargo:rerun-if-changed=../clibuddy/wezterm.lua");
+        }
+    }
+
     #[cfg(windows)]
     {
         use anyhow::Context as _;
