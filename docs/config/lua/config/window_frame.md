@@ -45,6 +45,36 @@ config.window_frame = {
 }
 ```
 
+{{since('nightly')}}
+
+## OS Window Border
+
+You may add an OS-level window border that renders outside the terminal content area:
+
+```lua
+config.window_frame = {
+  os_window_border_enabled = true,
+  os_window_border = {
+    width = '1px',
+    color = '#ff0000',
+    radius = '10px',
+  },
+}
+```
+
+The `os_window_border` configuration supports:
+
+* `width` - Border thickness (e.g., `"1px"`, `"2px"`)
+* `color` - Border color in all supported formats (e.g., `"#ff0000"`)  
+* `radius` - Border corner radius (e.g., `"0px"` for square corners, `"10px"` for rounded)
+
+**Platform Support:**
+* **macOS**: Border around entire window including title bar
+* **Windows**: Border around entire window including title bar  
+* **Linux (X11/Wayland)**: Not supported - use `border_*` options above for content-area borders
+
+This creates a border at the operating system level, distinct from the inner content area borders configured with `border_left_width`, `border_right_width`, etc.
+
 You may specify the font and font size for the tabbar:
 ```lua
 config.window_frame = {
