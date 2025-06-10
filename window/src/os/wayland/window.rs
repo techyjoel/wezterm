@@ -488,20 +488,6 @@ impl WindowOps for WaylandWindow {
             Ok(())
         });
     }
-
-    fn set_window_border(&self, border: Option<&crate::os::parameters::OsBorderStyle>) {
-        WaylandConnection::with_window_inner(self.0, move |inner| {
-            inner.apply_wayland_border(border);
-            Ok(())
-        });
-    }
-
-    fn update_window_border(&self, border: Option<&crate::os::parameters::OsBorderStyle>) {
-        WaylandConnection::with_window_inner(self.0, move |inner| {
-            inner.apply_wayland_border(border);
-            Ok(())
-        });
-    }
 }
 #[derive(Default, Clone, Debug)]
 pub(crate) struct PendingEvent {
@@ -1466,50 +1452,6 @@ impl Dispatch<WlRegion, GlobalData> for WaylandState {
         _conn: &WConnection,
         _qhandle: &QueueHandle<Self>,
     ) {
-    }
-
-    fn apply_wayland_border(&mut self, border: Option<&crate::os::parameters::OsBorderStyle>) {
-        log::info!("apply_wayland_border called with border: {:?}", border.is_some());
-        
-        if let Some(border_style) = border {
-            log::info!("Applying Wayland border: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}", 
-                      border_style.width, border_style.color.0, border_style.color.1, 
-                      border_style.color.2, border_style.color.3, border_style.radius);
-
-            // Wayland has very limited support for OS-level window borders
-            // Most Wayland compositors handle window decorations themselves
-            // We can try to hint the compositor about our preferences, but implementation is compositor-dependent
-            
-            // Note: Unlike X11, Wayland doesn't have direct window border properties
-            // The compositor is responsible for drawing decorations
-            // We would need compositor-specific protocols for custom borders
-            
-            // For most compositors, we can only request server-side decorations
-            // and hope they respect our color/style preferences
-            if let Some(ref xdg_toplevel) = self.xdg_toplevel {
-                // This is limited - most compositors will use their own decoration style
-                // Some compositors like KDE might support color hints through custom protocols
-                log::debug!("Wayland: requesting server-side decorations (compositor will control actual appearance)");
-                
-                // We can't actually set custom border colors/width in standard Wayland
-                // This would require compositor-specific extensions
-                log::warn!("Wayland does not support custom window border colors/width - using compositor defaults");
-            } else {
-                log::warn!("No XDG toplevel available for Wayland border configuration");
-            }
-            
-            // Corner radius is also not supported in standard Wayland
-            if border_style.radius > 0.0 {
-                log::debug!("Wayland border radius not supported at OS level - ignoring radius setting");
-            }
-            
-        } else {
-            log::info!("Removing Wayland border - using compositor defaults");
-            
-            // For Wayland, we can't really "remove" borders since they're controlled by the compositor
-            // We can only request no decorations at all, but that might not be what the user wants
-            log::debug!("Wayland: using default compositor decorations");
-        }
     }
 }
 
