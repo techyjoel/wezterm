@@ -69,3 +69,6 @@ of perl is required to build openssl on Windows.
 $ set PATH=c:\Strawberry\perl\bin;%PATH%
 ```
 
+### Installation
+
+You can run ci/deploy.sh for OS-specific packaging. See the script for details.
