@@ -634,18 +634,18 @@ pub struct WindowFrameConfig {
     pub border_bottom_color: Option<RgbaColor>,
 
     /// Enable OS-level window border (renders outside content area)
-    /// 
+    ///
     /// Supported platforms:
     /// - macOS: Border around entire window including title bar
     /// - Windows: Border around entire window including title bar  
-    /// 
+    ///
     /// Not supported platforms:
     /// - Linux (X11/Wayland): Use window_frame.border_* options for content-area borders
     #[dynamic(default)]
     pub os_window_border_enabled: bool,
 
     /// OS window border configuration
-    /// 
+    ///
     /// Note: Only supported on macOS and Windows
     /// - radius property only supported on macOS
     /// - On Linux, use window_frame.border_* configuration instead

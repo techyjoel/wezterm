@@ -408,5 +408,4 @@ impl WindowOps for Window {
             Self::Wayland(w) => w.set_clipboard(clipboard, text),
         }
     }
-
 }

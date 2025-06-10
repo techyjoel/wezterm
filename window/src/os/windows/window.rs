@@ -37,7 +37,7 @@ use winapi::shared::ntdef::*;
 use winapi::shared::windef::*;
 use winapi::shared::winerror::S_OK;
 use winapi::um::imm::*;
-use winapi::um::libloaderapi::{GetModuleHandleW, LoadLibraryA, GetProcAddress, FreeLibrary};
+use winapi::um::libloaderapi::{FreeLibrary, GetModuleHandleW, GetProcAddress, LoadLibraryA};
 use winapi::um::shellapi::{DragAcceptFiles, DragFinish, DragQueryFileW, HDROP};
 use winapi::um::shellscalingapi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use winapi::um::sysinfoapi::{GetTickCount, GetVersionExW};
@@ -124,7 +124,7 @@ pub(crate) struct WindowInner {
 
     keyboard_info: KeyboardLayoutInfo,
     appearance: Appearance,
-    
+
     /// Pending border style to apply during next theme update
     pending_border: Option<crate::os::parameters::OsBorderStyle>,
 
@@ -577,7 +577,7 @@ impl Window {
 
         apply_theme(hwnd.0);
         enable_blur_behind(hwnd.0);
-        
+
         // Post a message to apply borders safely after window creation is complete
         unsafe {
             PostMessageW(hwnd.0, WM_APPLY_PENDING_BORDERS, 0, 0);
@@ -760,13 +760,22 @@ impl WindowInner {
     fn apply_windows_border(&mut self, border: Option<&crate::os::parameters::OsBorderStyle>) {
         unsafe {
             let hwnd = self.hwnd.0;
-            
-            log::info!("apply_windows_border called with border: {:?}", border.is_some());
+
+            log::info!(
+                "apply_windows_border called with border: {:?}",
+                border.is_some()
+            );
 
             if let Some(border_style) = border {
-                log::info!("Applying Windows border: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}", 
-                          border_style.width, border_style.color.0, border_style.color.1, 
-                          border_style.color.2, border_style.color.3, border_style.radius);
+                log::info!(
+                    "Applying Windows border: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}",
+                    border_style.width,
+                    border_style.color.0,
+                    border_style.color.1,
+                    border_style.color.2,
+                    border_style.color.3,
+                    border_style.radius
+                );
 
                 // Use DWM (Desktop Window Manager) for modern border rendering
                 // This approach works on Windows 10/11 with DWM composition enabled
@@ -775,10 +784,8 @@ impl WindowInner {
                 // Try Windows 11 DWM border color API first
                 let dwm_lib = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8);
                 if !dwm_lib.is_null() {
-                    let set_border_color_fn = GetProcAddress(
-                        dwm_lib,
-                        b"DwmSetWindowAttribute\0".as_ptr() as *const i8,
-                    );
+                    let set_border_color_fn =
+                        GetProcAddress(dwm_lib, b"DwmSetWindowAttribute\0".as_ptr() as *const i8);
 
                     if !set_border_color_fn.is_null() {
                         let dwm_set_attr: extern "system" fn(
@@ -824,7 +831,7 @@ impl WindowInner {
                 // Fallback for Windows 10 or if DWM border API failed
                 if !border_applied {
                     log::info!("Using Windows 10 fallback border approach");
-                    
+
                     // For Windows 10, we can enable DWM extended frame
                     let dwm_lib = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8);
                     if !dwm_lib.is_null() {
@@ -837,7 +844,8 @@ impl WindowInner {
                             let dwm_extend_frame: extern "system" fn(
                                 HWND,
                                 *const MARGINS,
-                            ) -> HRESULT = std::mem::transmute(extend_frame_fn);
+                            )
+                                -> HRESULT = std::mem::transmute(extend_frame_fn);
 
                             // Create a small border using DWM extended frame
                             let border_width = border_style.width as i32;
@@ -850,7 +858,9 @@ impl WindowInner {
 
                             let result = dwm_extend_frame(hwnd, &margins);
                             if result == S_OK {
-                                log::info!("Successfully applied Windows 10 DWM extended frame border");
+                                log::info!(
+                                    "Successfully applied Windows 10 DWM extended frame border"
+                                );
                                 border_applied = true;
                             }
                         }
@@ -877,14 +887,12 @@ impl WindowInner {
                 }
             } else {
                 log::info!("Removing Windows border");
-                
+
                 // Remove border by resetting DWM attributes
                 let dwm_lib = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8);
                 if !dwm_lib.is_null() {
-                    let set_border_color_fn = GetProcAddress(
-                        dwm_lib,
-                        b"DwmSetWindowAttribute\0".as_ptr() as *const i8,
-                    );
+                    let set_border_color_fn =
+                        GetProcAddress(dwm_lib, b"DwmSetWindowAttribute\0".as_ptr() as *const i8);
 
                     if !set_border_color_fn.is_null() {
                         let dwm_set_attr: extern "system" fn(
@@ -911,10 +919,8 @@ impl WindowInner {
                     );
 
                     if !extend_frame_fn.is_null() {
-                        let dwm_extend_frame: extern "system" fn(
-                            HWND,
-                            *const MARGINS,
-                        ) -> HRESULT = std::mem::transmute(extend_frame_fn);
+                        let dwm_extend_frame: extern "system" fn(HWND, *const MARGINS) -> HRESULT =
+                            std::mem::transmute(extend_frame_fn);
 
                         // Reset to no extended frame
                         let margins = MARGINS {
@@ -940,7 +946,7 @@ impl WindowInner {
                     0,
                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
                 );
-                
+
                 log::info!("Windows border removed");
             }
         }
@@ -1197,7 +1203,7 @@ impl WindowOps for Window {
             inner.pending_border = border_clone;
             Ok(())
         });
-        
+
         // Trigger a safe window message to apply borders at the right time
         unsafe {
             PostMessageW(self.0 .0, WM_APPLY_PENDING_BORDERS, 0, 0);
@@ -1211,7 +1217,7 @@ impl WindowOps for Window {
             inner.pending_border = border_clone;
             Ok(())
         });
-        
+
         // Trigger a safe window message to apply borders at the right time
         unsafe {
             PostMessageW(self.0 .0, WM_APPLY_PENDING_BORDERS, 0, 0);
@@ -1581,13 +1587,25 @@ fn enable_blur_behind(hwnd: HWND) {
     }
 }
 
-unsafe fn apply_windows_border_direct(hwnd: HWND, border: Option<&crate::os::parameters::OsBorderStyle>) {
-    log::info!("apply_windows_border_direct called with border: {:?}", border.is_some());
+unsafe fn apply_windows_border_direct(
+    hwnd: HWND,
+    border: Option<&crate::os::parameters::OsBorderStyle>,
+) {
+    log::info!(
+        "apply_windows_border_direct called with border: {:?}",
+        border.is_some()
+    );
 
     if let Some(border_style) = border {
-        log::info!("Applying Windows border: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}", 
-                  border_style.width, border_style.color.0, border_style.color.1, 
-                  border_style.color.2, border_style.color.3, border_style.radius);
+        log::info!(
+            "Applying Windows border: width={}, color=({:.2},{:.2},{:.2},{:.2}), radius={}",
+            border_style.width,
+            border_style.color.0,
+            border_style.color.1,
+            border_style.color.2,
+            border_style.color.3,
+            border_style.radius
+        );
 
         // Use DWM (Desktop Window Manager) for modern border rendering
         let mut border_applied = false;
@@ -1595,10 +1613,8 @@ unsafe fn apply_windows_border_direct(hwnd: HWND, border: Option<&crate::os::par
         // Try Windows 11 DWM border color API first
         let dwm_lib = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8);
         if !dwm_lib.is_null() {
-            let set_border_color_fn = GetProcAddress(
-                dwm_lib,
-                b"DwmSetWindowAttribute\0".as_ptr() as *const i8,
-            );
+            let set_border_color_fn =
+                GetProcAddress(dwm_lib, b"DwmSetWindowAttribute\0".as_ptr() as *const i8);
 
             if !set_border_color_fn.is_null() {
                 let dwm_set_attr: extern "system" fn(
@@ -1641,10 +1657,10 @@ unsafe fn apply_windows_border_direct(hwnd: HWND, border: Option<&crate::os::par
         // Fallback: Windows 10 extended frame approach
         if !border_applied {
             log::info!("Falling back to Windows 10 DWM extended frame border");
-            
+
             use winapi::um::dwmapi::DwmExtendFrameIntoClientArea;
             use winapi::um::uxtheme::MARGINS;
-            
+
             let border_width = border_style.width as i32;
             let margins = MARGINS {
                 cxLeftWidth: border_width,
@@ -1652,20 +1668,18 @@ unsafe fn apply_windows_border_direct(hwnd: HWND, border: Option<&crate::os::par
                 cyTopHeight: border_width,
                 cyBottomHeight: border_width,
             };
-            
+
             DwmExtendFrameIntoClientArea(hwnd, &margins);
             log::info!("Applied Windows 10 DWM extended frame border");
         }
     } else {
         log::info!("Removing Windows border");
-        
+
         // Remove border by disabling DWM effects
         let dwm_lib = LoadLibraryA(b"dwmapi.dll\0".as_ptr() as *const i8);
         if !dwm_lib.is_null() {
-            let set_border_color_fn = GetProcAddress(
-                dwm_lib,
-                b"DwmSetWindowAttribute\0".as_ptr() as *const i8,
-            );
+            let set_border_color_fn =
+                GetProcAddress(dwm_lib, b"DwmSetWindowAttribute\0".as_ptr() as *const i8);
 
             if !set_border_color_fn.is_null() {
                 let dwm_set_attr: extern "system" fn(
@@ -1686,18 +1700,18 @@ unsafe fn apply_windows_border_direct(hwnd: HWND, border: Option<&crate::os::par
             }
             FreeLibrary(dwm_lib);
         }
-        
+
         // Reset extended frame
         use winapi::um::dwmapi::DwmExtendFrameIntoClientArea;
         use winapi::um::uxtheme::MARGINS;
-        
+
         let margins = MARGINS {
             cxLeftWidth: 0,
             cxRightWidth: 0,
             cyTopHeight: 0,
             cyBottomHeight: 0,
         };
-        
+
         DwmExtendFrameIntoClientArea(hwnd, &margins);
     }
 }
@@ -3320,7 +3334,7 @@ unsafe fn do_wnd_proc(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> 
             } else {
                 None
             };
-            
+
             // Apply borders outside borrowed context
             if let Some(border) = pending_border {
                 unsafe {

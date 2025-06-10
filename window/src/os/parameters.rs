@@ -37,4 +37,3 @@ pub struct Parameters {
     /// OS-level window border style
     pub os_border_style: Option<OsBorderStyle>,
 }
-
