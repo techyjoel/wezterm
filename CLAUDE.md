@@ -46,7 +46,7 @@ gdb ./target/debug/wezterm
 ```
 
 ### Development process
-The general workflow you should use is:
+The workflow you should use is:
 1. Understand the desired change thoroughly. Ask the user questions if you're not sure about any aspects
 2. Think carefully about how to properly implement the change within the codebase
 3. Create an outline of the proposed work for the user to review
@@ -54,7 +54,9 @@ The general workflow you should use is:
 5. Run auto-format of code
 6. Run a type check and then release mode build to test if changes compile successfully
 7. Git add and commit
-   - Include "Created with AI assistance" in your git commit messages. Don't say anything else about AI
+
+### Git commits
+   - Include "Created with AI assistance" in your git commit messages. Don't say anything else about AI like "co-authored" or anything else.
    - Don't use any emojii in git commit messages
 
 ## High-Level Architecture
