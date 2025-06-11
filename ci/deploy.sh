@@ -35,6 +35,7 @@ case $OSTYPE in
     mkdir -p $zipdir/WezTerm.app/Contents/Resources
     cp -r assets/shell-integration/* $zipdir/WezTerm.app/Contents/Resources
     cp -r assets/shell-completion $zipdir/WezTerm.app/Contents/Resources
+    cp clibuddy/wezterm.lua $zipdir/WezTerm.app/Contents/Resources/
     tic -xe wezterm -o $zipdir/WezTerm.app/Contents/Resources/terminfo termwiz/data/wezterm.terminfo
 
     for bin in wezterm wezterm-mux-server wezterm-gui strip-ansi-escapes ; do
@@ -124,6 +125,8 @@ case $OSTYPE in
     mkdir $zipdir/mesa
     cp $TARGET_DIR/release/mesa/opengl32.dll \
         $zipdir/mesa
+    mkdir -p $zipdir/share/wezterm/config
+    cp clibuddy/wezterm.lua $zipdir/share/wezterm/config/
     7z a -tzip $zipname $zipdir
     iscc.exe -DMyAppVersion=${TAG_NAME#nightly} -F${instname} ci/windows-installer.iss
     ;;
@@ -215,12 +218,13 @@ ${BUILD_COMMAND}
 %install
 set -x
 cd ${HERE}
-mkdir -p %{buildroot}/usr/bin %{buildroot}/etc/profile.d
+mkdir -p %{buildroot}/usr/bin %{buildroot}/etc/profile.d %{buildroot}/usr/share/wezterm/config
 install -Dm755 assets/open-wezterm-here -t %{buildroot}/usr/bin
 install -Dsm755 target/release/wezterm -t %{buildroot}/usr/bin
 install -Dsm755 target/release/wezterm-mux-server -t %{buildroot}/usr/bin
 install -Dsm755 target/release/wezterm-gui -t %{buildroot}/usr/bin
 install -Dsm755 target/release/strip-ansi-escapes -t %{buildroot}/usr/bin
+install -Dm644 clibuddy/wezterm.lua %{buildroot}/usr/share/wezterm/config/wezterm.lua
 install -Dm644 assets/shell-integration/* -t %{buildroot}/etc/profile.d
 install -Dm644 assets/shell-completion/zsh %{buildroot}/usr/share/zsh/site-functions/_wezterm
 install -Dm644 assets/shell-completion/bash %{buildroot}/etc/bash_completion.d/wezterm
@@ -235,6 +239,7 @@ install -Dm644 assets/wezterm-nautilus.py %{buildroot}/usr/share/nautilus-python
 /usr/bin/wezterm-gui
 /usr/bin/wezterm-mux-server
 /usr/bin/strip-ansi-escapes
+/usr/share/wezterm/config/wezterm.lua
 /usr/share/zsh/site-functions/_wezterm
 /etc/bash_completion.d/wezterm
 /usr/share/icons/hicolor/128x128/apps/org.wezfurlong.wezterm.png
@@ -302,6 +307,7 @@ EOF
         install -Dsm755 -t pkg/debian/usr/bin target/release/wezterm
         install -Dm755 -t pkg/debian/usr/bin assets/open-wezterm-here
         install -Dsm755 -t pkg/debian/usr/bin target/release/strip-ansi-escapes
+        install -Dm644 clibuddy/wezterm.lua pkg/debian/usr/share/wezterm/config/wezterm.lua
 
         deps=$(cd pkg && dpkg-shlibdeps -O -e debian/usr/bin/*)
         mv pkg/debian/postinst pkg/debian/DEBIAN/postinst
@@ -375,6 +381,7 @@ source="
   assets/icon/terminal.png
   assets/icon/wezterm-icon.svg
   termwiz/data/wezterm.terminfo
+  clibuddy/wezterm.lua
 "
 builddir="\$srcdir"
 
@@ -388,6 +395,7 @@ package() {
   install -Dm755 -t "\$pkgdir"/usr/bin "\$srcdir"/wezterm-gui
   install -Dm755 -t "\$pkgdir"/usr/bin "\$srcdir"/wezterm-mux-server
 
+  install -Dm644 "\$srcdir"/wezterm.lua "\$pkgdir"/usr/share/wezterm/config/wezterm.lua
   install -Dm644 -t "\$pkgdir"/usr/share/applications "\$srcdir"/wezterm.desktop
   install -Dm644 -t "\$pkgdir"/usr/share/metainfo "\$srcdir"/wezterm.appdata.xml
   install -Dm644 "\$srcdir"/terminal.png "\$pkgdir"/usr/share/pixmaps/wezterm.png
