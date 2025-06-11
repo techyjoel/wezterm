@@ -92,6 +92,9 @@ font fallback.
 You can resolve this by explicitly adding fallback font(s) the have the glyphs
 that you need in your `.wezterm.lua`:
 
+!!! note "CLIBuddy Fork"
+    CLIBuddy uses a simplified TOML configuration that doesn't support custom font fallback configuration. The built-in font configuration uses JetBrains Mono with system fallbacks. For advanced font configuration, consider using standard WezTerm.
+
 ```lua
 local wezterm = require 'wezterm'
 

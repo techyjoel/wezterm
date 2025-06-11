@@ -1,3 +1,8 @@
+# Appearance Configuration
+
+!!! info "CLIBuddy Fork"
+    **CLIBuddy users**: This page documents WezTerm's Lua appearance configuration. CLIBuddy uses a simplified [TOML configuration](toml-config.md) for appearance settings. See the [TOML Configuration Guide](toml-config.md) for CLIBuddy-specific appearance configuration.
+
 ### Color Scheme
 
 WezTerm ships with over 700 color schemes available from

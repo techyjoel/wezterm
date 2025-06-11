@@ -1,5 +1,13 @@
 # Troubleshooting
 
+!!! info "CLIBuddy Fork"
+    **CLIBuddy users**: This page documents troubleshooting for standard WezTerm. For CLIBuddy-specific configuration issues:
+    
+    - Configuration uses [TOML format](config/toml-config.md), not Lua
+    - Config file location: `~/.config/clibuddy/config.toml` (Linux), `~/Library/Application Support/CLIBuddy/config.toml` (macOS), `%APPDATA%\CLIBuddy\config.toml` (Windows)
+    - Debug overlay still works with <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd>
+    - Most troubleshooting techniques below still apply
+
 ## Review logs/error messages
 
 If things aren't working out, there may be an issue printed in the logs.

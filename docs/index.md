@@ -17,7 +17,10 @@ hide:
 * [Hyperlinks](hyperlinks.md)
 * [A full list of features can be found here](features.md)
 
-Looking for a [configuration reference?](config/files.md)
+Looking for a configuration reference? 
+
+**CLIBuddy users:** See the [TOML Configuration Guide](config/toml-config.md)  
+**Standard WezTerm users:** See the [Lua Configuration Reference](config/files.md)
 
 **These docs are searchable: press `S` or click on the magnifying glass icon
 to activate the search function!**
