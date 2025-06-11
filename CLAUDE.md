@@ -56,7 +56,7 @@ The workflow you should use is:
 7. Git add and commit
 
 ### Git commits
-   - Include "Created with AI assistance" in your git commit messages. Don't say anything else about AI like "co-authored" or anything else.
+   - Include "Created with AI assistance" in your git commit messages. DO NOT say anything else about AI like "co-authored" or anything else. DO NOT mention Claude.
    - Don't use any emojii in git commit messages
 
 ## High-Level Architecture
