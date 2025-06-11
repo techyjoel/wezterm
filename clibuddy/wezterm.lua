@@ -39,7 +39,7 @@ inactive_tab_bg_color = "#01010A"
 inactive_tab_fg_color = "#999999"
 selection_fg_color = "#F0F0F0"
 selection_bg_color = "#6565AA"
-scrollbar_color = "#BBBBBB"
+scrollbar_color = "#AAAAAA"
 opacity = 0.8   # 0-1 range
 blur = true
 
@@ -50,7 +50,7 @@ hide_tab_bar_if_only_one_tab = true
 
 [border]
 # Window border only works on MacOS and Windows
-window_border_color= "#AAAAAA"
+window_border_color= "#999999"
 
 [terminal]
 scrollback_lines = 300000
@@ -247,10 +247,10 @@ config.hide_tab_bar_if_only_one_tab = user_config.window and user_config.window.
 config.initial_cols = user_config.window and user_config.window.initial_width or 130
 config.initial_rows = user_config.window and user_config.window.initial_height or 34
 config.window_padding = {
-    left = 10,
+    left = 12,
     right = 22,
     top = 4,
-    bottom = 6,
+    bottom = 8,
 }
 
 -- OS window border (MacOS and Windows only)
