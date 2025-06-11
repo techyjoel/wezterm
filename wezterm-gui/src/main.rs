@@ -139,7 +139,32 @@ fn set_builtin_config_file() -> anyhow::Result<()> {
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Unable to determine executable directory"))?;
 
-    let builtin_config = exe_dir.join("clibuddy").join("wezterm.lua");
+    // Try multiple locations for the built-in config file
+    let candidates = vec![
+        // For development builds (next to executable)
+        exe_dir.join("clibuddy").join("wezterm.lua"),
+        // For system installations (shared data directory)
+        std::path::PathBuf::from("/usr/share/wezterm/config/wezterm.lua"),
+        // For Windows system installations
+        exe_dir.join("share").join("wezterm").join("config").join("wezterm.lua"),
+        // For macOS app bundle
+        exe_dir.parent().and_then(|p| p.parent())
+            .map(|p| p.join("Resources").join("wezterm.lua"))
+            .unwrap_or_else(|| exe_dir.join("wezterm.lua")),
+    ];
+
+    let mut builtin_config = None;
+    for candidate in &candidates {
+        if candidate.exists() {
+            builtin_config = Some(candidate.clone());
+            break;
+        }
+    }
+
+    let builtin_config = builtin_config.ok_or_else(|| {
+        anyhow::anyhow!("Unable to find built-in config file. Searched: {:?}", 
+            candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>())
+    })?;
 
     // Always override, regardless of existing WEZTERM_CONFIG_FILE
     std::env::set_var("WEZTERM_CONFIG_FILE", &builtin_config);

@@ -1,4 +1,9 @@
 
+# Configuration Files
+
+!!! info "CLIBuddy Fork"
+    **CLIBuddy users**: This documentation covers the original WezTerm Lua configuration system. CLIBuddy uses a simplified [TOML configuration](toml-config.md) for user settings. See the [TOML Configuration Guide](toml-config.md) for CLIBuddy-specific documentation.
+
 ## Quick Start
 
 Create a file named `.wezterm.lua` in your home directory, with the following
@@ -34,6 +39,9 @@ For more details, see:
 - [color_scheme](lua/config/color_schemes.md)
 
 ## Configuration Files
+
+!!! warning "CLIBuddy Note"
+    The configuration file resolution logic below applies to standard WezTerm. CLIBuddy uses a built-in configuration system with TOML user settings. For CLIBuddy internal architecture, see [Internal Lua Configuration](internal-lua-config.md).
 
 `wezterm` will look for a [lua](https://www.lua.org/manual/5.3/manual.html)
 configuration file using the logic shown below.
