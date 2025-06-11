@@ -247,8 +247,8 @@ config.hide_tab_bar_if_only_one_tab = user_config.window and user_config.window.
 config.initial_cols = user_config.window and user_config.window.initial_width or 130
 config.initial_rows = user_config.window and user_config.window.initial_height or 34
 config.window_padding = {
-    left = 8,
-    right = 20,
+    left = 10,
+    right = 22,
     top = 4,
     bottom = 6,
 }
