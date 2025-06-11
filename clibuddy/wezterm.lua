@@ -56,7 +56,7 @@ window_border_color= "#AAAAAA"
 scrollback_lines = 300000
 
 [behavior]
-window_close_confirmation = never
+window_close_confirmation = "never"
 ]]
     
     -- Create directory if needed
