@@ -110,3 +110,17 @@ git branch -D upstream-sync   # always a temporary branch
 
 ---
 
+### 4. Build and Test
+
+To build and test you should run the cargo build command in release mode, then you can either directly run the compiled executable in the target/release folder, or you can create a deployment package for your target.
+
+~~~bash
+cargo build --release
+ci/deploy.sh
+~~~
+
+To install deployment packages:
+
+* MacOS: Drag the .app into the Applications folder
+* Windows: The default build is a standalone "zip drive" build. You can run the executable directly from that folder. ToDo: figure out how to build the windows installer and execute that
+* Ubuntu Linux: dpkg -i <generated .dpkg file>
