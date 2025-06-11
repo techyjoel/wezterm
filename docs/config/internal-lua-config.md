@@ -55,7 +55,7 @@ The CLIBuddy binary searches for the built-in configuration file in the followin
 1. **Development/portable mode:** `<executable_dir>/clibuddy/wezterm.lua`
 2. **Linux system installation:** `/usr/share/wezterm/config/wezterm.lua`
 3. **Windows system installation:** `<executable_dir>/share/wezterm/config/wezterm.lua`
-4. **macOS app bundle:** `<bundle>/Contents/Resources/wezterm.lua`
+4. **macOS app bundle:** `<Contents>/Resources/wezterm.lua`
 
 The first existing file found is used. This search is implemented in `wezterm-gui/src/main.rs` in the `set_builtin_config_file()` function.
 

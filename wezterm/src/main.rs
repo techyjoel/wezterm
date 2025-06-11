@@ -721,7 +721,22 @@ fn set_builtin_config_file() -> anyhow::Result<()> {
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Unable to determine executable directory"))?;
 
-    let builtin_config = exe_dir.join("clibuddy").join("wezterm.lua");
+    // On macOS, when running from an app bundle, the config is in the Resources directory
+    let builtin_config = if cfg!(target_os = "macos") {
+        // Check if we're in an app bundle (MacOS directory)
+        if exe_dir.file_name() == Some(std::ffi::OsStr::new("MacOS")) {
+            // Go up to Contents, then into Resources
+            exe_dir
+                .parent()  // Contents
+                .and_then(|contents| contents.join("Resources").join("wezterm.lua").canonicalize().ok())
+                .unwrap_or_else(|| exe_dir.join("clibuddy").join("wezterm.lua"))
+        } else {
+            // Not in app bundle, use regular path
+            exe_dir.join("clibuddy").join("wezterm.lua")
+        }
+    } else {
+        exe_dir.join("clibuddy").join("wezterm.lua")
+    };
 
     // Always override, regardless of existing WEZTERM_CONFIG_FILE
     std::env::set_var("WEZTERM_CONFIG_FILE", &builtin_config);

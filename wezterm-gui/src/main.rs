@@ -148,7 +148,7 @@ fn set_builtin_config_file() -> anyhow::Result<()> {
         // For Windows system installations
         exe_dir.join("share").join("wezterm").join("config").join("wezterm.lua"),
         // For macOS app bundle
-        exe_dir.parent().and_then(|p| p.parent())
+        exe_dir.parent()
             .map(|p| p.join("Resources").join("wezterm.lua"))
             .unwrap_or_else(|| exe_dir.join("wezterm.lua")),
     ];
