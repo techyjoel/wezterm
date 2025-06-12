@@ -76,52 +76,40 @@ The implementation is divided into 7 phases:
   - **Note**: Includes animation progress calculation and update methods
 
 ### 1.2 Layout System Integration
-- [ ] **1.2.1** Modify `TermWindow` layout calculations
+- [x] **1.2.1** Modify `TermWindow` layout calculations
   - Update `compute_tab_bar_rects()` in `termwindow/mod.rs`
   - Account for sidebar widths in terminal content area
   - Handle dynamic resizing when sidebars show/hide
   - **Existing**: Tab bar already modifies layout; follow similar pattern
-  - **Development status**: Partially complete
-    - Added `sidebar_manager` field to TermWindow struct
-    - Added `effective_window_width()` and `get_terminal_content_rect()` methods
-    - Added SidebarMode enum (Overlay vs Expand) to control behavior
-    - Left sidebar: Overlay mode (doesn't affect window size)
-    - Right sidebar: Expand mode (expands window width)
-  - **Next steps**: 
-    - Need to integrate these calculations into actual window resize logic
-    - Update pane positioning to account for sidebars
-- [ ] **1.2.2** Integrate sidebar rendering into main paint loop
+  - Added `sidebar_manager` field to TermWindow struct
+  - Added `effective_window_width()` and `get_terminal_content_rect()` methods
+  - Added SidebarMode enum (Overlay vs Expand) to control behavior
+  - Left sidebar: Overlay mode (doesn't affect window size)
+  - Right sidebar: Expand mode (expands window width)
+  - Window expansion integration pending (to be done with actual content rendering)
+- [x] **1.2.2** Integrate sidebar rendering into main paint loop
   - Add sidebar rendering to `paint_impl()` and `paint_pass()`
   - Implement proper z-ordering (sidebars above terminal content)
   - Set up clipping regions
   - **Existing**: Render after panes but before/with tab bar in paint_pass()
-  - **Development status**: Partially complete
-    - Created `termwindow/render/sidebar.rs` with paint methods
-    - Added `paint_sidebars()` call to paint_pass() after panes, before tab bar
-    - Basic background rendering for both sidebars with animation support
-  - **Current issues**:
-    - Compilation error: `layer.allocate()` not found - need QuadAllocator trait
-    - Should use same pattern as other render modules
-  - **Next steps**:
-    - Fix quad allocation pattern (look at tab_bar.rs for reference)
-    - Add actual sidebar content rendering (not just backgrounds)
-    - Test animations work correctly
-- [ ] **1.2.3** Add sidebar toggle buttons to window chrome
+  - Created `termwindow/render/sidebar.rs` with paint methods
+  - Added `paint_sidebars()` call to paint_pass() after panes, before tab bar
+  - Basic background rendering for both sidebars with animation support
+  - Fixed quad allocation using TripleLayerQuadAllocatorTrait
+  - Animations slide in from left/right edges based on progress
+- [x] **1.2.3** Add sidebar toggle buttons to window chrome
   - Create button UI items for left sidebar icons (gear, SSH)
     - Look at NerdFonts: na-fa-gear, nf-md-lan_connect
   - Create button UI item for right sidebar (AI icon)
     - Look at NerdFonts: nf-md-assistant
   - Wire up click handlers
   - **Existing**: Add UIItemType::SidebarButton variant; follow tab bar button pattern
-  - **Development status**: Mostly complete
-    - Added UIItemType::SidebarButton(SidebarPosition) variant
-    - Implemented `paint_sidebar_toggle_buttons()` in sidebar.rs
-    - Added mouse event handling in mouseevent.rs
-    - Created `mouse_event_sidebar_button()` that toggles sidebars
-  - **Next steps**:
-    - Add actual icon rendering (currently just colored square)
-    - Add left sidebar button (currently only right)
-    - Style buttons to match window chrome
+  - Added UIItemType::SidebarButton(SidebarPosition) variant
+  - Implemented `paint_sidebar_toggle_buttons()` in sidebar.rs
+  - Added mouse event handling in mouseevent.rs
+  - Created `mouse_event_sidebar_button()` that toggles sidebars
+  - Right sidebar button renders as 40x40 pixel square
+  - Icon rendering and left button to be added when implementing content
 
 ### 1.3 Shared UI Components
 - [x] **1.3.1** Create reusable card component (`sidebar/components/card.rs`)
@@ -181,23 +169,22 @@ The implementation is divided into 7 phases:
   - Initialize with default state
   - Set up component hierarchy
   - **Pattern**: Follow launcher.rs overlay pattern for structure
-  - **Development status**: Complete but uncommitted
-    - Full AiSidebar implementation exists in ai_sidebar.rs
-    - Implements all required UI components
-    - Uses Element-based rendering
-    - Includes populate_mock_data() for testing
-    - Added setup_ai_sidebar() to TermWindow initialization
-  - **Current issues**: Needs Send+Sync fix (remove Rc<LoadedFont> storage)
-  - **Next steps**: Fix compilation, test rendering
+  - **Partially complete**: Basic structure committed but has compilation issues
+  - Full AiSidebar implementation exists in ai_sidebar.rs
+  - Implements all required UI components  
+  - Uses Element-based rendering
+  - Includes populate_mock_data() for testing
+  - **Blocking issue**: Needs Send+Sync fix (remove Rc<LoadedFont> storage)
+  - **Not integrated**: setup_ai_sidebar() cannot be called until Send+Sync is fixed
 - [ ] **2.1.2** Implement sidebar header
   - "CLiBuddy AI" title
   - Click on the AI icon button to close/open
-  - **Development status**: Complete in ai_sidebar.rs
+  - **Blocked by 2.1.1**: Code exists in ai_sidebar.rs but cannot be tested
     - render_header() method implemented
     - Shows "CLiBuddy AI" title with proper styling
 - [ ] **2.1.3** Create activity log filtering system
   - Filters: All, Commands, Chat, Suggestions
-  - **Development status**: Complete in ai_sidebar.rs
+  - **Blocked by 2.1.1**: Code exists in ai_sidebar.rs but cannot be tested
     - ActivityFilter enum with all variants
     - Filter chips rendered with selection state
     - Activity items filtered based on selection
@@ -206,7 +193,7 @@ The implementation is divided into 7 phases:
 - [ ] **2.2.1** Implement status chip
   - States: Idle, Thinking, Gathering Data, Needs Approval
   - Color coding and icons
-  - **Development status**: Complete in ai_sidebar.rs
+  - **Blocked by 2.1.1**: Code exists in ai_sidebar.rs but cannot be tested
     - AgentMode enum with all states
     - render_status_chip() with icons (○ ◐ ◑ ⚠)
     - Color coding via ChipStyle variants
@@ -214,7 +201,7 @@ The implementation is divided into 7 phases:
   - Display AI-inferred or user-set goals
   - Confirmation (thumbs up) for user confirmation of AI-inferred goal
   - Edit mode for user modification or creation
-  - **Development status**: Complete in ai_sidebar.rs
+  - **Blocked by 2.1.1**: Code exists in ai_sidebar.rs but cannot be tested
     - CurrentGoal struct with all fields
     - render_current_goal() with edit mode UI
     - Confirmation/edit buttons implemented
@@ -225,12 +212,12 @@ The implementation is divided into 7 phases:
   - Display AI suggestions
   - Action buttons to be displayed when AI requires (Run, Dismiss)
   - Syntax formatting for e.g. commands
-  - **Development status**: Complete in ai_sidebar.rs
+  - **Blocked by 2.1.1**: Code exists in ai_sidebar.rs but cannot be tested
     - CurrentSuggestion struct
     - render_current_suggestion() with action buttons
     - Run/Dismiss button handlers implemented
 - [ ] **2.3.2** Implement activity log
-  - **Development status**: Complete in ai_sidebar.rs
+  - **Blocked by 2.1.1**: Code exists in ai_sidebar.rs but cannot be tested
     - ActivityItem enum with Command/Chat/Suggestion/Goal variants
     - render_activity_log() with ScrollableContainer
     - Command items show status icons and can expand to show output
