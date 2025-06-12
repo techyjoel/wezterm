@@ -727,8 +727,14 @@ fn set_builtin_config_file() -> anyhow::Result<()> {
         if exe_dir.file_name() == Some(std::ffi::OsStr::new("MacOS")) {
             // Go up to Contents, then into Resources
             exe_dir
-                .parent()  // Contents
-                .and_then(|contents| contents.join("Resources").join("wezterm.lua").canonicalize().ok())
+                .parent() // Contents
+                .and_then(|contents| {
+                    contents
+                        .join("Resources")
+                        .join("wezterm.lua")
+                        .canonicalize()
+                        .ok()
+                })
                 .unwrap_or_else(|| exe_dir.join("clibuddy").join("wezterm.lua"))
         } else {
             // Not in app bundle, use regular path
