@@ -1,11 +1,11 @@
 use crate::termwindow::box_model::{
     BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent,
 };
+use ::window::color::LinearRgba;
 use config::Dimension;
 use std::rc::Rc;
 use termwiz::input::{MouseButtons, MouseEvent};
 use wezterm_font::LoadedFont;
-use ::window::color::LinearRgba;
 
 pub struct ScrollableContainer {
     content: Vec<Element>,

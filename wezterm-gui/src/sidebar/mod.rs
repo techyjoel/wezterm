@@ -4,7 +4,10 @@ use std::time::Instant;
 use termwiz::input::{KeyCode, MouseEvent};
 // Widget traits will be implemented differently without termwiz widgets
 
+pub mod ai_sidebar;
 pub mod components;
+
+pub use ai_sidebar::AiSidebar;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarPosition {
@@ -60,10 +63,19 @@ impl SidebarState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SidebarMode {
+    /// Sidebar overlays on top of terminal content
+    Overlay,
+    /// Sidebar expands the window, terminal content shifts
+    Expand,
+}
+
 #[derive(Debug, Clone)]
 pub struct SidebarConfig {
     pub width: u16,
     pub position: SidebarPosition,
+    pub mode: SidebarMode,
     pub show_on_startup: bool,
     pub animation_duration_ms: u64,
 }
@@ -73,6 +85,7 @@ impl Default for SidebarConfig {
         Self {
             width: 300,
             position: SidebarPosition::Right,
+            mode: SidebarMode::Expand,
             show_on_startup: false,
             animation_duration_ms: 200,
         }
@@ -81,7 +94,7 @@ impl Default for SidebarConfig {
 
 pub trait Sidebar: Send + Sync {
     // Return the rendered content for this sidebar
-    // This should return whatever content type the sidebar wants to render  
+    // This should return whatever content type the sidebar wants to render
     fn render(&mut self);
 
     fn get_width(&self) -> u16;
@@ -113,15 +126,25 @@ pub struct SidebarManager {
 
 impl SidebarManager {
     pub fn new(config: SidebarConfig) -> Self {
-        let left_state = SidebarState::new(SidebarPosition::Left, config.width);
-        let right_state = SidebarState::new(SidebarPosition::Right, config.width);
+        // Create specific configs for left and right sidebars
+        let mut left_config = config.clone();
+        left_config.position = SidebarPosition::Left;
+        left_config.mode = SidebarMode::Overlay;
+        left_config.width = 350; // Slightly wider for settings
+
+        let mut right_config = config;
+        right_config.position = SidebarPosition::Right;
+        right_config.mode = SidebarMode::Expand;
+
+        let left_state = SidebarState::new(SidebarPosition::Left, left_config.width);
+        let right_state = SidebarState::new(SidebarPosition::Right, right_config.width);
 
         Self {
             left_sidebar: None,
             right_sidebar: None,
             left_state,
             right_state,
-            config,
+            config: right_config, // Keep the original/default as base
         }
     }
 
@@ -215,5 +238,21 @@ impl SidebarManager {
         self.right_state
             .get_animation_progress(self.config.animation_duration_ms)
             .unwrap_or(1.0)
+    }
+
+    /// Returns the extra window width needed for Expand-mode sidebars
+    pub fn get_window_expansion(&self) -> u16 {
+        // Only the right sidebar expands the window in our current design
+        if self.config.mode == SidebarMode::Expand && self.is_right_visible() {
+            self.get_right_width()
+        } else {
+            0
+        }
+    }
+
+    /// Returns the left offset for terminal content when sidebars affect positioning
+    pub fn get_terminal_left_offset(&self) -> u16 {
+        // Terminal content doesn't shift for overlay sidebars
+        0
     }
 }

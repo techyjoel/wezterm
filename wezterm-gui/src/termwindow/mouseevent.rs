@@ -43,7 +43,8 @@ impl super::TermWindow {
             | UIItemType::AboveScrollThumb
             | UIItemType::BelowScrollThumb
             | UIItemType::ScrollThumb
-            | UIItemType::Split(_) => {}
+            | UIItemType::Split(_)
+            | UIItemType::SidebarButton(_) => {}
         }
     }
 
@@ -54,7 +55,8 @@ impl super::TermWindow {
             | UIItemType::AboveScrollThumb
             | UIItemType::BelowScrollThumb
             | UIItemType::ScrollThumb
-            | UIItemType::Split(_) => {}
+            | UIItemType::Split(_)
+            | UIItemType::SidebarButton(_) => {}
         }
     }
 
@@ -382,6 +384,34 @@ impl super::TermWindow {
             UIItemType::CloseTab(idx) => {
                 self.mouse_event_close_tab(idx, event, context);
             }
+            UIItemType::SidebarButton(position) => {
+                self.mouse_event_sidebar_button(position, event, context);
+            }
+        }
+    }
+
+    pub fn mouse_event_sidebar_button(
+        &mut self,
+        position: crate::sidebar::SidebarPosition,
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        match event.kind {
+            WMEK::Press(MousePress::Left) => {
+                log::debug!("Toggle sidebar {:?}", position);
+                let mut sidebar_manager = self.sidebar_manager.borrow_mut();
+                match position {
+                    crate::sidebar::SidebarPosition::Left => {
+                        sidebar_manager.toggle_left_sidebar();
+                    }
+                    crate::sidebar::SidebarPosition::Right => {
+                        sidebar_manager.toggle_right_sidebar();
+                    }
+                }
+                drop(sidebar_manager);
+                context.invalidate();
+            }
+            _ => {}
         }
     }
 

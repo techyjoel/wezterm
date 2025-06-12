@@ -160,6 +160,7 @@ pub enum UIItemType {
     ScrollThumb,
     BelowScrollThumb,
     Split(PositionedSplit),
+    SidebarButton(crate::sidebar::SidebarPosition),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -463,6 +464,8 @@ pub struct TermWindow {
 
     gl: Option<Rc<glium::backend::Context>>,
     webgpu: Option<Rc<WebGpuState>>,
+
+    sidebar_manager: RefCell<crate::sidebar::SidebarManager>,
     config_subscription: Option<config::ConfigSubscription>,
 }
 
@@ -477,6 +480,44 @@ impl TermWindow {
                 }
             };
         }
+    }
+
+    /// Get the effective window width accounting for expanded sidebars
+    pub fn effective_window_width(&self) -> usize {
+        let sidebar_manager = self.sidebar_manager.borrow();
+        let expansion = sidebar_manager.get_window_expansion() as usize;
+        self.dimensions.pixel_width + expansion
+    }
+
+    /// Get the terminal content area accounting for sidebars
+    pub fn get_terminal_content_rect(&self) -> (usize, usize, usize, usize) {
+        let sidebar_manager = self.sidebar_manager.borrow();
+        let left_offset = sidebar_manager.get_terminal_left_offset() as usize;
+        
+        // For now, terminal content width remains the same
+        // Only the window expands for the right sidebar
+        (
+            left_offset,
+            0,
+            self.dimensions.pixel_width,
+            self.dimensions.pixel_height,
+        )
+    }
+
+    fn setup_ai_sidebar(&mut self) {
+        use crate::sidebar::{AiSidebar, SidebarConfig};
+        use std::sync::{Arc, Mutex};
+        
+        let mut ai_config = SidebarConfig::default();
+        ai_config.width = 400;
+        
+        let mut ai_sidebar = AiSidebar::new(ai_config);
+        ai_sidebar.populate_mock_data();
+        
+        let ai_sidebar_arc = Arc::new(Mutex::new(ai_sidebar));
+        
+        let mut sidebar_manager = self.sidebar_manager.borrow_mut();
+        sidebar_manager.set_right_sidebar(ai_sidebar_arc);
     }
 
     fn close_requested(&mut self, window: &Window) {
@@ -789,10 +830,19 @@ impl TermWindow {
             key_table_state: KeyTableState::default(),
             modal: RefCell::new(None),
             opengl_info: None,
+            sidebar_manager: RefCell::new(crate::sidebar::SidebarManager::new(
+                crate::sidebar::SidebarConfig::default(),
+            )),
         };
 
         let tw = Rc::new(RefCell::new(myself));
         let tw_event = Rc::clone(&tw);
+        
+        // Initialize AI sidebar for testing
+        {
+            let mut tw_mut = tw.borrow_mut();
+            tw_mut.setup_ai_sidebar();
+        }
 
         let mut x = None;
         let mut y = None;

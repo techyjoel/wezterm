@@ -265,6 +265,9 @@ impl crate::TermWindow {
             }
         }
 
+        // Paint sidebars
+        self.paint_sidebars(&mut layers).context("paint_sidebars")?;
+
         if self.show_tab_bar {
             self.paint_tab_bar(&mut layers).context("paint_tab_bar")?;
         }

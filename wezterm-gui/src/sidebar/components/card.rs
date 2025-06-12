@@ -5,8 +5,8 @@ use crate::termwindow::UIItemType;
 use config::Dimension;
 use std::rc::Rc;
 // Widget traits removed - using Element-based rendering instead
-use wezterm_font::LoadedFont;
 use ::window::color::LinearRgba;
+use wezterm_font::LoadedFont;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CardState {

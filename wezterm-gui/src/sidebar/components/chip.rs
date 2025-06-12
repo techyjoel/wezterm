@@ -6,8 +6,8 @@ use crate::termwindow::UIItemType;
 use config::Dimension;
 use std::rc::Rc;
 // Widget traits removed - using Element-based rendering instead
-use wezterm_font::LoadedFont;
 use ::window::color::LinearRgba;
+use wezterm_font::LoadedFont;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChipStyle {
@@ -323,7 +323,7 @@ impl ChipGroup {
         if index >= self.chips.len() {
             return;
         }
-        
+
         if self.multi_select {
             self.chips[index].toggle_selected();
         } else {
@@ -332,7 +332,7 @@ impl ChipGroup {
                 self.chips[i].selected = i == index;
             }
         }
-        
+
         // Call the click handler after updating selection
         if let Some(chip) = self.chips.get(index) {
             chip.handle_click();

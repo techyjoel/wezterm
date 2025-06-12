@@ -52,10 +52,11 @@ The workflow you should use is:
 1. Understand the desired change thoroughly. Ask the user questions if you're not sure about any aspects
 2. Think carefully about how to properly implement the change within the codebase
 3. Create an outline of the proposed work for the user to review
-4. Once in agreement, implement the change
-5. Run auto-format of code
-6. Run a type check and then release mode build to test if changes compile successfully
-7. Git add and commit
+4. Create a branch if doing any notable work (feature or other material change)
+5. Once in agreement on the proposed work, implement the change
+6. Run auto-format of code
+7. Run a type check and then release mode build to test if changes compile successfully
+8. Git add and commit
 
 ### Git commits
    - Include "Created with AI assistance" in your git commit messages. DO NOT say anything else about AI like "co-authored" or anything else. DO NOT mention Claude.
