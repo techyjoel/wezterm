@@ -49,6 +49,7 @@ mod scripting;
 mod scrollbar;
 mod selection;
 mod shapecache;
+mod sidebar;
 mod spawn;
 mod stats;
 mod tabbar;
@@ -146,9 +147,14 @@ fn set_builtin_config_file() -> anyhow::Result<()> {
         // For system installations (shared data directory)
         std::path::PathBuf::from("/usr/share/wezterm/config/wezterm.lua"),
         // For Windows system installations
-        exe_dir.join("share").join("wezterm").join("config").join("wezterm.lua"),
+        exe_dir
+            .join("share")
+            .join("wezterm")
+            .join("config")
+            .join("wezterm.lua"),
         // For macOS app bundle
-        exe_dir.parent()
+        exe_dir
+            .parent()
             .map(|p| p.join("Resources").join("wezterm.lua"))
             .unwrap_or_else(|| exe_dir.join("wezterm.lua")),
     ];
@@ -162,8 +168,13 @@ fn set_builtin_config_file() -> anyhow::Result<()> {
     }
 
     let builtin_config = builtin_config.ok_or_else(|| {
-        anyhow::anyhow!("Unable to find built-in config file. Searched: {:?}", 
-            candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>())
+        anyhow::anyhow!(
+            "Unable to find built-in config file. Searched: {:?}",
+            candidates
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+        )
     })?;
 
     // Always override, regardless of existing WEZTERM_CONFIG_FILE
