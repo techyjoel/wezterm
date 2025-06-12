@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Refer to ../SPEC.md (if available) for a detailed spec of this project.
+
 ## Build and Development Commands
 
 ### Initial Setup
@@ -275,7 +277,32 @@ pub trait Modal {
 - `UIItem` registration for mouse handling
 - Layer system with z-ordering
 
-## SSH Sidebar Implementation Plan
+
+
+## TODOs
+
+### UI/UX Features
+
+#### SSH Sidebar (Planned)
+**Status**: Design phase - see SSH Sidebar Implementation Plan above
+
+**Next Steps**
+- Begin Phase 1: Data model and configuration implementation
+- Create basic widget framework integration
+- Design host management UI workflows
+
+### Performance & Optimization
+
+- Benchmark OS window border update performance across platforms
+- Add frame rate monitoring?
+
+### Documentation & Testing
+
+
+
+
+
+## SSH Sidebar Implementation Initial Plan
 
 ### Phase 1: Data Model and Configuration (Week 1)
 
@@ -437,22 +464,4 @@ end)
 4. Performance testing with 100+ hosts
 5. Accessibility testing for keyboard navigation
 
-## TODOs
-
-### UI/UX Features
-
-#### SSH Sidebar (Planned)
-**Status**: Design phase - see SSH Sidebar Implementation Plan above
-
-**Next Steps**
-- Begin Phase 1: Data model and configuration implementation
-- Create basic widget framework integration
-- Design host management UI workflows
-
-### Performance & Optimization
-
-- Benchmark OS window border update performance across platforms
-- Add frame rate monitoring?
-
-### Documentation & Testing
 
