@@ -48,16 +48,11 @@ The implementation is divided into 7 phases:
 
 ### 1.1 Sidebar Infrastructure
 - [x] **1.1.1** Create sidebar module structure (`wezterm-gui/src/sidebar/`)
-  - Create `sidebar.rs` as main module file with trait definitions
+  - Create `sidebar/mod.rs` as main module file with trait definitions
   - Define `SidebarPosition` enum (Left, Right)
-  - Create `SidebarState` struct for animation and visibility
-  - Add `SidebarConfig` with width, position, show_on_startup, animation_duration_ms
-  - **As Built**: Created sidebar/mod.rs (219 lines) with:
-    - `SidebarPosition` enum with Left/Right variants
-    - `SidebarState` struct with animation tracking via Instant timestamps
-    - `SidebarConfig` struct with Default impl (width: 300, right position, 200ms animation)
-    - Animation progress calculation with support for easing functions
-  - **Change**: Abandoned termwiz widgets, using Element-based rendering for better integration
+  - Create `SidebarState` struct for animation and visibility tracking via Instant timestamps
+  - Add `SidebarConfig` with width: 300, position: Right, show_on_startup: false, animation_duration_ms: 200
+  - **Note**: Uses Element-based rendering instead of termwiz widgets
 - [x] **1.1.2** Implement `Sidebar` trait
   ```rust
   pub trait Sidebar: Send + Sync {
@@ -71,22 +66,14 @@ The implementation is divided into 7 phases:
       fn handle_key_event(&mut self, key: &KeyCode) -> Result<bool>;
   }
   ```
-  - **As Built**: Trait requires Send + Sync for thread safety in multi-threaded environment
-  - **Changes from Plan**:
-    - No RenderArgs parameter - sidebars create Elements directly
-    - Added get_position() and set_width() methods
-    - Uses WezTerm's MouseEvent/KeyCode instead of termwiz WidgetEvent
-    - Event handlers return Result<bool> for error handling
+  - **Note**: Added Send + Sync bounds for thread safety
+  - **Note**: Uses WezTerm's MouseEvent/KeyCode types, returns Result<bool>
 - [x] **1.1.3** Create `SidebarManager` to handle multiple sidebars
   - Manage left and right sidebar instances
   - Handle visibility states
   - Coordinate animations
-  - **As Built**: SidebarManager implementation:
-    - Uses `Arc<Mutex<dyn Sidebar>>` for thread-safe sidebar instances
-    - Separate left_state and right_state for independent animations
-    - `update_animations()` returns bool to trigger redraws when animating
-    - Methods for width calculation accounting for visibility and animation state
-    - get_left/right_animation_progress() for smooth transitions
+  - **Note**: Uses `Arc<Mutex<dyn Sidebar>>` for thread-safe storage
+  - **Note**: Includes animation progress calculation and update methods
 
 ### 1.2 Layout System Integration
 - [ ] **1.2.1** Modify `TermWindow` layout calculations
@@ -112,38 +99,21 @@ The implementation is divided into 7 phases:
   - Support title, content, and actions (e.g. buttons)
   - Implement hover states
   - Add expand/collapse functionality
-  - **As Built**: Card component (189 lines):
-    - `CardState` enum: Normal, Expanded, Collapsed
-    - Builder pattern: with_title(), with_content(), with_actions()
-    - Expandable cards show ▶/▼ indicators in header
-    - Header with dark background (#15151B), bottom border
-    - Hover state changes border color from #4D4D59 to #666673
-    - Content area hidden when collapsed
-    - Optional UIItemType for mouse interaction
+  - **Existing**: Use box_model.rs Element for rendering
+  - **Note**: Includes CardState enum (Normal, Expanded, Collapsed)
+  - **Note**: Builder pattern with expandable headers showing ▶/▼ indicators
 - [x] **1.3.2** Create scrollable container component
   - Implement virtual scrolling for performance
   - Add scrollbar with auto-hide
   - Support smooth scrolling
-  - **As Built**: ScrollableContainer (294 lines):
-    - Virtual scrolling: only renders `max_visible_items` from `top_row`
-    - Scrollbar thumb size calculated from viewport/content ratio
-    - Mouse wheel support via MouseButtons::VERT_WHEEL
-    - Drag scrolling with mouse capture tracking
-    - Scrollbar colors: track #1A1A1F, thumb #666673 (hover: #8C8C99)
-    - Note: is_over_scrollbar() always returns false - needs coordinate implementation
-    - Builder pattern with auto_hide and smooth_scroll options
+  - **Existing**: Use ScrollHit pattern from tab bar
+  - **Note**: Renders only visible items, includes scrollbar with mouse wheel support
+  - **Note**: is_over_scrollbar() not yet implemented (returns false)
 - [x] **1.3.3** Create chip components for status display and filtering
-  - **As Built**: Chip components (360 lines):
-    - `ChipStyle` enum: Default, Primary, Success, Warning, Error, Info, Custom
-    - `ChipSize` enum: Small (6px padding), Medium (10px), Large (14px)
-    - Optional icon support, closeable chips with × button
-    - Selection state with brightened colors
-    - Click and close event handlers via closures
-    - `ChipGroup` for managing multiple chips:
-      - Single-select mode (radio button behavior)
-      - Multi-select mode (checkbox behavior)
-      - get_selected() returns indices
-    - Note: Border corners set to SizedPoly::none() - no rounded corners yet
+  - **Existing**: Use box_model.rs with rounded borders
+  - **Note**: ChipStyle enum with 6 variants, ChipSize with 3 sizes
+  - **Note**: ChipGroup supports single/multi-select modes
+  - **Note**: No rounded corners implemented yet (uses SizedPoly::none())
 - [ ] **1.3.4** Create form components
   - Text input with placeholder
   - Button with hover states
@@ -166,25 +136,9 @@ The implementation is divided into 7 phases:
   - Handle animation interruptions
   - Performance optimization
 
-### Phase 1 Summary
-**Completed in Phase 1 commits:**
-- Core sidebar infrastructure (trait, state management, config)
-- Three UI components (Card, ScrollableContainer, Chip)
-- Basic animation support in SidebarState
-
-**NOT completed in Phase 1:**
-- No integration with TermWindow (1.2.1, 1.2.2)
-- No sidebar toggle buttons in window chrome (1.2.3)
-- No form components (1.3.4)
-- No ColorEase integration for animations (1.4.1, 1.4.2)
-
 ---
 
 ## Phase 2: AI Sidebar UI Implementation
-
-**Note**: Some Phase 2 work was started but NOT committed:
-- Created ai_sidebar.rs with full AiSidebar implementation
-- This work is currently uncommitted and needs to be integrated with TermWindow first
 
 ### 2.1 AI Sidebar Structure
 - [ ] **2.1.1** Create `AiSidebar` struct (`sidebar/ai_sidebar.rs`)
