@@ -5,9 +5,11 @@ use termwiz::input::{KeyCode, MouseEvent};
 // Widget traits will be implemented differently without termwiz widgets
 
 pub mod ai_sidebar;
+pub mod animation;
 pub mod components;
 
 pub use ai_sidebar::AiSidebar;
+pub use animation::{SidebarAnimation, SidebarPositionAnimation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarPosition {
@@ -15,51 +17,59 @@ pub enum SidebarPosition {
     Right,
 }
 
+#[derive(Clone)]
 pub struct SidebarState {
     pub visible: bool,
     pub position: SidebarPosition,
-    pub animation_start: Option<Instant>,
+    pub animation: SidebarPositionAnimation,
     pub animation_target_visible: bool,
     pub width: u16,
 }
 
 impl SidebarState {
     pub fn new(position: SidebarPosition, width: u16) -> Self {
+        // Sidebar slides in from off-screen
+        let (start_pos, end_pos) = match position {
+            SidebarPosition::Left => (-(width as f32), 0.0),
+            SidebarPosition::Right => (width as f32, 0.0),
+        };
+
         Self {
             visible: false,
             position,
-            animation_start: None,
+            animation: SidebarPositionAnimation::new(200, start_pos, end_pos),
             animation_target_visible: false,
             width,
         }
     }
 
     pub fn toggle_visibility(&mut self) {
-        self.animation_start = Some(Instant::now());
         self.animation_target_visible = !self.visible;
+        // Start animation in the correct direction
+        self.animation.start(self.animation_target_visible);
     }
 
     pub fn is_animating(&self) -> bool {
-        self.animation_start.is_some() && self.visible != self.animation_target_visible
+        self.animation.is_animating()
     }
 
     pub fn finish_animation(&mut self) {
         self.visible = self.animation_target_visible;
-        self.animation_start = None;
     }
 
-    pub fn get_animation_progress(&self, duration_ms: u64) -> Option<f32> {
-        if let Some(start) = self.animation_start {
-            let elapsed = start.elapsed().as_millis() as f32;
-            let duration = duration_ms as f32;
-            if elapsed >= duration {
-                None
-            } else {
-                Some(elapsed / duration)
-            }
+    pub fn get_animation_progress(&self, _duration_ms: u64) -> Option<f32> {
+        if self.animation.is_animating() {
+            // Get a copy to avoid borrow issues
+            let mut anim_copy = self.animation.clone();
+            anim_copy.get_progress()
         } else {
             None
         }
+    }
+
+    /// Get the current position offset for rendering
+    pub fn get_position_offset(&mut self) -> f32 {
+        self.animation.get_position()
     }
 }
 
@@ -238,6 +248,16 @@ impl SidebarManager {
         self.right_state
             .get_animation_progress(self.config.animation_duration_ms)
             .unwrap_or(1.0)
+    }
+
+    /// Get the current position offset for the left sidebar
+    pub fn get_left_position_offset(&mut self) -> f32 {
+        self.left_state.get_position_offset()
+    }
+
+    /// Get the current position offset for the right sidebar
+    pub fn get_right_position_offset(&mut self) -> f32 {
+        self.right_state.get_position_offset()
     }
 
     /// Returns the extra window width needed for Expand-mode sidebars

@@ -131,33 +131,39 @@ The implementation is divided into 7 phases:
   - **Note**: ChipStyle enum with 6 variants, ChipSize with 3 sizes
   - **Note**: ChipGroup supports single/multi-select modes
   - **Note**: No rounded corners implemented yet (uses SizedPoly::none())
-- [ ] **1.3.4** Create form components
-  - **Development status**: Not started
-  - Text input with placeholder
-  - Button with hover states
-  - Toggle switch
-  - Dropdown/select
-  - Slider component
-  - Color picker
-  - Form validation helpers
-  - File picker for SSH keys and future document uploads
-  - **Existing**: termwiz has Widget trait; launcher.rs shows text input pattern
+- [x] **1.3.4** Create form components
+  - **Development status**: Completed
+  - Text input with placeholder ✓
+  - Button with hover states ✓
+  - Toggle switch ✓
+  - Dropdown/select ✓
+  - Slider component ✓
+  - Color picker (placeholder) ✓
+  - Form validation helpers ✓
+  - File picker for SSH keys and future document uploads (placeholder) ✓
+  - **Implementation**: Created `sidebar/components/forms.rs` with all components
+  - **Note**: Uses Element-based rendering (not termwiz widgets)
 
 ### 1.4 Animation Framework
-- [ ] **1.4.1** Extend ColorEase for sidebar animations
-  - **Development status**: Basic animation support exists in SidebarState
-    - Animation timing tracked with Instant timestamps
-    - Progress calculation method exists
-    - Sidebars slide in from left/right edges
-  - **Next steps**: Connect to ColorEase for easing functions
-  - Slide in/out animations
-  - Fade effects
-  - Content transitions
-  - **Existing**: ColorEase in colorease.rs already supports all needed animations
-- [ ] **1.4.2** Create animation coordinator
-  - Queue and manage multiple animations
-  - Handle animation interruptions
-  - Performance optimization
+- [x] **1.4.1** Extend ColorEase for sidebar animations
+  - **Development status**: Completed
+  - Created `sidebar/animation/animations.rs` with:
+    - SidebarAnimation using ColorEase for timing ✓
+    - SidebarPositionAnimation for slide effects ✓
+    - SidebarOpacityAnimation for fade effects ✓
+    - SidebarSlideAndFadeAnimation for combined effects ✓
+  - Integrated with SidebarState and rendering pipeline ✓
+  - Sidebars now use smooth position-based animations with easing ✓
+  - **Implementation**: Updated paint_left_sidebar() and paint_right_sidebar() to use animation offsets
+- [x] **1.4.2** Create animation coordinator
+  - **Development status**: Completed
+  - Created `sidebar/animation/coordinator.rs` with:
+    - AnimationCoordinator for managing multiple animations ✓
+    - Queue and priority system ✓
+    - Animation interruption handling ✓
+    - Performance optimization with frame budgets ✓
+    - Support for callbacks on completion ✓
+  - **Features**: Max concurrent animations, animation states, target-based management
 
 ---
 

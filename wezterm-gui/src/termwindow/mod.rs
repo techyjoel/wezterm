@@ -493,7 +493,7 @@ impl TermWindow {
     pub fn get_terminal_content_rect(&self) -> (usize, usize, usize, usize) {
         let sidebar_manager = self.sidebar_manager.borrow();
         let left_offset = sidebar_manager.get_terminal_left_offset() as usize;
-        
+
         // For now, terminal content width remains the same
         // Only the window expands for the right sidebar
         (
@@ -507,15 +507,15 @@ impl TermWindow {
     fn setup_ai_sidebar(&mut self) {
         use crate::sidebar::{AiSidebar, SidebarConfig};
         use std::sync::{Arc, Mutex};
-        
+
         let mut ai_config = SidebarConfig::default();
         ai_config.width = 400;
-        
+
         let mut ai_sidebar = AiSidebar::new(ai_config);
         ai_sidebar.populate_mock_data();
-        
+
         let ai_sidebar_arc = Arc::new(Mutex::new(ai_sidebar));
-        
+
         let mut sidebar_manager = self.sidebar_manager.borrow_mut();
         sidebar_manager.set_right_sidebar(ai_sidebar_arc);
     }
@@ -837,7 +837,7 @@ impl TermWindow {
 
         let tw = Rc::new(RefCell::new(myself));
         let tw_event = Rc::clone(&tw);
-        
+
         // Initialize AI sidebar for testing
         {
             let mut tw_mut = tw.borrow_mut();
