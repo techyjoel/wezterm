@@ -363,5 +363,113 @@ end)
 -- Add file watching for the user config to enable hot reload
 wezterm.add_to_config_reload_watch_list(get_user_config_path())
 
+-- CLIBuddy Sidebar Configuration
+config.clibuddy = {
+    -- Left sidebar settings (settings/config sidebar)
+    left_sidebar = {
+        enabled = true,
+        width = 350,
+        show_on_startup = false,
+        animation_duration_ms = 200,
+        -- Colors
+        background_color = 'rgba(5, 5, 6, 0.95)',
+        border_color = 'rgba(64, 64, 64, 1.0)',
+        -- Toggle button
+        button = {
+            visible = true,
+            background_color = 'rgba(32, 32, 40, 0.8)',
+            hover_color = 'rgba(50, 50, 60, 0.9)',
+            icon_color = 'rgba(200, 200, 200, 1.0)',
+        }
+    },
+    
+    -- Right sidebar settings (AI assistant)
+    right_sidebar = {
+        enabled = true,
+        width = 400,
+        show_on_startup = true,  -- Set to true to show AI sidebar by default
+        animation_duration_ms = 200,
+        -- Colors
+        background_color = 'rgba(5, 5, 6, 1.0)',
+        border_color = 'rgba(64, 64, 64, 1.0)',
+        -- Toggle button
+        button = {
+            visible = true,
+            background_color = 'rgba(32, 32, 40, 0.8)',
+            hover_color = 'rgba(50, 50, 60, 0.9)',
+            icon_color = 'rgba(32, 128, 255, 1.0)',  -- Blue for AI
+            position_x = 'right-10',  -- Distance from right edge
+            position_y = 'top+10',    -- Distance from top
+            size = 40,
+        },
+        -- AI-specific settings
+        ai = {
+            -- Status chip colors
+            status_colors = {
+                idle = 'rgba(100, 100, 100, 1.0)',
+                thinking = 'rgba(255, 200, 0, 1.0)',
+                gathering_data = 'rgba(32, 200, 255, 1.0)',
+                needs_approval = 'rgba(255, 100, 100, 1.0)',
+            },
+            -- Component colors
+            current_goal_bg = 'rgba(20, 40, 60, 0.3)',
+            current_suggestion_bg = 'rgba(40, 20, 60, 0.3)',
+            chat_input_bg = 'rgba(10, 10, 10, 0.5)',
+            -- Activity log colors
+            activity_log = {
+                command_color = 'rgba(100, 200, 100, 1.0)',
+                chat_user_color = 'rgba(200, 200, 200, 1.0)',
+                chat_ai_color = 'rgba(100, 150, 255, 1.0)',
+                suggestion_color = 'rgba(255, 200, 100, 1.0)',
+                goal_color = 'rgba(200, 100, 255, 1.0)',
+            }
+        }
+    },
+    
+    -- Form component colors (shared by both sidebars)
+    forms = {
+        text_input = {
+            bg_color = 'rgba(5, 5, 5, 1.0)',
+            border_color = 'rgba(64, 64, 64, 1.0)',
+            border_color_focused = 'rgba(32, 128, 255, 1.0)',
+            border_color_error = 'rgba(204, 51, 51, 1.0)',
+            text_color = 'rgba(230, 230, 230, 1.0)',
+            placeholder_color = 'rgba(128, 128, 128, 1.0)',
+        },
+        button = {
+            primary = {
+                bg_color = 'rgba(32, 128, 255, 1.0)',
+                text_color = 'rgba(255, 255, 255, 1.0)',
+                hover_color = 'rgba(40, 140, 255, 0.9)',
+            },
+            secondary = {
+                bg_color = 'rgba(5, 5, 5, 1.0)',
+                text_color = 'rgba(230, 230, 230, 1.0)',
+                border_color = 'rgba(102, 102, 102, 1.0)',
+                hover_bg_color = 'rgba(51, 51, 51, 1.0)',
+            },
+            danger = {
+                bg_color = 'rgba(204, 51, 51, 1.0)',
+                text_color = 'rgba(255, 255, 255, 1.0)',
+                hover_color = 'rgba(220, 60, 60, 0.9)',
+            },
+        },
+        toggle = {
+            on_color = 'rgba(32, 204, 32, 1.0)',
+            off_color = 'rgba(102, 102, 102, 1.0)',
+        },
+        dropdown = {
+            bg_color = 'rgba(5, 5, 5, 1.0)',
+            border_color = 'rgba(64, 64, 64, 1.0)',
+            hover_color = 'rgba(32, 128, 255, 1.0)',
+            selected_bg_color = 'rgba(32, 128, 255, 1.0)',
+        },
+        slider = {
+            track_color = 'rgba(51, 51, 51, 1.0)',
+            fill_color = 'rgba(32, 128, 255, 1.0)',
+        },
+    },
+}
+
 -- Finally, return the configuration to wezterm
 return config

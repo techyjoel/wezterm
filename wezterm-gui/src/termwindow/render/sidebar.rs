@@ -29,19 +29,38 @@ impl crate::TermWindow {
         &mut self,
         layers: &mut TripleLayerQuadAllocator,
     ) -> Result<()> {
-        let button_size = 40.0;
+        let config = &self.config;
+        
+        // Get configuration for right sidebar button
+        let button_size = 40.0; // TODO: Read from config.clibuddy.right_sidebar.button.size
         let button_margin = 10.0;
         let border = self.get_os_border();
 
         // Right sidebar toggle button (AI icon)
-        let mut quad = layers.allocate(2)?;
-
+        // Allocate background quad
+        let mut bg_quad = layers.allocate(2)?;
+        
         let right_x = self.dimensions.pixel_width as f32 - button_size - button_margin;
         let y = border.top.get() as f32 + button_margin;
 
-        quad.set_position(right_x, y, right_x + button_size, y + button_size);
-        quad.set_fg_color(LinearRgba::with_components(0.2, 0.2, 0.25, 0.8));
-        quad.set_is_background();
+        // Set button background with a more visible color
+        bg_quad.set_position(right_x, y, right_x + button_size, y + button_size);
+        bg_quad.set_fg_color(LinearRgba::with_components(0.125, 0.125, 0.156, 0.8)); // rgba(32, 32, 40, 0.8)
+        bg_quad.set_is_background();
+
+        // Add a simple AI icon using text for now
+        // We'll use a robot emoji or text as placeholder
+        let icon_text = "AI";
+        let icon_size = button_size * 0.5;
+        
+        // Create a text quad for the icon
+        let mut text_quad = layers.allocate(2)?;
+        let icon_x = right_x + (button_size - icon_size) / 2.0;
+        let icon_y = y + (button_size - icon_size) / 2.0;
+        
+        text_quad.set_position(icon_x, icon_y, icon_x + icon_size, icon_y + icon_size);
+        text_quad.set_fg_color(LinearRgba::with_components(0.125, 0.5, 1.0, 1.0)); // Blue color for AI
+        text_quad.set_has_color(true);
 
         // Add UI item for click detection
         self.ui_items.push(UIItem {
@@ -51,8 +70,6 @@ impl crate::TermWindow {
             height: button_size as usize,
             item_type: UIItemType::SidebarButton(crate::sidebar::SidebarPosition::Right),
         });
-
-        // TODO: Add actual icon rendering (e.g., AI assistant icon)
 
         Ok(())
     }
