@@ -262,7 +262,13 @@ The implementation is divided into 7 phases:
   - Auto-scroll to bottom on new messages
   - Maintain scroll position when reviewing history
 
-**Phase 2 Summary**: Core AI sidebar UI is mostly complete. The sidebar renders with all major components (header, status, goals, suggestions, activity log, chat). Missing features: multi-line chat input, markdown rendering, and code syntax highlighting in chat. The sidebar is integrated and can be toggled via the button.
+### 2.5 Config System Integration
+- [ ] **2.5.1** Integrate our components into the Wezterm config system
+  - Identify the proper config flow for items like colors, activation booleans, and other preferences
+  - Set up the ./clibuddy/wezterm.lua file with relevant new config items, and remove the global export
+  - Integrate with the wezterm config processing system
+
+**Phase 2 Summary**: Core AI sidebar UI is mostly complete. The sidebar renders with all major components (header, status, goals, suggestions, activity log, chat). Missing features: multi-line chat input, markdown rendering, and code syntax highlighting in chat. No work done on the config system integration yet. The sidebar is integrated and can be toggled via the button.
 
 ---
 

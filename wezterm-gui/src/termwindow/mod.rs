@@ -161,6 +161,7 @@ pub enum UIItemType {
     BelowScrollThumb,
     Split(PositionedSplit),
     SidebarButton(crate::sidebar::SidebarPosition),
+    Sidebar(crate::sidebar::SidebarPosition),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -510,6 +511,9 @@ impl TermWindow {
 
         let mut ai_config = SidebarConfig::default();
         ai_config.width = 400;
+        ai_config.show_on_startup = true; // Show on startup for testing
+        let show_on_startup = ai_config.show_on_startup; // Save before move
+        let sidebar_width = ai_config.width; // Save width before move
 
         let mut ai_sidebar = AiSidebar::new(ai_config);
         ai_sidebar.populate_mock_data();
@@ -518,6 +522,41 @@ impl TermWindow {
 
         let mut sidebar_manager = self.sidebar_manager.borrow_mut();
         sidebar_manager.set_right_sidebar(ai_sidebar_arc);
+        
+        // Update the right sidebar width to match the AI sidebar config
+        sidebar_manager.set_right_width(sidebar_width);
+
+        // Force the right sidebar to be visible since show_on_startup is true
+        if show_on_startup && !sidebar_manager.is_right_visible() {
+            log::info!("Setting right sidebar to visible based on show_on_startup");
+            sidebar_manager.set_right_visible(true);
+        }
+
+        // Drop the borrow before trying to invalidate
+        drop(sidebar_manager);
+
+        // Trigger a window resize if sidebar is visible on startup
+        let sidebar_manager = self.sidebar_manager.borrow();
+        let needs_resize = sidebar_manager.get_window_expansion() > 0;
+        drop(sidebar_manager);
+
+        if needs_resize {
+            if let Some(window) = self.window.as_ref() {
+                log::info!("Resizing window to accommodate sidebar on startup");
+                let window = window.clone();
+                self.set_inner_size(
+                    &window,
+                    self.dimensions.pixel_width,
+                    self.dimensions.pixel_height,
+                );
+            }
+        }
+
+        // Trigger a window invalidation to ensure the sidebar is rendered
+        if let Some(window) = &self.window {
+            log::info!("Invalidating window to trigger sidebar render");
+            window.invalidate();
+        }
     }
 
     fn close_requested(&mut self, window: &Window) {
@@ -838,12 +877,6 @@ impl TermWindow {
         let tw = Rc::new(RefCell::new(myself));
         let tw_event = Rc::clone(&tw);
 
-        // Initialize AI sidebar for testing
-        {
-            let mut tw_mut = tw.borrow_mut();
-            tw_mut.setup_ai_sidebar();
-        }
-
         let mut x = None;
         let mut y = None;
         let mut origin = GeometryOrigin::default();
@@ -882,6 +915,12 @@ impl TermWindow {
         )
         .await?;
         tw.borrow_mut().window.replace(window.clone());
+
+        // Initialize AI sidebar for testing
+        {
+            let mut tw_mut = tw.borrow_mut();
+            tw_mut.setup_ai_sidebar();
+        }
 
         // Apply initial OS window border - defer to avoid timing issues
         window.config_did_change(&tw.borrow().config);
@@ -1433,8 +1472,15 @@ impl TermWindow {
     }
 
     fn set_inner_size(&mut self, window: &Window, width: usize, height: usize) {
+        // Account for sidebar expansion when setting window size
+        let sidebar_manager = self.sidebar_manager.borrow();
+        let expansion = sidebar_manager.get_window_expansion() as usize;
+        drop(sidebar_manager);
+
+        let actual_width = width + expansion;
+
         self.resizes_pending += 1;
-        window.set_inner_size(width, height);
+        window.set_inner_size(actual_width, height);
     }
 
     /// Take care to remove our panes from the mux, otherwise

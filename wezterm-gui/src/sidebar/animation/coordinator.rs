@@ -143,11 +143,10 @@ impl AnimationCoordinator {
         self.queue.push(id);
 
         // Sort queue by priority (highest first)
-        let mut priorities: Vec<(AnimationId, AnimationPriority)> = self.queue
+        let mut priorities: Vec<(AnimationId, AnimationPriority)> = self
+            .queue
             .iter()
-            .filter_map(|&id| {
-                self.animations.get(&id).map(|a| (id, a.priority))
-            })
+            .filter_map(|&id| self.animations.get(&id).map(|a| (id, a.priority)))
             .collect();
         priorities.sort_by_key(|(_, p)| std::cmp::Reverse(*p));
         self.queue = priorities.into_iter().map(|(id, _)| id).collect();

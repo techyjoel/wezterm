@@ -28,6 +28,14 @@ pub struct SidebarState {
 
 impl SidebarState {
     pub fn new(position: SidebarPosition, width: u16) -> Self {
+        Self::new_with_visibility(position, width, false)
+    }
+
+    pub fn new_with_visibility(
+        position: SidebarPosition,
+        width: u16,
+        show_on_startup: bool,
+    ) -> Self {
         // Sidebar slides in from off-screen
         let (start_pos, end_pos) = match position {
             SidebarPosition::Left => (-(width as f32), 0.0),
@@ -35,10 +43,10 @@ impl SidebarState {
         };
 
         Self {
-            visible: false,
+            visible: show_on_startup,
             position,
             animation: SidebarPositionAnimation::new(200, start_pos, end_pos),
-            animation_target_visible: false,
+            animation_target_visible: show_on_startup,
             width,
         }
     }
@@ -146,8 +154,16 @@ impl SidebarManager {
         right_config.position = SidebarPosition::Right;
         right_config.mode = SidebarMode::Expand;
 
-        let left_state = SidebarState::new(SidebarPosition::Left, left_config.width);
-        let right_state = SidebarState::new(SidebarPosition::Right, right_config.width);
+        let left_state = SidebarState::new_with_visibility(
+            SidebarPosition::Left,
+            left_config.width,
+            left_config.show_on_startup,
+        );
+        let right_state = SidebarState::new_with_visibility(
+            SidebarPosition::Right,
+            right_config.width,
+            right_config.show_on_startup,
+        );
 
         Self {
             left_sidebar: None,
@@ -194,6 +210,24 @@ impl SidebarManager {
 
     pub fn is_right_visible(&self) -> bool {
         self.right_state.visible || self.right_state.is_animating()
+    }
+
+    pub fn set_right_visible(&mut self, visible: bool) {
+        self.right_state.visible = visible;
+        self.right_state.animation_target_visible = visible;
+        if let Some(sidebar) = &self.right_sidebar {
+            if visible {
+                // Ensure the sidebar itself also knows it's visible
+                let mut sidebar_locked = sidebar.lock().unwrap();
+                if !sidebar_locked.is_visible() {
+                    sidebar_locked.toggle_visibility();
+                }
+            }
+        }
+    }
+    
+    pub fn set_right_width(&mut self, width: u16) {
+        self.right_state.width = width;
     }
 
     pub fn get_left_width(&self) -> u16 {

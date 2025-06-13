@@ -44,7 +44,8 @@ impl super::TermWindow {
             | UIItemType::BelowScrollThumb
             | UIItemType::ScrollThumb
             | UIItemType::Split(_)
-            | UIItemType::SidebarButton(_) => {}
+            | UIItemType::SidebarButton(_)
+            | UIItemType::Sidebar(_) => {}
         }
     }
 
@@ -56,7 +57,8 @@ impl super::TermWindow {
             | UIItemType::BelowScrollThumb
             | UIItemType::ScrollThumb
             | UIItemType::Split(_)
-            | UIItemType::SidebarButton(_) => {}
+            | UIItemType::SidebarButton(_)
+            | UIItemType::Sidebar(_) => {}
         }
     }
 
@@ -387,6 +389,9 @@ impl super::TermWindow {
             UIItemType::SidebarButton(position) => {
                 self.mouse_event_sidebar_button(position, event, context);
             }
+            UIItemType::Sidebar(_position) => {
+                // TODO: Handle mouse events on the sidebar itself
+            }
         }
     }
 
@@ -400,6 +405,8 @@ impl super::TermWindow {
             WMEK::Press(MousePress::Left) => {
                 log::debug!("Toggle sidebar {:?}", position);
                 let mut sidebar_manager = self.sidebar_manager.borrow_mut();
+                let was_expanded = sidebar_manager.get_window_expansion() > 0;
+
                 match position {
                     crate::sidebar::SidebarPosition::Left => {
                         sidebar_manager.toggle_left_sidebar();
@@ -408,7 +415,23 @@ impl super::TermWindow {
                         sidebar_manager.toggle_right_sidebar();
                     }
                 }
+
+                let is_expanded = sidebar_manager.get_window_expansion() > 0;
                 drop(sidebar_manager);
+
+                // If expansion state changed, we need to resize the window
+                if was_expanded != is_expanded {
+                    // Trigger a resize to account for sidebar visibility change
+                    if let Some(window) = self.window.as_ref() {
+                        let window = window.clone();
+                        self.set_inner_size(
+                            &window,
+                            self.dimensions.pixel_width,
+                            self.dimensions.pixel_height,
+                        );
+                    }
+                }
+
                 context.invalidate();
             }
             _ => {}

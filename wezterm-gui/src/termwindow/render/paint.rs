@@ -159,6 +159,7 @@ impl crate::TermWindow {
     }
 
     pub fn paint_pass(&mut self) -> anyhow::Result<()> {
+        log::info!("paint_pass called");
         {
             let gl_state = self.render_state.as_ref().unwrap();
             for layer in gl_state.layers.borrow().iter() {

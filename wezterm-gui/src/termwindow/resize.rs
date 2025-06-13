@@ -544,6 +544,7 @@ impl super::TermWindow {
     }
 
     pub fn effective_right_padding(&self, config: &ConfigHandle) -> usize {
+        // Don't include sidebar in padding - sidebar is rendered outside terminal area
         effective_right_padding(
             config,
             DimensionContext {

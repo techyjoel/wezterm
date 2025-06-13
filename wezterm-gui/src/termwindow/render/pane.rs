@@ -247,7 +247,12 @@ impl crate::TermWindow {
             let config = &self.config;
             let padding = self.effective_right_padding(&config) as f32;
 
-            let thumb_x = self.dimensions.pixel_width - padding as usize - border.right.get();
+            // Account for sidebar when calculating scrollbar position
+            let sidebar_manager = self.sidebar_manager.borrow();
+            let sidebar_width = sidebar_manager.get_window_expansion() as usize;
+            drop(sidebar_manager);
+            
+            let thumb_x = self.dimensions.pixel_width - sidebar_width - padding as usize - border.right.get();
 
             // Register the scroll bar location
             self.ui_items.push(UIItem {
@@ -633,7 +638,11 @@ impl crate::TermWindow {
             y,
             // Go all the way to the right edge if we're right-most
             if pos.left + pos.width >= self.terminal_size.cols as usize {
-                self.dimensions.pixel_width as f32 - x
+                // Account for sidebar expansion when calculating right edge
+                let sidebar_manager = self.sidebar_manager.borrow();
+                let sidebar_width = sidebar_manager.get_window_expansion() as f32;
+                drop(sidebar_manager);
+                (self.dimensions.pixel_width as f32 - sidebar_width) - x
             } else {
                 (pos.width as f32 * cell_width) + width_delta
             },

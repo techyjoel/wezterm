@@ -363,8 +363,9 @@ end)
 -- Add file watching for the user config to enable hot reload
 wezterm.add_to_config_reload_watch_list(get_user_config_path())
 
--- CLIBuddy Sidebar Configuration
-config.clibuddy = {
+-- CLIBuddy Sidebar Configuration (stored separately from main config)
+-- This will be read by our Rust code directly, not by WezTerm's config system
+local clibuddy_config = {
     -- Left sidebar settings (settings/config sidebar)
     left_sidebar = {
         enabled = true,
@@ -470,6 +471,9 @@ config.clibuddy = {
         },
     },
 }
+
+-- Export CLIBuddy config for our Rust code to access
+wezterm.GLOBAL.clibuddy_config = clibuddy_config
 
 -- Finally, return the configuration to wezterm
 return config
