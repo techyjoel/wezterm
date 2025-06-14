@@ -71,6 +71,8 @@ impl crate::TermWindow {
         let mut left_status = vec![];
         let mut left_eles = vec![];
         let mut right_eles = vec![];
+        let window_is_transparent =
+            !self.window_background.is_empty() || self.config.window_background_opacity != 1.0;
         let bar_colors = ElementColors {
             border: BorderColor::default(),
             bg: if self.focused.is_some() {
@@ -79,6 +81,11 @@ impl crate::TermWindow {
                 self.config.window_frame.inactive_titlebar_bg
             }
             .to_linear()
+            .mul_alpha(if window_is_transparent {
+                self.config.window_background_opacity
+            } else {
+                1.0
+            })
             .into(),
             text: if self.focused.is_some() {
                 self.config.window_frame.active_titlebar_fg
@@ -410,10 +417,23 @@ impl crate::TermWindow {
 
         let content = ElementContent::Children(children);
 
+        // Calculate tab bar width to account for sidebar
+        let padding = self.effective_right_padding(&self.config) as f32;
+        let sidebar_manager = self.sidebar_manager.borrow();
+        let sidebar_expansion = sidebar_manager.get_window_expansion() as f32;
+        drop(sidebar_manager);
+
+        // Tab bar should end where the terminal content ends
+        let tab_bar_width = if sidebar_expansion > 0.0 {
+            self.dimensions.pixel_width as f32 - sidebar_expansion - padding
+        } else {
+            self.dimensions.pixel_width as f32 - padding
+        };
+
         let tabs = Element::new(&font, content)
             .display(DisplayType::Block)
             .item_type(UIItemType::TabBar(TabBarItem::None))
-            .min_width(Some(Dimension::Pixels(self.dimensions.pixel_width as f32)))
+            .min_width(Some(Dimension::Pixels(tab_bar_width)))
             .min_height(Some(Dimension::Pixels(tab_bar_height)))
             .vertical_align(VerticalAlign::Bottom)
             .colors(bar_colors);
@@ -435,7 +455,7 @@ impl crate::TermWindow {
                 bounds: euclid::rect(
                     border.left.get() as f32,
                     0.,
-                    self.dimensions.pixel_width as f32 - (border.left + border.right).get() as f32,
+                    tab_bar_width - border.left.get() as f32,
                     tab_bar_height,
                 ),
                 metrics: &metrics,

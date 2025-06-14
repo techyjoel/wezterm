@@ -144,7 +144,11 @@ impl crate::TermWindow {
                     drop(sidebar_manager);
                     let scrollbar_padding = self.terminal_scrollbar_padding();
                     let scrollbar_width = self.effective_right_padding(&self.config) as f32;
-                    (self.dimensions.pixel_width as f32 - sidebar_width - scrollbar_padding - scrollbar_width) - x
+                    (self.dimensions.pixel_width as f32
+                        - sidebar_width
+                        - scrollbar_padding
+                        - scrollbar_width)
+                        - x
                 } else {
                     (pos.width as f32 * cell_width) + width_delta
                 },
@@ -240,7 +244,7 @@ impl crate::TermWindow {
             } else {
                 0.0
             };
-            
+
             let thumb_y_offset = (top_bar_height + button_space) as usize + border.top.get();
 
             let min_height = self.min_scroll_bar_height();
@@ -265,24 +269,35 @@ impl crate::TermWindow {
             let sidebar_manager = self.sidebar_manager.borrow();
             let sidebar_width = sidebar_manager.get_window_expansion() as usize;
             drop(sidebar_manager);
-            
-            let thumb_x = self.dimensions.pixel_width - sidebar_width - padding as usize - border.right.get();
-            
+
+            let thumb_x =
+                self.dimensions.pixel_width - sidebar_width - padding as usize - border.right.get();
+
             // Fill the entire scrollbar area with background color first
             let scrollbar_bg_rect = euclid::rect(
                 thumb_x as f32,
-                if !self.show_tab_bar { border.top.get() as f32 } else { top_bar_height + border.top.get() as f32 },
+                if !self.show_tab_bar {
+                    border.top.get() as f32
+                } else {
+                    top_bar_height + border.top.get() as f32
+                },
                 padding,
-                self.dimensions.pixel_height as f32 - border.top.get() as f32 - bottom_bar_height - border.bottom.get() as f32,
+                self.dimensions.pixel_height as f32
+                    - border.top.get() as f32
+                    - bottom_bar_height
+                    - border.bottom.get() as f32,
             );
             self.filled_rectangle(
                 layers,
                 0,
                 scrollbar_bg_rect,
-                palette.background.to_linear().mul_alpha(config.window_background_opacity),
+                palette
+                    .background
+                    .to_linear()
+                    .mul_alpha(config.window_background_opacity),
             )
             .context("filled_rectangle for scrollbar background")?;
-            
+
             // Fill the padding area between terminal and scrollbar with background color
             let terminal_scrollbar_padding = self.terminal_scrollbar_padding();
             if terminal_scrollbar_padding > 0.0 {
@@ -292,18 +307,24 @@ impl crate::TermWindow {
                 } else {
                     top_bar_height + border.top.get() as f32
                 };
-                
+
                 let padding_rect = euclid::rect(
                     (thumb_x as f32) - terminal_scrollbar_padding,
                     padding_start_y,
                     terminal_scrollbar_padding,
-                    self.dimensions.pixel_height as f32 - padding_start_y - bottom_bar_height - border.bottom.get() as f32,
+                    self.dimensions.pixel_height as f32
+                        - padding_start_y
+                        - bottom_bar_height
+                        - border.bottom.get() as f32,
                 );
                 self.filled_rectangle(
                     layers,
                     0,
                     padding_rect,
-                    palette.background.to_linear().mul_alpha(config.window_background_opacity),
+                    palette
+                        .background
+                        .to_linear()
+                        .mul_alpha(config.window_background_opacity),
                 )
                 .context("filled_rectangle for terminal-scrollbar padding")?;
             }
@@ -698,7 +719,11 @@ impl crate::TermWindow {
                 drop(sidebar_manager);
                 let scrollbar_padding = self.terminal_scrollbar_padding();
                 let scrollbar_width = self.effective_right_padding(&self.config) as f32;
-                (self.dimensions.pixel_width as f32 - sidebar_width - scrollbar_padding - scrollbar_width) - x
+                (self.dimensions.pixel_width as f32
+                    - sidebar_width
+                    - scrollbar_padding
+                    - scrollbar_width)
+                    - x
             } else {
                 (pos.width as f32 * cell_width) + width_delta
             },

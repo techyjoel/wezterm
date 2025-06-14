@@ -74,7 +74,7 @@ impl crate::TermWindow {
         // Calculate button position - align with left edge of scrollbar
         let padding = self.effective_right_padding(&self.config) as f32;
         let terminal_scrollbar_padding = self.terminal_scrollbar_padding();
-        
+
         // Button should align with the left edge of the scrollbar
         // The scrollbar is positioned at: window_width - padding - border + terminal_scrollbar_padding
         // We want the button at the same x position
@@ -85,7 +85,7 @@ impl crate::TermWindow {
             // No sidebar - position at the start of the padding area (where scrollbar begins)
             self.dimensions.pixel_width as f32 - padding - border.right.get() as f32
         };
-        
+
         let button_y = if self.show_tab_bar {
             // Tab bar is visible - center button vertically in tab bar
             let tab_bar_height = self.tab_bar_pixel_height().unwrap_or(0.0);
@@ -142,12 +142,7 @@ impl crate::TermWindow {
         // The animation system returns the offset directly
 
         // Background using filled_rectangle for proper coordinate transformation
-        let sidebar_rect = euclid::rect(
-            x_offset,
-            0.0,
-            width,
-            self.dimensions.pixel_height as f32,
-        );
+        let sidebar_rect = euclid::rect(x_offset, 0.0, width, self.dimensions.pixel_height as f32);
         let sidebar_bg_color = LinearRgba::with_components(0.05, 0.05, 0.06, 0.95);
         self.filled_rectangle(layers, 2, sidebar_rect, sidebar_bg_color)?;
 
@@ -159,18 +154,26 @@ impl crate::TermWindow {
 
     fn paint_right_sidebar(&mut self, layers: &mut TripleLayerQuadAllocator) -> Result<()> {
         log::info!("paint_right_sidebar called");
-        
+
         let mut sidebar_manager = self.sidebar_manager.borrow_mut();
         let full_width = sidebar_manager.get_right_width() as f32;
         let x_offset = sidebar_manager.get_right_position_offset();
         let expansion = sidebar_manager.get_window_expansion() as f32;
 
-        log::info!("Right sidebar: full_width={}, x_offset={}, expansion={}", full_width, x_offset, expansion);
+        log::info!(
+            "Right sidebar: full_width={}, x_offset={}, expansion={}",
+            full_width,
+            x_offset,
+            expansion
+        );
 
         // Calculate visible width and position based on animation state
         let (visible_width, sidebar_x) = if expansion == MIN_SIDEBAR_WIDTH as f32 {
             // Fully collapsed state - show only MIN_SIDEBAR_WIDTH
-            (MIN_SIDEBAR_WIDTH, self.dimensions.pixel_width as f32 - MIN_SIDEBAR_WIDTH)
+            (
+                MIN_SIDEBAR_WIDTH,
+                self.dimensions.pixel_width as f32 - MIN_SIDEBAR_WIDTH,
+            )
         } else if x_offset > 0.0 {
             // Collapsing animation in progress
             let progress = x_offset / (full_width - MIN_SIDEBAR_WIDTH);
@@ -181,7 +184,7 @@ impl crate::TermWindow {
             // Fully expanded or expanding
             (full_width, self.dimensions.pixel_width as f32 - expansion)
         };
-        
+
         log::info!(
             "Right sidebar rendering at x={}, visible_width={}, window_width={}, expansion={}",
             sidebar_x,
@@ -192,7 +195,12 @@ impl crate::TermWindow {
 
         // Draw the sidebar background
         // Use layer 2 to render on top of terminal content and overlay
-        let sidebar_rect = euclid::rect(sidebar_x, 0.0, visible_width, self.dimensions.pixel_height as f32);
+        let sidebar_rect = euclid::rect(
+            sidebar_x,
+            0.0,
+            visible_width,
+            self.dimensions.pixel_height as f32,
+        );
         // Use configured color from clibuddy config
         // TODO: Read from config.clibuddy.right_sidebar.background_color
         let sidebar_bg_color = LinearRgba::with_components(0.02, 0.02, 0.024, 1.0); // rgba(5, 5, 6, 1.0)

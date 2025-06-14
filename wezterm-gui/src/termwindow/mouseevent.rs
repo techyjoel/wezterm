@@ -423,23 +423,33 @@ impl super::TermWindow {
 
                 // If expansion state changed, we need to resize the window
                 if was_expansion_width != new_expansion_width {
-                    log::info!("Expansion changed from {} to {}", was_expansion_width, new_expansion_width);
-                    
+                    log::info!(
+                        "Expansion changed from {} to {}",
+                        was_expansion_width,
+                        new_expansion_width
+                    );
+
                     // For window resize, we need to work with the actual window dimensions
                     // The key insight: when hiding the sidebar, we want to shrink the window
                     // by the sidebar width. When showing it, we want to expand by the sidebar width.
-                    
+
                     let new_width = if new_expansion_width > was_expansion_width {
                         // Showing sidebar - expand window
-                        self.dimensions.pixel_width + (new_expansion_width - was_expansion_width) as usize
+                        self.dimensions.pixel_width
+                            + (new_expansion_width - was_expansion_width) as usize
                     } else {
                         // Hiding sidebar - shrink window
-                        self.dimensions.pixel_width.saturating_sub((was_expansion_width - new_expansion_width) as usize)
+                        self.dimensions
+                            .pixel_width
+                            .saturating_sub((was_expansion_width - new_expansion_width) as usize)
                     };
-                    
-                    log::info!("Current window width: {}, new window width: {}", 
-                        self.dimensions.pixel_width, new_width);
-                    
+
+                    log::info!(
+                        "Current window width: {}, new window width: {}",
+                        self.dimensions.pixel_width,
+                        new_width
+                    );
+
                     // Trigger a resize to account for sidebar visibility change
                     if let Some(window) = self.window.as_ref() {
                         let window = window.clone();

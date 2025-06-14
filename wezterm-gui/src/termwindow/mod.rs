@@ -522,7 +522,7 @@ impl TermWindow {
 
         let mut sidebar_manager = self.sidebar_manager.borrow_mut();
         sidebar_manager.set_right_sidebar(ai_sidebar_arc);
-        
+
         // Update the right sidebar width to match the AI sidebar config
         sidebar_manager.set_right_width(sidebar_width);
 
@@ -1475,7 +1475,7 @@ impl TermWindow {
         // When called from normal resize operations, we want to maintain the sidebar space
         // But when called from sidebar toggle, the width already includes the desired expansion
         // So we should NOT add expansion here - that creates the circular problem
-        
+
         self.resizes_pending += 1;
         window.set_inner_size(width, height);
     }

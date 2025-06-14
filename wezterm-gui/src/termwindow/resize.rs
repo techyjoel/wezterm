@@ -210,9 +210,9 @@ impl super::TermWindow {
             let sidebar_manager = self.sidebar_manager.borrow();
             let sidebar_expansion = sidebar_manager.get_window_expansion() as usize;
             drop(sidebar_manager);
-            
+
             let terminal_scrollbar_padding = self.terminal_scrollbar_padding() as usize;
-            
+
             let pixel_width = (cols * self.render_metrics.cell_size.width as usize)
                 + (padding_left + padding_right)
                 + (border.left + border.right).get() as usize
@@ -260,9 +260,9 @@ impl super::TermWindow {
             let sidebar_manager = self.sidebar_manager.borrow();
             let sidebar_expansion = sidebar_manager.get_window_expansion() as usize;
             drop(sidebar_manager);
-            
+
             let terminal_scrollbar_padding = self.terminal_scrollbar_padding() as usize;
-            
+
             let avail_width = dimensions.pixel_width.saturating_sub(
                 (padding_left + padding_right) as usize
                     + (border.left + border.right).get() as usize
@@ -572,7 +572,7 @@ impl super::TermWindow {
             },
         )
     }
-    
+
     /// Get the padding between terminal content and scrollbar
     pub fn terminal_scrollbar_padding(&self) -> f32 {
         if self.show_scroll_bar && self.config.enable_scroll_bar {

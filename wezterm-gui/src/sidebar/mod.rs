@@ -49,7 +49,7 @@ impl SidebarState {
             animation_target_visible: show_on_startup,
             width,
         };
-        
+
         // If showing on startup, immediately set to the visible position
         if show_on_startup {
             // Create animation that's already at the end position
@@ -59,7 +59,7 @@ impl SidebarState {
             state.visible = true;
             // Animation will immediately return end_pos since start == end
         }
-        
+
         state
     }
 
@@ -211,11 +211,17 @@ impl SidebarManager {
     }
 
     pub fn toggle_right_sidebar(&mut self) {
-        log::info!("toggle_right_sidebar: before - visible={}, animation_target_visible={}", 
-            self.right_state.visible, self.right_state.animation_target_visible);
+        log::info!(
+            "toggle_right_sidebar: before - visible={}, animation_target_visible={}",
+            self.right_state.visible,
+            self.right_state.animation_target_visible
+        );
         self.right_state.toggle_visibility();
-        log::info!("toggle_right_sidebar: after - visible={}, animation_target_visible={}", 
-            self.right_state.visible, self.right_state.animation_target_visible);
+        log::info!(
+            "toggle_right_sidebar: after - visible={}, animation_target_visible={}",
+            self.right_state.visible,
+            self.right_state.animation_target_visible
+        );
         if let Some(sidebar) = &self.right_sidebar {
             sidebar.lock().unwrap().toggle_visibility();
         }
@@ -247,7 +253,7 @@ impl SidebarManager {
             }
         }
     }
-    
+
     pub fn set_right_width(&mut self, width: u16) {
         self.right_state.width = width;
     }
@@ -262,10 +268,11 @@ impl SidebarManager {
 
     pub fn get_right_width(&self) -> u16 {
         const MIN_SIDEBAR_WIDTH: u16 = 25;
-        
+
         if self.is_right_visible() {
             // In Expand mode, return at least MIN_SIDEBAR_WIDTH
-            if self.config.mode == SidebarMode::Expand && !self.right_state.animation_target_visible {
+            if self.config.mode == SidebarMode::Expand && !self.right_state.animation_target_visible
+            {
                 MIN_SIDEBAR_WIDTH
             } else {
                 self.right_state.width
@@ -330,7 +337,7 @@ impl SidebarManager {
         // NOT during the collapse animation. Otherwise the resize calculations get confused.
         // Always keep a minimum width for the button
         const MIN_SIDEBAR_WIDTH: u16 = 25; // Just enough to show a hint of sidebar past button
-        
+
         let should_expand = self.config.mode == SidebarMode::Expand;
         let result = if should_expand {
             if self.right_state.animation_target_visible {

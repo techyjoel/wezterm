@@ -56,29 +56,30 @@ impl crate::TermWindow {
         let sidebar_manager = self.sidebar_manager.borrow();
         let sidebar_expansion = sidebar_manager.get_window_expansion() as f32;
         drop(sidebar_manager);
-        
+
         // Tab bar should end where the terminal content ends
         // When sidebar is expanded (even partially), account for that expansion
         let tab_bar_width = if sidebar_expansion > 0.0 {
-            self.dimensions.pixel_width as f32 - sidebar_expansion - padding - border.right.get() as f32
+            self.dimensions.pixel_width as f32
+                - sidebar_expansion
+                - padding
+                - border.right.get() as f32
         } else {
             self.dimensions.pixel_width as f32 - padding - border.right.get() as f32
         };
-        
+
         // Fill tab bar background explicitly with correct width
-        let tab_bar_bg_rect = euclid::rect(
-            0.0,
-            tab_bar_y,
-            tab_bar_width,
-            tab_bar_height,
-        );
+        let tab_bar_bg_rect = euclid::rect(0.0, tab_bar_y, tab_bar_width, tab_bar_height);
         self.filled_rectangle(
             layers,
             0,
             tab_bar_bg_rect,
-            palette.background.to_linear().mul_alpha(self.config.window_background_opacity),
+            palette
+                .background
+                .to_linear()
+                .mul_alpha(self.config.window_background_opacity),
         )?;
-        
+
         self.render_screen_line(
             RenderScreenLineParams {
                 top_pixel_y: tab_bar_y,
@@ -90,8 +91,7 @@ impl crate::TermWindow {
                 cursor: &Default::default(),
                 palette: &palette,
                 dims: &RenderableDimensions {
-                    cols: tab_bar_width as usize
-                        / self.render_metrics.cell_size.width as usize,
+                    cols: tab_bar_width as usize / self.render_metrics.cell_size.width as usize,
                     physical_top: 0,
                     scrollback_rows: 0,
                     scrollback_top: 0,
