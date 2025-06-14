@@ -51,18 +51,50 @@ impl crate::TermWindow {
                 self.config.text_background_opacity
             });
 
+        // Calculate tab bar width - ensure it doesn't extend into button/scrollbar area
+        // The button is positioned in the padding area, so we need to exclude that
+        let padding = self.effective_right_padding(&self.config) as f32;
+        let sidebar_manager = self.sidebar_manager.borrow();
+        let sidebar_expansion = sidebar_manager.get_window_expansion() as f32;
+        let is_expanded = sidebar_expansion > 0.0;
+        drop(sidebar_manager);
+        
+        // The tab bar should end where the button area begins
+        // When sidebar is visible, we need to account for the expansion
+        let tab_bar_width = if is_expanded {
+            // Window is expanded, subtract both padding and expansion
+            self.dimensions.pixel_width as f32 - sidebar_expansion - padding
+        } else {
+            // Window is not expanded, just subtract padding for button area
+            self.dimensions.pixel_width as f32 - padding
+        };
+        
+        // Fill tab bar background explicitly with correct width
+        let tab_bar_bg_rect = euclid::rect(
+            0.0,
+            tab_bar_y,
+            tab_bar_width,
+            tab_bar_height,
+        );
+        self.filled_rectangle(
+            layers,
+            0,
+            tab_bar_bg_rect,
+            palette.background.to_linear().mul_alpha(self.config.window_background_opacity),
+        )?;
+        
         self.render_screen_line(
             RenderScreenLineParams {
                 top_pixel_y: tab_bar_y,
                 left_pixel_x: 0.,
-                pixel_width: self.dimensions.pixel_width as f32,
+                pixel_width: tab_bar_width,
                 stable_line_idx: None,
                 line: self.tab_bar.line(),
                 selection: 0..0,
                 cursor: &Default::default(),
                 palette: &palette,
                 dims: &RenderableDimensions {
-                    cols: self.dimensions.pixel_width
+                    cols: tab_bar_width as usize
                         / self.render_metrics.cell_size.width as usize,
                     physical_top: 0,
                     scrollback_rows: 0,

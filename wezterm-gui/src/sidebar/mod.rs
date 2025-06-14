@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use termwiz::input::{KeyCode, MouseEvent};
 // Widget traits will be implemented differently without termwiz widgets
 
@@ -42,17 +42,28 @@ impl SidebarState {
             SidebarPosition::Right => (width as f32, 0.0),
         };
 
-        Self {
+        let mut state = Self {
             visible: show_on_startup,
             position,
             animation: SidebarPositionAnimation::new(200, start_pos, end_pos),
             animation_target_visible: show_on_startup,
             width,
+        };
+        
+        // If showing on startup, immediately set the animation to the visible position
+        if show_on_startup {
+            state.animation.start(true);
+            // Force complete the animation by moving the start time back
+            // This will make get_position() return the end position
+            state.visible = true;
         }
+        
+        state
     }
 
     pub fn toggle_visibility(&mut self) {
-        self.animation_target_visible = !self.visible;
+        // Toggle target based on the final state, not the current visible state
+        self.animation_target_visible = !self.animation_target_visible;
         // Start animation in the correct direction
         self.animation.start(self.animation_target_visible);
     }
@@ -198,7 +209,11 @@ impl SidebarManager {
     }
 
     pub fn toggle_right_sidebar(&mut self) {
+        log::info!("toggle_right_sidebar: before - visible={}, animation_target_visible={}", 
+            self.right_state.visible, self.right_state.animation_target_visible);
         self.right_state.toggle_visibility();
+        log::info!("toggle_right_sidebar: after - visible={}, animation_target_visible={}", 
+            self.right_state.visible, self.right_state.animation_target_visible);
         if let Some(sidebar) = &self.right_sidebar {
             sidebar.lock().unwrap().toggle_visibility();
         }
@@ -297,11 +312,18 @@ impl SidebarManager {
     /// Returns the extra window width needed for Expand-mode sidebars
     pub fn get_window_expansion(&self) -> u16 {
         // Only the right sidebar expands the window in our current design
-        if self.config.mode == SidebarMode::Expand && self.is_right_visible() {
-            self.get_right_width()
+        // Use the target visibility state for expansion calculation to ensure
+        // window resizes happen at the right time
+        let should_expand = self.config.mode == SidebarMode::Expand && 
+           (self.right_state.animation_target_visible || self.right_state.is_animating());
+        let result = if should_expand {
+            self.right_state.width
         } else {
             0
-        }
+        };
+        log::trace!("get_window_expansion: mode={:?}, animation_target_visible={}, is_animating={}, result={}", 
+            self.config.mode, self.right_state.animation_target_visible, self.right_state.is_animating(), result);
+        result
     }
 
     /// Returns the left offset for terminal content when sidebars affect positioning

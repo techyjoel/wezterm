@@ -403,9 +403,10 @@ impl super::TermWindow {
     ) {
         match event.kind {
             WMEK::Press(MousePress::Left) => {
-                log::debug!("Toggle sidebar {:?}", position);
+                log::info!("Toggle sidebar {:?}", position);
                 let mut sidebar_manager = self.sidebar_manager.borrow_mut();
-                let was_expanded = sidebar_manager.get_window_expansion() > 0;
+                let was_expansion_width = sidebar_manager.get_window_expansion();
+                log::info!("Current expansion width: {}", was_expansion_width);
 
                 match position {
                     crate::sidebar::SidebarPosition::Left => {
@@ -416,23 +417,44 @@ impl super::TermWindow {
                     }
                 }
 
-                let is_expanded = sidebar_manager.get_window_expansion() > 0;
+                let new_expansion_width = sidebar_manager.get_window_expansion();
+                log::info!("New expansion width: {}", new_expansion_width);
                 drop(sidebar_manager);
 
                 // If expansion state changed, we need to resize the window
-                if was_expanded != is_expanded {
+                if was_expansion_width != new_expansion_width {
+                    log::info!("Expansion changed from {} to {}", was_expansion_width, new_expansion_width);
+                    
+                    // For window resize, we need to work with the actual window dimensions
+                    // The key insight: when hiding the sidebar, we want to shrink the window
+                    // by the sidebar width. When showing it, we want to expand by the sidebar width.
+                    
+                    let new_width = if new_expansion_width > was_expansion_width {
+                        // Showing sidebar - expand window
+                        self.dimensions.pixel_width + (new_expansion_width - was_expansion_width) as usize
+                    } else {
+                        // Hiding sidebar - shrink window
+                        self.dimensions.pixel_width.saturating_sub((was_expansion_width - new_expansion_width) as usize)
+                    };
+                    
+                    log::info!("Current window width: {}, new window width: {}", 
+                        self.dimensions.pixel_width, new_width);
+                    
                     // Trigger a resize to account for sidebar visibility change
                     if let Some(window) = self.window.as_ref() {
                         let window = window.clone();
-                        self.set_inner_size(
-                            &window,
-                            self.dimensions.pixel_width,
-                            self.dimensions.pixel_height,
-                        );
+                        // Use the TermWindow's set_inner_size which handles resizes_pending
+                        self.set_inner_size(&window, new_width, self.dimensions.pixel_height);
                     }
+                } else {
+                    log::info!("No expansion change, just visibility toggle");
                 }
 
+                // Force immediate repaint to avoid transparent areas
                 context.invalidate();
+                if let Some(window) = self.window.as_ref() {
+                    window.invalidate();
+                }
             }
             _ => {}
         }

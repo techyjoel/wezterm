@@ -233,6 +233,8 @@ impl crate::TermWindow {
             .to_linear()
             .mul_alpha(self.config.window_background_opacity);
 
+            // Always paint the full window background
+            // The sidebar will paint over this when visible
             self.filled_rectangle(
                 &mut layers,
                 0,
@@ -266,12 +268,12 @@ impl crate::TermWindow {
             }
         }
 
-        // Paint sidebars
-        self.paint_sidebars(&mut layers).context("paint_sidebars")?;
-
         if self.show_tab_bar {
             self.paint_tab_bar(&mut layers).context("paint_tab_bar")?;
         }
+
+        // Paint sidebars (including buttons) after tab bar to ensure proper layering
+        self.paint_sidebars(&mut layers).context("paint_sidebars")?;
 
         self.paint_window_borders(&mut layers)
             .context("paint_window_borders")?;

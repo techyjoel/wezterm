@@ -15,9 +15,6 @@ impl crate::TermWindow {
             self.window.as_ref().unwrap().invalidate();
         }
 
-        // Always paint toggle buttons
-        self.paint_sidebar_toggle_buttons(layers)?;
-
         // Check visibility first, then borrow and paint
         let left_visible = self.sidebar_manager.borrow().is_left_visible();
         let right_visible = self.sidebar_manager.borrow().is_right_visible();
@@ -38,10 +35,13 @@ impl crate::TermWindow {
             self.paint_right_sidebar(layers)?;
         }
 
+        // Always paint toggle buttons AFTER sidebars to ensure they're on top
+        self.paint_sidebar_toggle_buttons(layers)?;
+
         Ok(())
     }
 
-    fn paint_sidebar_toggle_buttons(
+    pub fn paint_sidebar_toggle_buttons(
         &mut self,
         layers: &mut TripleLayerQuadAllocator,
     ) -> Result<()> {
@@ -55,9 +55,10 @@ impl crate::TermWindow {
         let border = self.get_os_border();
 
         log::info!(
-            "Window dimensions: {}x{}",
+            "Window dimensions: {}x{}, show_tab_bar: {}",
             self.dimensions.pixel_width,
-            self.dimensions.pixel_height
+            self.dimensions.pixel_height,
+            self.show_tab_bar
         );
         log::info!("Border: {:?}", border);
 
@@ -67,16 +68,27 @@ impl crate::TermWindow {
         let expansion = sidebar_manager.get_window_expansion() as f32;
         drop(sidebar_manager);
 
-        // Position button at the right edge of the terminal area
-        // When sidebar is visible and expanded, account for the expansion
+        // Calculate button position - in the scrollbar area but accounting for sidebar
+        let padding = self.effective_right_padding(&self.config) as f32;
+        
+        // When sidebar is expanded, the button should stay in the same visual position
+        // relative to the terminal content, not move with the window edge
         let button_x = if expansion > 0.0 {
-            // Window is expanded, button is at the boundary between terminal and sidebar
-            self.dimensions.pixel_width as f32 - expansion - button_size - button_margin
+            // Sidebar is visible/expanding - position relative to terminal content
+            self.dimensions.pixel_width as f32 - expansion - padding - border.right.get() as f32 + (padding - button_size) / 2.0
         } else {
-            // No expansion, button is at the right edge
-            self.dimensions.pixel_width as f32 - button_size - button_margin
+            // No sidebar - position in the padding area
+            self.dimensions.pixel_width as f32 - padding - border.right.get() as f32 + (padding - button_size) / 2.0
         };
-        let button_y = border.top.get() as f32 + button_margin;
+        
+        let button_y = if self.show_tab_bar {
+            // Tab bar is visible - center button vertically in tab bar
+            let tab_bar_height = self.tab_bar_pixel_height().unwrap_or(0.0);
+            border.top.get() as f32 + (tab_bar_height - button_size) / 2.0
+        } else {
+            // No tab bar - position button at the top with margin
+            border.top.get() as f32 + button_margin
+        };
 
         log::info!(
             "Button position: x={}, y={}, size={}, visible={}",
@@ -90,6 +102,7 @@ impl crate::TermWindow {
         let button_rect = euclid::rect(button_x, button_y, button_size, button_size);
         let button_color = LinearRgba::with_components(0.2, 0.4, 1.0, 1.0); // Bright blue
 
+        // Render button on layer 2 (highest available) to ensure it's above sidebar
         self.filled_rectangle(layers, 2, button_rect, button_color)?;
 
         // Add UI item for click detection - use consistent positioning
@@ -159,9 +172,8 @@ impl crate::TermWindow {
             // which is current_width - sidebar_width
             (self.dimensions.pixel_width as f32 - width) + x_offset
         } else {
-            // Window hasn't been expanded yet (shouldn't happen if visible)
-            // This is a fallback position
-            log::warn!("Sidebar visible but window not expanded!");
+            // During collapse animation, sidebar is still visible but window already resized
+            // This is expected behavior - render sidebar sliding out from the right edge
             self.dimensions.pixel_width as f32 + x_offset
         };
         

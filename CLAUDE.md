@@ -58,7 +58,7 @@ The workflow you should use is:
 5. Once in agreement on the proposed work, implement the change
 6. Run auto-format of code
 7. Run a type check and then release mode build to test if changes compile successfully
-8. Git add and commit
+8. Git add and commit (only after succesffully compiling and testing)
 9. Update TASKS.md (if it is in use)
   - Check off tasks that are fully complete
   - Correct the task items to reflect the as-built conditions (i.e. re-word things or add things so the task list reflects the new codebase)

@@ -1472,15 +1472,12 @@ impl TermWindow {
     }
 
     fn set_inner_size(&mut self, window: &Window, width: usize, height: usize) {
-        // Account for sidebar expansion when setting window size
-        let sidebar_manager = self.sidebar_manager.borrow();
-        let expansion = sidebar_manager.get_window_expansion() as usize;
-        drop(sidebar_manager);
-
-        let actual_width = width + expansion;
-
+        // When called from normal resize operations, we want to maintain the sidebar space
+        // But when called from sidebar toggle, the width already includes the desired expansion
+        // So we should NOT add expansion here - that creates the circular problem
+        
         self.resizes_pending += 1;
-        window.set_inner_size(actual_width, height);
+        window.set_inner_size(width, height);
     }
 
     /// Take care to remove our panes from the mux, otherwise
