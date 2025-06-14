@@ -16,6 +16,53 @@ impl crate::TermWindow {
             }
 
             self.ui_items.append(&mut self.paint_fancy_tab_bar()?);
+
+            // Fill the gap between tab bar and sidebar button when sidebar is visible
+            let sidebar_manager = self.sidebar_manager.borrow();
+            let sidebar_expansion = sidebar_manager.get_window_expansion() as f32;
+            drop(sidebar_manager);
+
+            if sidebar_expansion > 0.0 {
+                // There's a gap to fill - render a background rectangle
+                let padding = self.effective_right_padding(&self.config) as f32;
+                let border = self.get_os_border();
+                let tab_bar_height = self.tab_bar_pixel_height()?;
+
+                // Calculate gap position and size
+                let gap_x = self.dimensions.pixel_width as f32 - sidebar_expansion - padding;
+                let gap_width = sidebar_expansion + padding;
+                let gap_y = if self.config.tab_bar_at_bottom {
+                    self.dimensions.pixel_height as f32
+                        - tab_bar_height
+                        - border.bottom.get() as f32
+                } else {
+                    border.top.get() as f32
+                };
+
+                // Get the bar background color with transparency
+                let window_is_transparent = !self.window_background.is_empty()
+                    || self.config.window_background_opacity != 1.0;
+                let bar_bg_color = if self.focused.is_some() {
+                    self.config.window_frame.active_titlebar_bg
+                } else {
+                    self.config.window_frame.inactive_titlebar_bg
+                }
+                .to_linear()
+                .mul_alpha(if window_is_transparent {
+                    self.config.window_background_opacity
+                } else {
+                    1.0
+                });
+
+                // Render the gap fill
+                self.filled_rectangle(
+                    layers,
+                    0,
+                    euclid::rect(gap_x, gap_y, gap_width, tab_bar_height),
+                    bar_bg_color,
+                )?;
+            }
+
             return Ok(());
         }
 
