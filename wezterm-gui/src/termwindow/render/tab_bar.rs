@@ -51,22 +51,20 @@ impl crate::TermWindow {
                 self.config.text_background_opacity
             });
 
-        // Calculate tab bar width - ensure it doesn't extend into button/scrollbar area
-        // The button is positioned in the padding area, so we need to exclude that
+        // Calculate tab bar width to match the terminal content area
         let padding = self.effective_right_padding(&self.config) as f32;
         let sidebar_manager = self.sidebar_manager.borrow();
         let sidebar_expansion = sidebar_manager.get_window_expansion() as f32;
-        let is_expanded = sidebar_expansion > 0.0;
+        let is_right_visible = sidebar_manager.is_right_visible();
         drop(sidebar_manager);
         
-        // The tab bar should end where the button area begins
-        // When sidebar is visible, we need to account for the expansion
-        let tab_bar_width = if is_expanded {
-            // Window is expanded, subtract both padding and expansion
-            self.dimensions.pixel_width as f32 - sidebar_expansion - padding
+        // When sidebar is visible, the tab bar should end where the terminal content ends
+        // This is window_width - sidebar_width - padding
+        let tab_bar_width = if is_right_visible && sidebar_expansion > 0.0 {
+            self.dimensions.pixel_width as f32 - sidebar_expansion - padding - border.right.get() as f32
         } else {
-            // Window is not expanded, just subtract padding for button area
-            self.dimensions.pixel_width as f32 - padding
+            // No sidebar, tab bar extends to the padding area
+            self.dimensions.pixel_width as f32 - padding - border.right.get() as f32
         };
         
         // Fill tab bar background explicitly with correct width

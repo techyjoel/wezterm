@@ -312,10 +312,10 @@ impl SidebarManager {
     /// Returns the extra window width needed for Expand-mode sidebars
     pub fn get_window_expansion(&self) -> u16 {
         // Only the right sidebar expands the window in our current design
-        // Use the target visibility state for expansion calculation to ensure
-        // window resizes happen at the right time
+        // We should only expand the window when the sidebar is meant to be shown,
+        // NOT during the collapse animation. Otherwise the resize calculations get confused.
         let should_expand = self.config.mode == SidebarMode::Expand && 
-           (self.right_state.animation_target_visible || self.right_state.is_animating());
+           self.right_state.animation_target_visible;
         let result = if should_expand {
             self.right_state.width
         } else {

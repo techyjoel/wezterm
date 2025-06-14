@@ -86,7 +86,7 @@ The implementation is divided into 7 phases:
   - Added SidebarMode enum (Overlay vs Expand) to control behavior
   - Left sidebar: Overlay mode (doesn't affect window size)
   - Right sidebar: Expand mode (expands window width)
-  - Window expansion integration pending (to be done with actual content rendering)
+  - **Window Resize Fix**: The key to proper window resizing is that `get_window_expansion()` must only return the sidebar width when `animation_target_visible` is true, NOT during animations. Otherwise, the resize calculations get confused and the window won't shrink properly.
 - [x] **1.2.2** Integrate sidebar rendering into main paint loop
   - Add sidebar rendering to `paint_impl()` and `paint_pass()`
   - Implement proper z-ordering (sidebars above terminal content)
