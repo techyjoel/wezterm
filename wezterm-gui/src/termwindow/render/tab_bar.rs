@@ -55,15 +55,13 @@ impl crate::TermWindow {
         let padding = self.effective_right_padding(&self.config) as f32;
         let sidebar_manager = self.sidebar_manager.borrow();
         let sidebar_expansion = sidebar_manager.get_window_expansion() as f32;
-        let is_right_visible = sidebar_manager.is_right_visible();
         drop(sidebar_manager);
         
-        // When sidebar is visible, the tab bar should end where the terminal content ends
-        // This is window_width - sidebar_width - padding
-        let tab_bar_width = if is_right_visible && sidebar_expansion > 0.0 {
+        // Tab bar should end where the terminal content ends
+        // When sidebar is expanded (even partially), account for that expansion
+        let tab_bar_width = if sidebar_expansion > 0.0 {
             self.dimensions.pixel_width as f32 - sidebar_expansion - padding - border.right.get() as f32
         } else {
-            // No sidebar, tab bar extends to the padding area
             self.dimensions.pixel_width as f32 - padding - border.right.get() as f32
         };
         

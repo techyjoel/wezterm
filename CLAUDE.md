@@ -90,6 +90,8 @@ When implementing sidebars that expand the window width, it's critical to unders
 
 3. **Key Issue**: If `get_window_expansion()` returns a value during collapse animations, it creates a circular problem where the window resize calculations become incorrect, preventing the window from shrinking.
 
+4. **Sidebar Initialization**: When `show_on_startup` is true, ensure `set_right_visible(true)` is called during setup. Don't rely on `is_right_visible()` for this check in Expand mode as it always returns true.
+
 ## High-Level Architecture
 
 ### Core Components

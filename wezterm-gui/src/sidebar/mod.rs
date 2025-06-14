@@ -50,12 +50,14 @@ impl SidebarState {
             width,
         };
         
-        // If showing on startup, immediately set the animation to the visible position
+        // If showing on startup, immediately set to the visible position
         if show_on_startup {
+            // Create animation that's already at the end position
+            state.animation = SidebarPositionAnimation::new(200, end_pos, end_pos);
+            // Start animation in the forward direction (showing)
             state.animation.start(true);
-            // Force complete the animation by moving the start time back
-            // This will make get_position() return the end position
             state.visible = true;
+            // Animation will immediately return end_pos since start == end
         }
         
         state
@@ -224,7 +226,12 @@ impl SidebarManager {
     }
 
     pub fn is_right_visible(&self) -> bool {
-        self.right_state.visible || self.right_state.is_animating()
+        // In Expand mode, the right sidebar is always at least partially visible
+        if self.config.mode == SidebarMode::Expand {
+            true
+        } else {
+            self.right_state.visible || self.right_state.is_animating()
+        }
     }
 
     pub fn set_right_visible(&mut self, visible: bool) {
@@ -254,8 +261,15 @@ impl SidebarManager {
     }
 
     pub fn get_right_width(&self) -> u16 {
+        const MIN_SIDEBAR_WIDTH: u16 = 25;
+        
         if self.is_right_visible() {
-            self.right_state.width
+            // In Expand mode, return at least MIN_SIDEBAR_WIDTH
+            if self.config.mode == SidebarMode::Expand && !self.right_state.animation_target_visible {
+                MIN_SIDEBAR_WIDTH
+            } else {
+                self.right_state.width
+            }
         } else {
             0
         }
@@ -314,10 +328,16 @@ impl SidebarManager {
         // Only the right sidebar expands the window in our current design
         // We should only expand the window when the sidebar is meant to be shown,
         // NOT during the collapse animation. Otherwise the resize calculations get confused.
-        let should_expand = self.config.mode == SidebarMode::Expand && 
-           self.right_state.animation_target_visible;
+        // Always keep a minimum width for the button
+        const MIN_SIDEBAR_WIDTH: u16 = 25; // Just enough to show a hint of sidebar past button
+        
+        let should_expand = self.config.mode == SidebarMode::Expand;
         let result = if should_expand {
-            self.right_state.width
+            if self.right_state.animation_target_visible {
+                self.right_state.width
+            } else {
+                MIN_SIDEBAR_WIDTH
+            }
         } else {
             0
         };

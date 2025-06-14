@@ -87,6 +87,9 @@ The implementation is divided into 7 phases:
   - Left sidebar: Overlay mode (doesn't affect window size)
   - Right sidebar: Expand mode (expands window width)
   - **Window Resize Fix**: The key to proper window resizing is that `get_window_expansion()` must only return the sidebar width when `animation_target_visible` is true, NOT during animations. Otherwise, the resize calculations get confused and the window won't shrink properly.
+  - **Partial Sidebar Visibility**: Right sidebar maintains MIN_SIDEBAR_WIDTH (25px) visibility when collapsed to prevent button cutoff
+  - **Button Alignment**: Toggle button aligns with left edge of scrollbar, positioned at window_width - padding - border
+  - **Startup State**: Call `set_right_visible(true)` unconditionally when show_on_startup is true
 - [x] **1.2.2** Integrate sidebar rendering into main paint loop
   - Add sidebar rendering to `paint_impl()` and `paint_pass()`
   - Implement proper z-ordering (sidebars above terminal content)

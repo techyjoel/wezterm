@@ -527,7 +527,7 @@ impl TermWindow {
         sidebar_manager.set_right_width(sidebar_width);
 
         // Force the right sidebar to be visible since show_on_startup is true
-        if show_on_startup && !sidebar_manager.is_right_visible() {
+        if show_on_startup {
             log::info!("Setting right sidebar to visible based on show_on_startup");
             sidebar_manager.set_right_visible(true);
         }

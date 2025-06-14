@@ -5,6 +5,9 @@ use euclid;
 use window::color::LinearRgba;
 use window::WindowOps;
 
+// Minimum width to keep visible when sidebar is "collapsed"
+const MIN_SIDEBAR_WIDTH: f32 = 25.0;
+
 impl crate::TermWindow {
     pub fn paint_sidebars(&mut self, layers: &mut TripleLayerQuadAllocator) -> Result<()> {
         log::info!("paint_sidebars called");
@@ -68,17 +71,19 @@ impl crate::TermWindow {
         let expansion = sidebar_manager.get_window_expansion() as f32;
         drop(sidebar_manager);
 
-        // Calculate button position - in the scrollbar area but accounting for sidebar
+        // Calculate button position - align with left edge of scrollbar
         let padding = self.effective_right_padding(&self.config) as f32;
+        let terminal_scrollbar_padding = self.terminal_scrollbar_padding();
         
-        // When sidebar is expanded, the button should stay in the same visual position
-        // relative to the terminal content, not move with the window edge
+        // Button should align with the left edge of the scrollbar
+        // The scrollbar is positioned at: window_width - padding - border + terminal_scrollbar_padding
+        // We want the button at the same x position
         let button_x = if expansion > 0.0 {
             // Sidebar is visible/expanding - position relative to terminal content
-            self.dimensions.pixel_width as f32 - expansion - padding - border.right.get() as f32 + (padding - button_size) / 2.0
+            self.dimensions.pixel_width as f32 - expansion - padding - border.right.get() as f32
         } else {
-            // No sidebar - position in the padding area
-            self.dimensions.pixel_width as f32 - padding - border.right.get() as f32 + (padding - button_size) / 2.0
+            // No sidebar - position at the start of the padding area (where scrollbar begins)
+            self.dimensions.pixel_width as f32 - padding - border.right.get() as f32
         };
         
         let button_y = if self.show_tab_bar {
@@ -154,40 +159,40 @@ impl crate::TermWindow {
 
     fn paint_right_sidebar(&mut self, layers: &mut TripleLayerQuadAllocator) -> Result<()> {
         log::info!("paint_right_sidebar called");
+        
         let mut sidebar_manager = self.sidebar_manager.borrow_mut();
-        let width = sidebar_manager.get_right_width() as f32;
+        let full_width = sidebar_manager.get_right_width() as f32;
         let x_offset = sidebar_manager.get_right_position_offset();
+        let expansion = sidebar_manager.get_window_expansion() as f32;
 
-        log::info!("Right sidebar: width={}, x_offset={}", width, x_offset);
+        log::info!("Right sidebar: full_width={}, x_offset={}, expansion={}", full_width, x_offset, expansion);
 
-        // Right sidebar renders to the right of the terminal area AND scrollbar
-        // When visible, the window has been expanded by the sidebar width
-        // The sidebar should occupy this expanded area
-        
-        // Check if we're actually in expanded mode
-        let is_expanded = sidebar_manager.get_window_expansion() > 0;
-        
-        let sidebar_x = if is_expanded {
-            // Window has been expanded, sidebar starts at the original window width
-            // which is current_width - sidebar_width
-            (self.dimensions.pixel_width as f32 - width) + x_offset
+        // Calculate visible width and position based on animation state
+        let (visible_width, sidebar_x) = if expansion == MIN_SIDEBAR_WIDTH as f32 {
+            // Fully collapsed state - show only MIN_SIDEBAR_WIDTH
+            (MIN_SIDEBAR_WIDTH, self.dimensions.pixel_width as f32 - MIN_SIDEBAR_WIDTH)
+        } else if x_offset > 0.0 {
+            // Collapsing animation in progress
+            let progress = x_offset / (full_width - MIN_SIDEBAR_WIDTH);
+            let visible = full_width - (full_width - MIN_SIDEBAR_WIDTH) * progress;
+            let x_pos = self.dimensions.pixel_width as f32 - expansion + x_offset;
+            (visible, x_pos)
         } else {
-            // During collapse animation, sidebar is still visible but window already resized
-            // This is expected behavior - render sidebar sliding out from the right edge
-            self.dimensions.pixel_width as f32 + x_offset
+            // Fully expanded or expanding
+            (full_width, self.dimensions.pixel_width as f32 - expansion)
         };
         
         log::info!(
-            "Right sidebar rendering at x={}, is_expanded={}, window_width={}, sidebar_width={}",
+            "Right sidebar rendering at x={}, visible_width={}, window_width={}, expansion={}",
             sidebar_x,
-            is_expanded,
+            visible_width,
             self.dimensions.pixel_width,
-            width
+            expansion
         );
 
-        // Then draw the sidebar background on top
+        // Draw the sidebar background
         // Use layer 2 to render on top of terminal content and overlay
-        let sidebar_rect = euclid::rect(sidebar_x, 0.0, width, self.dimensions.pixel_height as f32);
+        let sidebar_rect = euclid::rect(sidebar_x, 0.0, visible_width, self.dimensions.pixel_height as f32);
         // Use configured color from clibuddy config
         // TODO: Read from config.clibuddy.right_sidebar.background_color
         let sidebar_bg_color = LinearRgba::with_components(0.02, 0.02, 0.024, 1.0); // rgba(5, 5, 6, 1.0)
@@ -198,7 +203,7 @@ impl crate::TermWindow {
         self.ui_items.push(UIItem {
             x: sidebar_x as usize,
             y: 0,
-            width: width as usize,
+            width: visible_width as usize,
             height: self.dimensions.pixel_height,
             item_type: UIItemType::Sidebar(crate::sidebar::SidebarPosition::Right),
         });
