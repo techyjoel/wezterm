@@ -10,6 +10,7 @@ use config::{Dimension, DimensionContext, TabBarColors};
 use std::rc::Rc;
 use wezterm_font::LoadedFont;
 use wezterm_term::color::{ColorAttribute, ColorPalette};
+use window::color::LinearRgba;
 use window::{IntegratedTitleButtonAlignment, IntegratedTitleButtonStyle};
 
 const X_BUTTON: &[Poly] = &[
@@ -164,28 +165,12 @@ impl crate::TermWindow {
                 .border(BoxDimension::new(Dimension::Pixels(1.)))
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: new_tab
-                        .bg_color
-                        .to_linear()
-                        .mul_alpha(if window_is_transparent {
-                            self.config.window_background_opacity
-                        } else {
-                            1.0
-                        })
-                        .into(),
+                    bg: new_tab.bg_color.to_linear().into(),
                     text: new_tab.fg_color.to_linear().into(),
                 })
                 .hover_colors(Some(ElementColors {
                     border: BorderColor::default(),
-                    bg: new_tab_hover
-                        .bg_color
-                        .to_linear()
-                        .mul_alpha(if window_is_transparent {
-                            self.config.window_background_opacity
-                        } else {
-                            1.0
-                        })
-                        .into(),
+                    bg: new_tab_hover.bg_color.to_linear().into(),
                     text: new_tab_hover.fg_color.to_linear().into(),
                 })),
                 TabBarItem::Tab { active, .. } if active => element
@@ -222,21 +207,11 @@ impl crate::TermWindow {
                         border: BorderColor::new(
                             bg_color
                                 .unwrap_or_else(|| active_tab.bg_color.into())
-                                .to_linear()
-                                .mul_alpha(if window_is_transparent {
-                                    self.config.window_background_opacity
-                                } else {
-                                    1.0
-                                }),
+                                .to_linear(),
                         ),
                         bg: bg_color
                             .unwrap_or_else(|| active_tab.bg_color.into())
                             .to_linear()
-                            .mul_alpha(if window_is_transparent {
-                                self.config.window_background_opacity
-                            } else {
-                                1.0
-                            })
                             .into(),
                         text: fg_color
                             .unwrap_or_else(|| active_tab.fg_color.into())
@@ -285,19 +260,8 @@ impl crate::TermWindow {
                         let inactive_tab = colors.inactive_tab();
                         let bg = bg_color
                             .unwrap_or_else(|| inactive_tab.bg_color.into())
-                            .to_linear()
-                            .mul_alpha(if window_is_transparent {
-                                self.config.window_background_opacity
-                            } else {
-                                1.0
-                            });
-                        let edge = colors.inactive_tab_edge().to_linear().mul_alpha(
-                            if window_is_transparent {
-                                self.config.window_background_opacity
-                            } else {
-                                1.0
-                            },
-                        );
+                            .to_linear();
+                        let edge = colors.inactive_tab_edge().to_linear();
                         ElementColors {
                             border: BorderColor {
                                 left: bg,
@@ -318,21 +282,11 @@ impl crate::TermWindow {
                             border: BorderColor::new(
                                 bg_color
                                     .unwrap_or_else(|| inactive_tab_hover.bg_color.into())
-                                    .to_linear()
-                                    .mul_alpha(if window_is_transparent {
-                                        self.config.window_background_opacity
-                                    } else {
-                                        1.0
-                                    }),
+                                    .to_linear(),
                             ),
                             bg: bg_color
                                 .unwrap_or_else(|| inactive_tab_hover.bg_color.into())
                                 .to_linear()
-                                .mul_alpha(if window_is_transparent {
-                                    self.config.window_background_opacity
-                                } else {
-                                    1.0
-                                })
                                 .into(),
                             text: fg_color
                                 .unwrap_or_else(|| inactive_tab_hover.fg_color.into())
@@ -415,8 +369,11 @@ impl crate::TermWindow {
 
         if !left_status.is_empty() {
             children.push(
-                Element::new(&font, ElementContent::Children(left_status))
-                    .colors(bar_colors.clone()),
+                Element::new(&font, ElementContent::Children(left_status)).colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(),
+                    text: bar_colors.text.clone(),
+                }),
             );
         }
 
@@ -447,7 +404,11 @@ impl crate::TermWindow {
         children.push(
             Element::new(&font, ElementContent::Children(left_eles))
                 .vertical_align(VerticalAlign::Bottom)
-                .colors(bar_colors.clone())
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(),
+                    text: bar_colors.text.clone(),
+                })
                 .padding(BoxDimension {
                     left: left_padding,
                     right: Dimension::Cells(0.),
@@ -458,7 +419,11 @@ impl crate::TermWindow {
         );
         children.push(
             Element::new(&font, ElementContent::Children(right_eles))
-                .colors(bar_colors.clone())
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(),
+                    text: bar_colors.text.clone(),
+                })
                 .float(Float::Right),
         );
 
