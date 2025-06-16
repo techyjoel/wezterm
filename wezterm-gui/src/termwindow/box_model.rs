@@ -313,6 +313,45 @@ impl Element {
         Self::new(font, ElementContent::Children(content))
     }
 
+    pub fn with_line_transparent_bg(font: &Rc<LoadedFont>, line: &Line, palette: &ColorPalette) -> Self {
+        let mut content: Vec<Element> = vec![];
+        let mut prior_attr = None;
+
+        for cluster in line.cluster(None) {
+            // Clustering may introduce cluster boundaries when the text hasn't actually
+            // changed style. Undo that here.
+            if let Some(prior) = content.last_mut() {
+                let (fg, _bg) = prior_attr.as_ref().unwrap();
+                if cluster.attrs.foreground() == *fg {
+                    if let ElementContent::Text(t) = &mut prior.content {
+                        t.push_str(&cluster.text);
+                        continue;
+                    }
+                }
+            }
+
+            let child =
+                Element::new(font, ElementContent::Text(cluster.text)).colors(ElementColors {
+                    border: BorderColor::default(),
+                    // Always use transparent background regardless of cell attributes
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: if cluster.attrs.foreground() == ColorAttribute::Default {
+                        InheritableColor::Inherited
+                    } else {
+                        palette
+                            .resolve_fg(cluster.attrs.foreground())
+                            .to_linear()
+                            .into()
+                    },
+                });
+
+            content.push(child);
+            prior_attr.replace((cluster.attrs.foreground(), cluster.attrs.background()));
+        }
+
+        Self::new(font, ElementContent::Children(content))
+    }
+
     pub fn vertical_align(mut self, align: VerticalAlign) -> Self {
         self.vertical_align = align;
         self
@@ -1176,10 +1215,13 @@ impl super::TermWindow {
                 LinearRgba::TRANSPARENT,
             )?;
             self.resolve_bg(colors, inherited_colors).apply(&mut quad);
-        } else if colors.bg != InheritableColor::Color(LinearRgba::TRANSPARENT) {
-            let mut quad =
-                self.filled_rectangle(layers, 0, element.padding, LinearRgba::TRANSPARENT)?;
-            self.resolve_bg(colors, inherited_colors).apply(&mut quad);
+        } else {
+            let resolved_bg = self.resolve_bg(colors, inherited_colors);
+            if resolved_bg.color != LinearRgba::TRANSPARENT {
+                let mut quad =
+                    self.filled_rectangle(layers, 0, element.padding, LinearRgba::TRANSPARENT)?;
+                resolved_bg.apply(&mut quad);
+            }
         }
 
         if element.border_rect == element.padding {

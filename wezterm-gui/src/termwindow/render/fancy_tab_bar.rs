@@ -1,8 +1,6 @@
 use crate::customglyph::*;
 use crate::tabbar::{TabBarItem, TabEntry};
 use crate::termwindow::box_model::*;
-use crate::termwindow::render::corners::*;
-
 use crate::termwindow::render::window_buttons::window_button_element;
 use crate::termwindow::{UIItem, UIItemType};
 use crate::utilsprites::RenderMetrics;
@@ -98,7 +96,8 @@ impl crate::TermWindow {
         };
 
         let item_to_elem = |item: &TabEntry| -> Element {
-            let element = Element::with_line(&font, &item.title, palette);
+            // Create the text element with transparent background
+            let element = Element::with_line_transparent_bg(&font, &item.title, palette);
 
             let bg_color = item
                 .title
@@ -164,12 +163,12 @@ impl crate::TermWindow {
                 })
                 .border(BoxDimension::new(Dimension::Pixels(1.)))
                 .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: new_tab.bg_color.to_linear().into(),
+                    border: BorderColor::new(new_tab.bg_color.to_linear()),
+                    bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(), // transparent background
                     text: new_tab.fg_color.to_linear().into(),
                 })
                 .hover_colors(Some(ElementColors {
-                    border: BorderColor::default(),
+                    border: BorderColor::new(new_tab.bg_color.to_linear()),
                     bg: new_tab_hover.bg_color.to_linear().into(),
                     text: new_tab_hover.fg_color.to_linear().into(),
                 })),
@@ -189,26 +188,13 @@ impl crate::TermWindow {
                         bottom: Dimension::Cells(0.25),
                     })
                     .border(BoxDimension::new(Dimension::Pixels(1.)))
-                    .border_corners(Some(Corners {
-                        top_left: SizedPoly {
-                            width: Dimension::Cells(0.5),
-                            height: Dimension::Cells(0.5),
-                            poly: TOP_LEFT_ROUNDED_CORNER,
-                        },
-                        top_right: SizedPoly {
-                            width: Dimension::Cells(0.5),
-                            height: Dimension::Cells(0.5),
-                            poly: TOP_RIGHT_ROUNDED_CORNER,
-                        },
-                        bottom_left: SizedPoly::none(),
-                        bottom_right: SizedPoly::none(),
-                    }))
                     .colors(ElementColors {
-                        border: BorderColor::new(
-                            bg_color
-                                .unwrap_or_else(|| active_tab.bg_color.into())
-                                .to_linear(),
-                        ),
+                        border: BorderColor {
+                            left: new_tab.bg_color.to_linear(),
+                            right: new_tab.bg_color.to_linear(),
+                            top: new_tab.bg_color.to_linear(),
+                            bottom: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0), // transparent bottom
+                        },
                         bg: bg_color
                             .unwrap_or_else(|| active_tab.bg_color.into())
                             .to_linear()
@@ -234,40 +220,17 @@ impl crate::TermWindow {
                         bottom: Dimension::Cells(0.25),
                     })
                     .border(BoxDimension::new(Dimension::Pixels(1.)))
-                    .border_corners(Some(Corners {
-                        top_left: SizedPoly {
-                            width: Dimension::Cells(0.5),
-                            height: Dimension::Cells(0.5),
-                            poly: TOP_LEFT_ROUNDED_CORNER,
-                        },
-                        top_right: SizedPoly {
-                            width: Dimension::Cells(0.5),
-                            height: Dimension::Cells(0.5),
-                            poly: TOP_RIGHT_ROUNDED_CORNER,
-                        },
-                        bottom_left: SizedPoly {
-                            width: Dimension::Cells(0.),
-                            height: Dimension::Cells(0.33),
-                            poly: &[],
-                        },
-                        bottom_right: SizedPoly {
-                            width: Dimension::Cells(0.),
-                            height: Dimension::Cells(0.33),
-                            poly: &[],
-                        },
-                    }))
                     .colors({
                         let inactive_tab = colors.inactive_tab();
                         let bg = bg_color
                             .unwrap_or_else(|| inactive_tab.bg_color.into())
                             .to_linear();
-                        let edge = colors.inactive_tab_edge().to_linear();
                         ElementColors {
                             border: BorderColor {
-                                left: bg,
-                                right: edge,
-                                top: bg,
-                                bottom: bg,
+                                left: new_tab.bg_color.to_linear(),
+                                right: new_tab.bg_color.to_linear(),
+                                top: new_tab.bg_color.to_linear(),
+                                bottom: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0), // transparent bottom
                             },
                             bg: bg.into(),
                             text: fg_color
@@ -279,11 +242,12 @@ impl crate::TermWindow {
                     .hover_colors({
                         let inactive_tab_hover = colors.inactive_tab_hover();
                         Some(ElementColors {
-                            border: BorderColor::new(
-                                bg_color
-                                    .unwrap_or_else(|| inactive_tab_hover.bg_color.into())
-                                    .to_linear(),
-                            ),
+                            border: BorderColor {
+                                left: new_tab.bg_color.to_linear(),
+                                right: new_tab.bg_color.to_linear(),
+                                top: new_tab.bg_color.to_linear(),
+                                bottom: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0), // transparent bottom
+                            },
                             bg: bg_color
                                 .unwrap_or_else(|| inactive_tab_hover.bg_color.into())
                                 .to_linear()
@@ -365,15 +329,24 @@ impl crate::TermWindow {
             }
         }
 
+        // Calculate tab bar width to account for sidebar
+        let padding = self.effective_right_padding(&self.config) as f32;
+        let sidebar_manager = self.sidebar_manager.borrow();
+        let sidebar_expansion = sidebar_manager.get_window_expansion() as f32;
+        drop(sidebar_manager);
+
+        // Tab bar should end where the terminal content ends
+        let tab_bar_width = if sidebar_expansion > 0.0 {
+            self.dimensions.pixel_width as f32 - sidebar_expansion - padding
+        } else {
+            self.dimensions.pixel_width as f32 - padding
+        };
+
         let mut children = vec![];
 
         if !left_status.is_empty() {
             children.push(
-                Element::new(&font, ElementContent::Children(left_status)).colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(),
-                    text: bar_colors.text.clone(),
-                }),
+                Element::new(&font, ElementContent::Children(left_status)).colors(bar_colors.clone()),
             );
         }
 
@@ -401,12 +374,15 @@ impl crate::TermWindow {
             Dimension::Cells(0.5)
         };
 
-        children.push(
+        // Create a horizontal layout with tabs on left and fill on right
+        let mut tab_row = vec![];
+        
+        // Add tabs (transparent background)
+        tab_row.push(
             Element::new(&font, ElementContent::Children(left_eles))
-                .vertical_align(VerticalAlign::Bottom)
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(),
+                    bg: LinearRgba::TRANSPARENT.into(), // transparent background for tabs area
                     text: bar_colors.text.clone(),
                 })
                 .padding(BoxDimension {
@@ -414,33 +390,31 @@ impl crate::TermWindow {
                     right: Dimension::Cells(0.),
                     top: Dimension::Cells(0.),
                     bottom: Dimension::Cells(0.),
-                })
-                .zindex(1),
+                }),
         );
+        
+        // Add background fill element to the right of tabs
+        tab_row.push(
+            Element::new(&font, ElementContent::Text("".to_string()))
+                .colors(bar_colors.clone())
+                .min_width(Some(Dimension::Pixels(tab_bar_width))) // Fill remaining space
+                .min_height(Some(Dimension::Pixels(tab_bar_height))),
+        );
+        
+        // Add the tab row container
+        children.push(
+            Element::new(&font, ElementContent::Children(tab_row))
+                .vertical_align(VerticalAlign::Bottom),
+        );
+        
+        // Add right elements (sidebar button) as floating
         children.push(
             Element::new(&font, ElementContent::Children(right_eles))
-                .colors(ElementColors {
-                    border: BorderColor::default(),
-                    bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(),
-                    text: bar_colors.text.clone(),
-                })
+                .colors(bar_colors.clone())
                 .float(Float::Right),
         );
 
         let content = ElementContent::Children(children);
-
-        // Calculate tab bar width to account for sidebar
-        let padding = self.effective_right_padding(&self.config) as f32;
-        let sidebar_manager = self.sidebar_manager.borrow();
-        let sidebar_expansion = sidebar_manager.get_window_expansion() as f32;
-        drop(sidebar_manager);
-
-        // Tab bar should end where the terminal content ends
-        let tab_bar_width = if sidebar_expansion > 0.0 {
-            self.dimensions.pixel_width as f32 - sidebar_expansion - padding
-        } else {
-            self.dimensions.pixel_width as f32 - padding
-        };
 
         let tabs = Element::new(&font, content)
             .display(DisplayType::Block)
@@ -448,7 +422,11 @@ impl crate::TermWindow {
             .min_width(Some(Dimension::Pixels(tab_bar_width)))
             .min_height(Some(Dimension::Pixels(tab_bar_height)))
             .vertical_align(VerticalAlign::Bottom)
-            .colors(bar_colors);
+            .colors(ElementColors {
+                border: BorderColor::default(),
+                bg: LinearRgba::TRANSPARENT.into(), // Transparent container
+                text: bar_colors.text,
+            });
 
         let border = self.get_os_border();
 
@@ -533,13 +511,7 @@ fn make_x_button(
 
         Some(ElementColors {
             border: BorderColor::default(),
-            bg: (if active {
-                inactive_tab_hover.bg_color
-            } else {
-                active_tab.bg_color
-            })
-            .to_linear()
-            .into(),
+            bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(), // transparent
             text: (if active {
                 inactive_tab_hover.fg_color
             } else {
