@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Refer to ../SPEC.md (if available) for a detailed spec of this project and use TASKS.md to track the project and tasks.
 
-Think critically and be skeptical of prior work. Fix problems you find that will break things (but don't do needless work). Consider multiple ways to solve problems and pick the best one that aligns with the codebase. Before editing things, use a subagent to examine the current codebase to ensure you fully understand all relevant portions (but subagents should not modify code). Don't make guesses, ensure you understand!
+Think critically and be skeptical of prior work. Fix problems you find that will break things (but don't do needless work). Consider multiple concepts for how to solve problems before you write code, and pick the best one that aligns with the codebase. Before editing things, use a subagent to examine the current codebase to ensure you fully understand all relevant portions (but subagents should not modify code). Don't make guesses, ensure you understand!
 
 ## Build and Development Commands
 
@@ -58,8 +58,9 @@ The workflow you should use is:
 5. Once in agreement on the proposed work, implement the change
 6. Run auto-format of code
 7. Run a type check and then release mode build to test if changes compile successfully
-8. Git add and commit (only after succesffully compiling and testing)
-9. Update TASKS.md (if it is in use)
+9. If you made GUI changes then prompt the user to run the build to test it (since you won't be able to see the graphic results)
+10. Git add and commit (only after succesffully compiling and testing)
+11. Update TASKS.md (if it is in use)
   - Check off tasks that are fully complete
   - Correct the task items to reflect the as-built conditions (i.e. re-word things or add things so the task list reflects the new codebase)
   - Add implementation details that have been built which will need to be referenced for future tasks

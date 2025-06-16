@@ -95,7 +95,7 @@ impl crate::TermWindow {
             .into(),
         };
 
-        let item_to_elem = |item: &TabEntry| -> Element {
+        let item_to_elem = |item: &TabEntry, tab_bar_height: f32| -> Element {
             // Create the text element with transparent background
             let element = Element::with_line_transparent_bg(&font, &item.title, palette);
 
@@ -150,42 +150,43 @@ impl crate::TermWindow {
                 .vertical_align(VerticalAlign::Middle)
                 .item_type(UIItemType::TabBar(item.item.clone()))
                 .margin(BoxDimension {
-                    left: Dimension::Cells(0.5),
+                    left: Dimension::Cells(0.0),
                     right: Dimension::Cells(0.),
-                    top: Dimension::Cells(0.2),
+                    top: Dimension::Cells(0.0),
                     bottom: Dimension::Cells(0.),
                 })
                 .padding(BoxDimension {
                     left: Dimension::Cells(0.5),
                     right: Dimension::Cells(0.5),
-                    top: Dimension::Cells(0.2),
-                    bottom: Dimension::Cells(0.25),
+                    top: Dimension::Cells(0.0),
+                    bottom: Dimension::Cells(0.0),
                 })
                 .border(BoxDimension::new(Dimension::Pixels(1.)))
                 .colors(ElementColors {
                     border: BorderColor::new(new_tab.bg_color.to_linear()),
-                    bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(), // transparent background
+                    bg: new_tab.bg_color.to_linear().into(),
                     text: new_tab.fg_color.to_linear().into(),
                 })
                 .hover_colors(Some(ElementColors {
                     border: BorderColor::new(new_tab.bg_color.to_linear()),
                     bg: new_tab_hover.bg_color.to_linear().into(),
                     text: new_tab_hover.fg_color.to_linear().into(),
-                })),
+                }))
+                .min_height(Some(Dimension::Pixels(tab_bar_height))),
                 TabBarItem::Tab { active, .. } if active => element
-                    .vertical_align(VerticalAlign::Bottom)
+                    .vertical_align(VerticalAlign::Middle)
                     .item_type(UIItemType::TabBar(item.item.clone()))
                     .margin(BoxDimension {
                         left: Dimension::Cells(0.),
                         right: Dimension::Cells(0.),
-                        top: Dimension::Cells(0.2),
+                        top: Dimension::Cells(0.0),
                         bottom: Dimension::Cells(0.),
                     })
                     .padding(BoxDimension {
                         left: Dimension::Cells(0.5),
                         right: Dimension::Cells(0.5),
-                        top: Dimension::Cells(0.2),
-                        bottom: Dimension::Cells(0.25),
+                        top: Dimension::Cells(0.0),
+                        bottom: Dimension::Cells(0.0),
                     })
                     .border(BoxDimension::new(Dimension::Pixels(1.)))
                     .colors(ElementColors {
@@ -203,21 +204,22 @@ impl crate::TermWindow {
                             .unwrap_or_else(|| active_tab.fg_color.into())
                             .to_linear()
                             .into(),
-                    }),
+                    })
+                    .min_height(Some(Dimension::Pixels(tab_bar_height))),
                 TabBarItem::Tab { .. } => element
-                    .vertical_align(VerticalAlign::Bottom)
+                    .vertical_align(VerticalAlign::Middle)
                     .item_type(UIItemType::TabBar(item.item.clone()))
                     .margin(BoxDimension {
                         left: Dimension::Cells(0.),
                         right: Dimension::Cells(0.),
-                        top: Dimension::Cells(0.2),
+                        top: Dimension::Cells(0.0),
                         bottom: Dimension::Cells(0.),
                     })
                     .padding(BoxDimension {
                         left: Dimension::Cells(0.5),
                         right: Dimension::Cells(0.5),
-                        top: Dimension::Cells(0.2),
-                        bottom: Dimension::Cells(0.25),
+                        top: Dimension::Cells(0.0),
+                        bottom: Dimension::Cells(0.0),
                     })
                     .border(BoxDimension::new(Dimension::Pixels(1.)))
                     .colors({
@@ -257,7 +259,8 @@ impl crate::TermWindow {
                                 .to_linear()
                                 .into(),
                         })
-                    }),
+                    })
+                    .min_height(Some(Dimension::Pixels(tab_bar_height))),
                 TabBarItem::WindowButton(button) => window_button_element(
                     button,
                     self.window_state.contains(window::WindowState::MAXIMIZED),
@@ -299,19 +302,19 @@ impl crate::TermWindow {
 
         for item in items {
             match item.item {
-                TabBarItem::LeftStatus => left_status.push(item_to_elem(item)),
-                TabBarItem::None | TabBarItem::RightStatus => right_eles.push(item_to_elem(item)),
+                TabBarItem::LeftStatus => left_status.push(item_to_elem(item, tab_bar_height)),
+                TabBarItem::None | TabBarItem::RightStatus => right_eles.push(item_to_elem(item, tab_bar_height)),
                 TabBarItem::WindowButton(_) => {
                     if self.config.integrated_title_button_alignment
                         == IntegratedTitleButtonAlignment::Left
                     {
-                        left_eles.push(item_to_elem(item))
+                        left_eles.push(item_to_elem(item, tab_bar_height))
                     } else {
-                        right_eles.push(item_to_elem(item))
+                        right_eles.push(item_to_elem(item, tab_bar_height))
                     }
                 }
                 TabBarItem::Tab { tab_idx, active } => {
-                    let mut elem = item_to_elem(item);
+                    let mut elem = item_to_elem(item, tab_bar_height);
                     elem.max_width = Some(Dimension::Pixels(max_tab_width));
                     elem.content = match elem.content {
                         ElementContent::Text(_) => unreachable!(),
@@ -325,7 +328,7 @@ impl crate::TermWindow {
                     };
                     left_eles.push(elem);
                 }
-                _ => left_eles.push(item_to_elem(item)),
+                _ => left_eles.push(item_to_elem(item, tab_bar_height)),
             }
         }
 
@@ -371,7 +374,7 @@ impl crate::TermWindow {
                 Dimension::Pixels(0.0)
             }
         } else {
-            Dimension::Cells(0.5)
+            Dimension::Cells(0.0)
         };
 
         // Create a horizontal layout with tabs on left and fill on right
@@ -505,13 +508,30 @@ fn make_x_button(
     .vertical_align(VerticalAlign::Middle)
     .float(Float::Right)
     .item_type(UIItemType::CloseTab(tab_idx))
+    .colors(ElementColors {
+        border: BorderColor::default(),
+        bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(), // transparent by default
+        text: (if active {
+            colors.active_tab().fg_color
+        } else {
+            colors.inactive_tab().fg_color
+        })
+        .to_linear()
+        .into(),
+    })
     .hover_colors({
         let inactive_tab_hover = colors.inactive_tab_hover();
         let active_tab = colors.active_tab();
 
         Some(ElementColors {
             border: BorderColor::default(),
-            bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(), // transparent
+            bg: (if active {
+                inactive_tab_hover.bg_color
+            } else {
+                colors.inactive_tab_hover().bg_color
+            })
+            .to_linear()
+            .into(), // show background on hover
             text: (if active {
                 inactive_tab_hover.fg_color
             } else {
