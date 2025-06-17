@@ -96,14 +96,7 @@ impl crate::TermWindow {
         };
 
         let item_to_elem = |item: &TabEntry, tab_bar_height: f32| -> Element {
-            // Create the text element with transparent background
-            let text_element = Element::with_line_transparent_bg(&font, &item.title, palette)
-                .vertical_align(VerticalAlign::Middle)
-                .transparent_bg();
-
-            // Wrap text in a container so vertical_align works
-            let element = Element::new(&font, ElementContent::Children(vec![text_element]));
-
+            let is_active = matches!(item.item, TabBarItem::Tab { active: true, .. });
             let bg_color = item
                 .title
                 .get_cell(0)
@@ -122,6 +115,41 @@ impl crate::TermWindow {
             let new_tab = colors.new_tab();
             let new_tab_hover = colors.new_tab_hover();
             let active_tab = colors.active_tab();
+            let inactive_tab_hover = colors.inactive_tab_hover();
+
+            let fg_active   = fg_color
+                .unwrap_or_else(|| active_tab.fg_color.into())
+                .to_linear();
+            let fg_inactive = fg_color
+                .unwrap_or_else(|| colors.inactive_tab().fg_color.into())
+                .to_linear();
+            let fg_inactive_hover = fg_color
+                .unwrap_or_else(|| inactive_tab_hover.fg_color.into())
+                .to_linear();
+
+            // Create the text element with transparent background
+            let text_element = Element::with_line_transparent_bg(&font, &item.title, palette)
+                .vertical_align(VerticalAlign::Middle)
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg:    LinearRgba::TRANSPARENT.into(),
+                    text:  if is_active { fg_active } else { fg_inactive }.into(),
+                })
+                // Add hover colors for inactive tabs
+                .hover_colors({
+                    if is_active {
+                        None
+                    } else {
+                        Some(ElementColors {
+                            border: BorderColor::default(),
+                            bg: LinearRgba::TRANSPARENT.into(),
+                            text: fg_inactive_hover.into(),
+                        })
+                    }
+                });
+
+            // Wrap text in a container so vertical_align works
+            let element = Element::new(&font, ElementContent::Children(vec![text_element]));
 
             match item.item {
                 TabBarItem::RightStatus | TabBarItem::LeftStatus | TabBarItem::None => element
@@ -154,6 +182,7 @@ impl crate::TermWindow {
                             },
                         },
                     )
+                    .transparent_bg()
                     .vertical_align(VerticalAlign::Middle);
 
                     // Wrap in a container with transparent background
@@ -211,10 +240,7 @@ impl crate::TermWindow {
                             .unwrap_or_else(|| active_tab.bg_color.into())
                             .to_linear()
                             .into(),
-                        text: fg_color
-                            .unwrap_or_else(|| active_tab.fg_color.into())
-                            .to_linear()
-                            .into(),
+                        text: fg_active.into(),
                     })
                     .min_height(Some(Dimension::Pixels(tab_bar_height))),
                 TabBarItem::Tab { .. } => element
@@ -245,14 +271,10 @@ impl crate::TermWindow {
                                 bottom: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0), // transparent bottom
                             },
                             bg: bg.into(),
-                            text: fg_color
-                                .unwrap_or_else(|| inactive_tab.fg_color.into())
-                                .to_linear()
-                                .into(),
+                            text: fg_inactive.into(),
                         }
                     })
                     .hover_colors({
-                        let inactive_tab_hover = colors.inactive_tab_hover();
                         Some(ElementColors {
                             border: BorderColor {
                                 left: new_tab.bg_color.to_linear(),
@@ -264,10 +286,7 @@ impl crate::TermWindow {
                                 .unwrap_or_else(|| inactive_tab_hover.bg_color.into())
                                 .to_linear()
                                 .into(),
-                            text: fg_color
-                                .unwrap_or_else(|| inactive_tab_hover.fg_color.into())
-                                .to_linear()
-                                .into(),
+                            text: fg_inactive_hover.into(),
                         })
                     })
                     .min_height(Some(Dimension::Pixels(tab_bar_height))),

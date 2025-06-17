@@ -122,37 +122,71 @@ local function hex_to_rgba(hex_color, opacity)
     return string.format("rgba(%d,%d,%d,%.1f)", r, g, b, opacity)
 end
 
--- Function to make a color 10% less intense (brighter or darker)
-local function soften_intensity(hex)
-    local original  = hex
-    local has_hash  = hex:sub(1, 1) == "#"
-    hex             = hex:gsub("^#", "")
+-- Function to adjust_intensity( color_string [, intensify [, change_amt ]] )
+-- • color       –  "#rgb", "#rgba", "#rrggbb", "#rrggbbaa" (hash optional)
+--                  or "rgba(r,g,b,a)"    ─ (case-insensitive, spaces ok)
+-- • intensify    –  false / nil  → SOFTEN  (pull toward mid-grey)
+--                  true          → INTENSIFY (push away from mid-grey)
+-- • change_amt   –  absolute change per channel (0-255).  Default = 25.
+--
+-- EXTRA RULE: if a channel cannot move by ≥ change_amt/2 because of
+--             clamping (0 or 255), its direction is flipped so it *can*.
 
-    -- expand shorthand (#abc ⇒ #aabbcc)
-    if #hex == 3 then
-        hex = hex:gsub("(.)", "%1%1")
+local function adjust_intensity(col, intensify, change_amt)
+    -----------------------------------------------------------------------
+    -- helpers ------------------------------------------------------------
+    local function parse(s)
+        s = s:match("^%s*(.-)%s*$")                      -- trim
+        -- ─── hex (#rgb/#rgba/#rrggbb/#rrggbbaa) ───────────────────────
+        local hash, hex = s:match("^(#?)([%x]+)$")
+        if hex and (#hex == 3 or #hex == 4 or #hex == 6 or #hex == 8) then
+            if #hex == 3 or #hex == 4 then hex = hex:gsub("(.)", "%1%1") end
+            local r = tonumber(hex:sub(1,2),16)
+            local g = tonumber(hex:sub(3,4),16)
+            local b = tonumber(hex:sub(5,6),16)
+            local a = (#hex == 8) and tonumber(hex:sub(7,8),16) or nil
+            return r,g,b, a and a/255 or 1, "hex", hash, a and hex:sub(7,8)
+        end
+        -- ─── rgba(...) string ─────────────────────────────────────────
+        local r,g,b,a = s:lower():match(
+            "^rgba%(%s*([%d%.]+)%s*,%s*([%d%.]+)%s*,%s*([%d%.]+)%s*,%s*([%d%.]+)%s*%)$")
+        if r then return tonumber(r),tonumber(g),tonumber(b),tonumber(a),"rgba" end
     end
-    if #hex ~= 6 or not hex:match("^[0-9a-fA-F]+$") then
-        return original
+
+    local function emit(r,g,b,a,kind,hash,hex_a)
+        if not kind then return col end                  -- invalid → unchanged
+        if kind == "hex" then
+            local out = string.format("%02x%02x%02x", r, g, b)
+            if hex_a then out = out .. hex_a end
+            return hash .. out
+        end
+        return ("rgba(%d,%d,%d,%s)"):format(r, g, b, tostring(a))
+    end
+    -----------------------------------------------------------------------
+
+    local r,g,b,a,kind,hash,hex_a = parse(col)
+    if not kind then return col end                      -- give up on bad input
+
+    change_amt      = math.max(0, math.min(255, change_amt or 25))
+    local avg       = (r + g + b) / 3
+    local brighten  = (avg < 128) ~= (not not intensify) -- XOR: see table below
+    local delta     = brighten and  change_amt or -change_amt
+    local half_step = change_amt / 2
+
+    local function shift(v)
+        local nv   = v + delta
+        local clamped = math.max(0, math.min(255, nv))
+        if math.abs(clamped - v) < half_step then        -- moved < ½ target?
+            nv       = v - delta                         -- flip direction
+            clamped  = math.max(0, math.min(255, nv))
+        end
+        return clamped
     end
 
-    local r   = tonumber(hex:sub(1, 2), 16)
-    local g   = tonumber(hex:sub(3, 4), 16)
-    local b   = tonumber(hex:sub(5, 6), 16)
-    local avg = (r + g + b) / 3
-
-    local function shift(v, lighten)
-        return lighten
-            and math.min(255, math.floor(v + 0.1 * (255 - v) + 0.5)) -- lighten 10 %
-            or  math.max(0,   math.floor(v - 0.1 * v + 0.5))         -- darken 10 %
-    end
-
-    local lighten = avg < 128
-    r, g, b       = shift(r, lighten), shift(g, lighten), shift(b, lighten)
-
-    local result = string.format("%02x%02x%02x", r, g, b)
-    return has_hash and ("#" .. result) or result
+    r, g, b = shift(r), shift(g), shift(b)
+    return emit(r, g, b, a, kind, hash, hex_a)
 end
+
 
 
 -- Load user configuration
@@ -204,7 +238,7 @@ if user_config.appearance then
             background = cust_bg_color_tab_bar,
             active_tab = {
                 bg_color = cust_bg_color,
-                fg_color = soften_intensity(cust_fg_color),
+                fg_color = adjust_intensity(cust_fg_color),
                 intensity = 'Normal',
                 underline = 'None',
                 italic = false,
@@ -214,7 +248,19 @@ if user_config.appearance then
                 bg_color = cust_inactive_tab_bg_color,
                 fg_color = user_config.appearance.inactive_tab_fg_color or '#999999',
             },
+            inactive_tab_hover = {
+                bg_color = adjust_intensity(cust_inactive_tab_bg_color, true),
+                fg_color = user_config.appearance.inactive_tab_fg_color or '#999999',
+            },
             inactive_tab_edge = cust_inactive_tab_bg_color,
+            new_tab = {
+                bg_color = cust_inactive_tab_bg_color,
+                fg_color = user_config.appearance.inactive_tab_fg_color or '#999999',
+            },
+            new_tab_hover = {
+                bg_color = adjust_intensity(cust_inactive_tab_bg_color, true),
+                fg_color = user_config.appearance.inactive_tab_fg_color or '#999999',
+            },
         },
     }
     
