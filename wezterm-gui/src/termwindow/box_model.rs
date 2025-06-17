@@ -265,6 +265,22 @@ impl Element {
         }
     }
 
+    pub fn with_transparent_bg(
+        font: &Rc<LoadedFont>,
+        content: ElementContent,
+    ) -> Self {
+        Element::new(font, content).colors(ElementColors {
+            border: BorderColor::default(),
+            bg: LinearRgba::TRANSPARENT.into(),
+            text: InheritableColor::Inherited,
+        })
+    }
+
+    pub fn transparent_bg(mut self) -> Self {
+        self.colors.bg = LinearRgba::TRANSPARENT.into();
+        self
+    }
+
     pub fn with_line(font: &Rc<LoadedFont>, line: &Line, palette: &ColorPalette) -> Self {
         let mut content: Vec<Element> = vec![];
         let mut prior_attr = None;
@@ -313,7 +329,11 @@ impl Element {
         Self::new(font, ElementContent::Children(content))
     }
 
-    pub fn with_line_transparent_bg(font: &Rc<LoadedFont>, line: &Line, palette: &ColorPalette) -> Self {
+    pub fn with_line_transparent_bg(
+        font: &Rc<LoadedFont>,
+        line: &Line,
+        palette: &ColorPalette,
+    ) -> Self {
         let mut content: Vec<Element> = vec![];
         let mut prior_attr = None;
 

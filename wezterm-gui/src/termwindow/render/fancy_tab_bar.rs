@@ -97,7 +97,12 @@ impl crate::TermWindow {
 
         let item_to_elem = |item: &TabEntry, tab_bar_height: f32| -> Element {
             // Create the text element with transparent background
-            let element = Element::with_line_transparent_bg(&font, &item.title, palette);
+            let text_element = Element::with_line_transparent_bg(&font, &item.title, palette)
+                .vertical_align(VerticalAlign::Middle)
+                .transparent_bg();
+
+            // Wrap text in a container so vertical_align works
+            let element = Element::new(&font, ElementContent::Children(vec![text_element]));
 
             let bg_color = item
                 .title
@@ -136,45 +141,51 @@ impl crate::TermWindow {
                     })
                     .border(BoxDimension::new(Dimension::Pixels(0.)))
                     .colors(bar_colors.clone()),
-                TabBarItem::NewTabButton => Element::new(
-                    &font,
-                    ElementContent::Poly {
-                        line_width: metrics.underline_height.max(2),
-                        poly: SizedPoly {
-                            poly: PLUS_BUTTON,
-                            width: Dimension::Pixels(metrics.cell_size.height as f32 / 2.),
-                            height: Dimension::Pixels(metrics.cell_size.height as f32 / 2.),
+                TabBarItem::NewTabButton => {
+                    // Create the poly element
+                    let poly_elem = Element::new(
+                        &font,
+                        ElementContent::Poly {
+                            line_width: metrics.underline_height.max(2),
+                            poly: SizedPoly {
+                                poly: PLUS_BUTTON,
+                                width: Dimension::Pixels(metrics.cell_size.height as f32 / 2.),
+                                height: Dimension::Pixels(metrics.cell_size.height as f32 / 2.),
+                            },
                         },
-                    },
-                )
-                .vertical_align(VerticalAlign::Middle)
-                .item_type(UIItemType::TabBar(item.item.clone()))
-                .margin(BoxDimension {
-                    left: Dimension::Cells(0.0),
-                    right: Dimension::Cells(0.),
-                    top: Dimension::Cells(0.0),
-                    bottom: Dimension::Cells(0.),
-                })
-                .padding(BoxDimension {
-                    left: Dimension::Cells(0.5),
-                    right: Dimension::Cells(0.5),
-                    top: Dimension::Cells(0.0),
-                    bottom: Dimension::Cells(0.0),
-                })
-                .border(BoxDimension::new(Dimension::Pixels(1.)))
-                .colors(ElementColors {
-                    border: BorderColor::new(new_tab.bg_color.to_linear()),
-                    bg: new_tab.bg_color.to_linear().into(),
-                    text: new_tab.fg_color.to_linear().into(),
-                })
-                .hover_colors(Some(ElementColors {
-                    border: BorderColor::new(new_tab.bg_color.to_linear()),
-                    bg: new_tab_hover.bg_color.to_linear().into(),
-                    text: new_tab_hover.fg_color.to_linear().into(),
-                }))
-                .min_height(Some(Dimension::Pixels(tab_bar_height))),
+                    )
+                    .vertical_align(VerticalAlign::Middle);
+
+                    // Wrap in a container with transparent background
+                    Element::new(&font, ElementContent::Children(vec![poly_elem]))
+                        .item_type(UIItemType::TabBar(item.item.clone()))
+                        .vertical_align(VerticalAlign::Middle)
+                        .margin(BoxDimension {
+                            left: Dimension::Cells(0.0),
+                            right: Dimension::Cells(0.),
+                            top: Dimension::Cells(0.0),
+                            bottom: Dimension::Cells(0.),
+                        })
+                        .padding(BoxDimension {
+                            left: Dimension::Cells(0.5),
+                            right: Dimension::Cells(0.5),
+                            top: Dimension::Cells(0.0),
+                            bottom: Dimension::Cells(0.0),
+                        })
+                        .border(BoxDimension::new(Dimension::Pixels(1.)))
+                        .colors(ElementColors {
+                            border: BorderColor::new(new_tab.bg_color.to_linear()),
+                            bg: new_tab.bg_color.to_linear().into(),
+                            text: new_tab.fg_color.to_linear().into(),
+                        })
+                        .hover_colors(Some(ElementColors {
+                            border: BorderColor::new(new_tab.bg_color.to_linear()),
+                            bg: new_tab_hover.bg_color.to_linear().into(),
+                            text: new_tab_hover.fg_color.to_linear().into(),
+                        }))
+                }
+                .min_height(Some(Dimension::Pixels(tab_bar_height - 1.))),
                 TabBarItem::Tab { active, .. } if active => element
-                    .vertical_align(VerticalAlign::Middle)
                     .item_type(UIItemType::TabBar(item.item.clone()))
                     .margin(BoxDimension {
                         left: Dimension::Cells(0.),
@@ -207,7 +218,6 @@ impl crate::TermWindow {
                     })
                     .min_height(Some(Dimension::Pixels(tab_bar_height))),
                 TabBarItem::Tab { .. } => element
-                    .vertical_align(VerticalAlign::Middle)
                     .item_type(UIItemType::TabBar(item.item.clone()))
                     .margin(BoxDimension {
                         left: Dimension::Cells(0.),
@@ -303,7 +313,9 @@ impl crate::TermWindow {
         for item in items {
             match item.item {
                 TabBarItem::LeftStatus => left_status.push(item_to_elem(item, tab_bar_height)),
-                TabBarItem::None | TabBarItem::RightStatus => right_eles.push(item_to_elem(item, tab_bar_height)),
+                TabBarItem::None | TabBarItem::RightStatus => {
+                    right_eles.push(item_to_elem(item, tab_bar_height))
+                }
                 TabBarItem::WindowButton(_) => {
                     if self.config.integrated_title_button_alignment
                         == IntegratedTitleButtonAlignment::Left
@@ -349,7 +361,8 @@ impl crate::TermWindow {
 
         if !left_status.is_empty() {
             children.push(
-                Element::new(&font, ElementContent::Children(left_status)).colors(bar_colors.clone()),
+                Element::new(&font, ElementContent::Children(left_status))
+                    .colors(bar_colors.clone()),
             );
         }
 
@@ -379,7 +392,7 @@ impl crate::TermWindow {
 
         // Create a horizontal layout with tabs on left and fill on right
         let mut tab_row = vec![];
-        
+
         // Add tabs (transparent background)
         tab_row.push(
             Element::new(&font, ElementContent::Children(left_eles))
@@ -395,7 +408,7 @@ impl crate::TermWindow {
                     bottom: Dimension::Cells(0.),
                 }),
         );
-        
+
         // Add background fill element to the right of tabs
         tab_row.push(
             Element::new(&font, ElementContent::Text("".to_string()))
@@ -403,13 +416,13 @@ impl crate::TermWindow {
                 .min_width(Some(Dimension::Pixels(tab_bar_width))) // Fill remaining space
                 .min_height(Some(Dimension::Pixels(tab_bar_height))),
         );
-        
+
         // Add the tab row container
         children.push(
             Element::new(&font, ElementContent::Children(tab_row))
                 .vertical_align(VerticalAlign::Bottom),
         );
-        
+
         // Add right elements (sidebar button) as floating
         children.push(
             Element::new(&font, ElementContent::Children(right_eles))
