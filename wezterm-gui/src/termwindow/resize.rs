@@ -195,7 +195,9 @@ impl super::TermWindow {
                 pixel_max: size.pixel_height as f32,
                 pixel_cell: self.render_metrics.cell_size.height as f32,
             };
-            let padding_left = config.window_padding.left.evaluate_as_pixels(h_context) as usize;
+            let mut padding_left =
+                config.window_padding.left.evaluate_as_pixels(h_context) as usize;
+            padding_left += self.left_button_bar_width() as usize;
             let padding_top = config.window_padding.top.evaluate_as_pixels(v_context) as usize;
             let padding_bottom =
                 config.window_padding.bottom.evaluate_as_pixels(v_context) as usize;
@@ -250,7 +252,9 @@ impl super::TermWindow {
                 pixel_max: self.terminal_size.pixel_height as f32,
                 pixel_cell: self.render_metrics.cell_size.height as f32,
             };
-            let padding_left = config.window_padding.left.evaluate_as_pixels(h_context) as usize;
+            let mut padding_left =
+                config.window_padding.left.evaluate_as_pixels(h_context) as usize;
+            padding_left += self.left_button_bar_width() as usize;
             let padding_top = config.window_padding.top.evaluate_as_pixels(v_context) as usize;
             let padding_bottom =
                 config.window_padding.bottom.evaluate_as_pixels(v_context) as usize;
@@ -523,7 +527,8 @@ impl super::TermWindow {
             pixel_max: self.dimensions.pixel_height as f32,
             pixel_cell: render_metrics.cell_size.height as f32,
         };
-        let padding_left = config.window_padding.left.evaluate_as_pixels(h_context) as usize;
+        let mut padding_left = config.window_padding.left.evaluate_as_pixels(h_context) as usize;
+        padding_left += self.left_button_bar_width() as usize;
         let padding_top = config.window_padding.top.evaluate_as_pixels(v_context) as usize;
         let padding_bottom = config.window_padding.bottom.evaluate_as_pixels(v_context) as usize;
 
@@ -579,6 +584,19 @@ impl super::TermWindow {
             // TODO: Make this configurable via config.terminal_scrollbar_padding
             // For now, use half a cell width as default padding
             self.render_metrics.cell_size.width as f32 * 0.5
+        } else {
+            0.0
+        }
+    }
+
+    /// Get the left button bar width if enabled
+    pub fn left_button_bar_width(&self) -> f32 {
+        let sidebar_manager = self.sidebar_manager.borrow();
+        let has_left_sidebar = sidebar_manager.get_left_sidebar().is_some();
+        drop(sidebar_manager);
+
+        if has_left_sidebar {
+            40.0 // Left button bar width
         } else {
             0.0
         }

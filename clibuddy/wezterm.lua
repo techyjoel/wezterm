@@ -418,8 +418,8 @@ local clibuddy_config = {
         width = 350,
         show_on_startup = false,
         animation_duration_ms = 200,
-        -- Colors
-        background_color = 'rgba(5, 5, 6, 0.95)',
+        -- Colors  
+        background_color = 'rgba(42, 42, 42, 1.0)',  -- Opaque dark gray
         border_color = 'rgba(64, 64, 64, 1.0)',
         -- Toggle button
         button = {

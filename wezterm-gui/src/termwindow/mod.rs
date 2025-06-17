@@ -505,6 +505,30 @@ impl TermWindow {
         )
     }
 
+    fn setup_left_sidebar(&mut self) {
+        use crate::sidebar::{SettingsSidebar, SidebarConfig};
+        use std::sync::{Arc, Mutex};
+
+        // Use hardcoded values for now
+        // TODO: Read from configuration when available
+        let width = 350;
+        let show_on_startup = false;
+
+        let settings_sidebar = SettingsSidebar::new(width);
+        let settings_sidebar_arc = Arc::new(Mutex::new(settings_sidebar));
+
+        let mut sidebar_manager = self.sidebar_manager.borrow_mut();
+        sidebar_manager.set_left_sidebar(settings_sidebar_arc);
+
+        // Set visibility if configured to show on startup
+        if show_on_startup {
+            if let Some(sidebar) = sidebar_manager.get_left_sidebar() {
+                let mut sidebar_locked = sidebar.lock().unwrap();
+                sidebar_locked.toggle_visibility();
+            }
+        }
+    }
+
     fn setup_ai_sidebar(&mut self) {
         use crate::sidebar::{AiSidebar, SidebarConfig};
         use std::sync::{Arc, Mutex};
@@ -923,9 +947,10 @@ impl TermWindow {
         .await?;
         tw.borrow_mut().window.replace(window.clone());
 
-        // Initialize AI sidebar for testing
+        // Initialize sidebars
         {
             let mut tw_mut = tw.borrow_mut();
+            tw_mut.setup_left_sidebar();
             tw_mut.setup_ai_sidebar();
         }
 

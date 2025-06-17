@@ -165,12 +165,12 @@ impl SidebarPositionAnimation {
         );
         self.animation.start(forward);
     }
-    
+
     /// Start the animation from the current position
     pub fn start_from_current(&mut self, forward: bool) {
         // Get the current position before starting
         let current_pos = self.get_position();
-        
+
         // Update start and end positions based on direction
         if forward {
             // Animating in (showing): go from current position to visible position (0)
@@ -181,7 +181,7 @@ impl SidebarPositionAnimation {
             self.start_position = current_pos;
             self.end_position = current_pos.abs().max(300.0); // Use the original off-screen position
         }
-        
+
         log::info!(
             "SidebarPositionAnimation::start_from_current: forward={}, current_pos={}, new_start={}, new_end={}",
             forward,
@@ -189,7 +189,7 @@ impl SidebarPositionAnimation {
             self.start_position,
             self.end_position
         );
-        
+
         self.animation.start(forward);
     }
 

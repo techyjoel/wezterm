@@ -7,9 +7,11 @@ use termwiz::input::{KeyCode, MouseEvent};
 pub mod ai_sidebar;
 pub mod animation;
 pub mod components;
+pub mod settings_sidebar;
 
 pub use ai_sidebar::AiSidebar;
 pub use animation::{SidebarAnimation, SidebarPositionAnimation};
+pub use settings_sidebar::SettingsSidebar;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarPosition {
@@ -288,7 +290,7 @@ impl SidebarManager {
             0
         }
     }
-    
+
     /// Get the actual configured width of the right sidebar (not affected by animation state)
     pub fn get_right_sidebar_actual_width(&self) -> u16 {
         self.right_state.width
@@ -336,8 +338,12 @@ impl SidebarManager {
         } else {
             0
         };
-        log::trace!("get_window_expansion: mode={:?}, visible={}, result={}", 
-            self.config.mode, self.right_state.visible, result);
+        log::trace!(
+            "get_window_expansion: mode={:?}, visible={}, result={}",
+            self.config.mode,
+            self.right_state.visible,
+            result
+        );
         result
     }
 

@@ -10,23 +10,23 @@ const MIN_SIDEBAR_WIDTH: f32 = 25.0;
 
 impl crate::TermWindow {
     pub fn paint_sidebars(&mut self, layers: &mut TripleLayerQuadAllocator) -> Result<()> {
-        log::info!("paint_sidebars called");
-
         // Update sidebar animations and check if we need to redraw
         let needs_redraw = self.sidebar_manager.borrow_mut().update_animations();
         if needs_redraw {
             self.window.as_ref().unwrap().invalidate();
         }
 
-        // Check visibility first, then borrow and paint
-        let left_visible = self.sidebar_manager.borrow().is_left_visible();
-        let right_visible = self.sidebar_manager.borrow().is_right_visible();
+        // Check if left sidebar exists (not just visible)
+        let sidebar_manager = self.sidebar_manager.borrow();
+        let has_left_sidebar = sidebar_manager.get_left_sidebar().is_some();
+        let left_visible = sidebar_manager.is_left_visible();
+        let right_visible = sidebar_manager.is_right_visible();
+        drop(sidebar_manager);
 
-        log::info!(
-            "Sidebar visibility check: left={}, right={}",
-            left_visible,
-            right_visible
-        );
+        // Paint left button bar background if left sidebar exists
+        if has_left_sidebar {
+            self.paint_left_button_bar_background(layers)?;
+        }
 
         // Paint left sidebar if visible
         if left_visible {
@@ -44,48 +44,42 @@ impl crate::TermWindow {
         Ok(())
     }
 
+    fn paint_left_button_bar_background(
+        &mut self,
+        layers: &mut TripleLayerQuadAllocator,
+    ) -> Result<()> {
+        // Paint the entire left button bar area with a dark gray background
+        let button_bar_width = 40.0;
+        let border = self.get_os_border();
+
+        // Dark gray background for the entire button bar column
+        let bar_bg_color = LinearRgba::with_components(0.15, 0.15, 0.15, 1.0); // Darker than button
+
+        let bar_rect = euclid::rect(
+            border.left.get() as f32,
+            0.0,
+            button_bar_width,
+            self.dimensions.pixel_height as f32,
+        );
+
+        // Render on layer 1 so it's behind the button but above terminal background
+        self.filled_rectangle(layers, 1, bar_rect, bar_bg_color)?;
+
+        Ok(())
+    }
+
     pub fn paint_sidebar_toggle_buttons(
         &mut self,
         layers: &mut TripleLayerQuadAllocator,
     ) -> Result<()> {
-        log::info!("paint_sidebar_toggle_buttons called");
-
         let _config = &self.config;
 
-        // Get configuration for right sidebar button
-        let button_size = 40.0; // TODO: Read from config.clibuddy.right_sidebar.button.size
+        // Common button configuration
+        let button_size = 40.0;
         let button_margin = 10.0;
         let border = self.get_os_border();
 
-        log::info!(
-            "Window dimensions: {}x{}, show_tab_bar: {}",
-            self.dimensions.pixel_width,
-            self.dimensions.pixel_height,
-            self.show_tab_bar
-        );
-        log::info!("Border: {:?}", border);
-
-        // Get sidebar dimensions for proper positioning
-        let sidebar_manager = self.sidebar_manager.borrow();
-        let is_right_visible = sidebar_manager.is_right_visible();
-        let expansion = sidebar_manager.get_window_expansion() as f32;
-        drop(sidebar_manager);
-
-        // Calculate button position - align with left edge of scrollbar
-        let padding = self.effective_right_padding(&self.config) as f32;
-        let _terminal_scrollbar_padding = self.terminal_scrollbar_padding();
-
-        // Button should align with the left edge of the scrollbar
-        // The scrollbar is positioned at: window_width - padding - border + terminal_scrollbar_padding
-        // We want the button at the same x position
-        let button_x = if expansion > 0.0 {
-            // Sidebar is visible/expanding - position relative to terminal content
-            self.dimensions.pixel_width as f32 - expansion - padding - border.right.get() as f32
-        } else {
-            // No sidebar - position at the start of the padding area (where scrollbar begins)
-            self.dimensions.pixel_width as f32 - padding - border.right.get() as f32
-        };
-
+        // Common Y position calculation
         let button_y = if self.show_tab_bar {
             // Tab bar is visible - center button vertically in tab bar
             let tab_bar_height = self.tab_bar_pixel_height().unwrap_or(0.0);
@@ -95,79 +89,112 @@ impl crate::TermWindow {
             border.top.get() as f32 + button_margin
         };
 
-        log::info!(
-            "Button position: x={}, y={}, size={}, visible={}",
-            button_x,
-            button_y,
-            button_size,
-            is_right_visible
-        );
+        // Paint left sidebar button if left sidebar is configured
+        let sidebar_manager = self.sidebar_manager.borrow();
+        let has_left_sidebar = sidebar_manager.get_left_sidebar().is_some();
+        let is_left_visible = sidebar_manager.is_left_visible();
+        let is_right_visible = sidebar_manager.is_right_visible();
+        let expansion = sidebar_manager.get_window_expansion() as f32;
+        drop(sidebar_manager);
 
-        // Use the filled_rectangle helper which handles all the coordinate conversion
-        let button_rect = euclid::rect(button_x, button_y, button_size, button_size);
-        let button_color = LinearRgba::with_components(0.2, 0.4, 1.0, 1.0); // Bright blue
+        if has_left_sidebar {
+            // Left button is always at x=0 (left edge)
+            let left_button_x = border.left.get() as f32;
 
-        // Render button on layer 2 (highest available) to ensure it's above sidebar
-        self.filled_rectangle(layers, 2, button_rect, button_color)?;
+            // Left button background (gear icon)
+            let left_button_rect = euclid::rect(left_button_x, button_y, button_size, button_size);
+            let left_button_color = if is_left_visible {
+                LinearRgba::with_components(0.3, 0.3, 0.35, 1.0) // Darker when active
+            } else {
+                LinearRgba::with_components(0.2, 0.2, 0.25, 1.0) // Dark gray
+            };
 
-        // Add UI item for click detection - use consistent positioning
+            self.filled_rectangle(layers, 2, left_button_rect, left_button_color)?;
+
+            // Add UI item for left button click detection
+            self.ui_items.push(UIItem {
+                x: left_button_x as usize,
+                y: button_y as usize,
+                width: button_size as usize,
+                height: button_size as usize,
+                item_type: UIItemType::SidebarButton(crate::sidebar::SidebarPosition::Left),
+            });
+        }
+
+        // Paint right sidebar button
+        let padding = self.effective_right_padding(&self.config) as f32;
+
+        // Calculate right button position - align with left edge of scrollbar
+        let right_button_x = if expansion > 0.0 {
+            // Sidebar is visible/expanding - position relative to terminal content
+            self.dimensions.pixel_width as f32 - expansion - padding - border.right.get() as f32
+        } else {
+            // No sidebar - position at the start of the padding area (where scrollbar begins)
+            self.dimensions.pixel_width as f32 - padding - border.right.get() as f32
+        };
+
+        // Right button background
+        let right_button_rect = euclid::rect(right_button_x, button_y, button_size, button_size);
+        let right_button_color = LinearRgba::with_components(0.2, 0.4, 1.0, 1.0); // Bright blue
+
+        self.filled_rectangle(layers, 2, right_button_rect, right_button_color)?;
+
+        // Add UI item for right button click detection
         self.ui_items.push(UIItem {
-            x: button_x as usize,
+            x: right_button_x as usize,
             y: button_y as usize,
             width: button_size as usize,
             height: button_size as usize,
             item_type: UIItemType::SidebarButton(crate::sidebar::SidebarPosition::Right),
         });
 
-        log::info!(
-            "Added UI item at ({}, {}) with size {}x{}",
-            button_x,
-            button_y,
-            button_size,
-            button_size
-        );
-
         Ok(())
     }
 
     fn paint_left_sidebar(&mut self, layers: &mut TripleLayerQuadAllocator) -> Result<()> {
-        log::info!("paint_left_sidebar called");
-        let mut sidebar_manager = self.sidebar_manager.borrow_mut();
+        let sidebar_manager = self.sidebar_manager.borrow();
         let width = sidebar_manager.get_left_width() as f32;
-        let x_offset = sidebar_manager.get_left_position_offset();
+        let is_visible = sidebar_manager.is_left_visible();
+        drop(sidebar_manager);
 
-        log::info!("Left sidebar: width={}, x_offset={}", width, x_offset);
+        if !is_visible || width == 0.0 {
+            return Ok(());
+        }
 
-        // Left sidebar overlays, so we render it on top
-        // The animation system returns the offset directly
+        // Use hardcoded dark gray background for now
+        // TODO: Read from configuration when available
+        let sidebar_bg_color = LinearRgba::with_components(0.16, 0.16, 0.16, 1.0);
+
+        // Left sidebar starts after the button bar (40px)
+        let button_bar_width = 40.0;
+        let sidebar_x = button_bar_width;
 
         // Background using filled_rectangle for proper coordinate transformation
-        let sidebar_rect = euclid::rect(x_offset, 0.0, width, self.dimensions.pixel_height as f32);
-        let sidebar_bg_color = LinearRgba::with_components(0.05, 0.05, 0.06, 0.95);
+        let sidebar_rect = euclid::rect(sidebar_x, 0.0, width, self.dimensions.pixel_height as f32);
         self.filled_rectangle(layers, 2, sidebar_rect, sidebar_bg_color)?;
 
-        // TODO: Render actual sidebar content
-        // For now, just render the background
+        // Add UI item for the sidebar area to capture mouse events
+        self.ui_items.push(UIItem {
+            x: sidebar_x as usize,
+            y: 0,
+            width: width as usize,
+            height: self.dimensions.pixel_height,
+            item_type: UIItemType::Sidebar(crate::sidebar::SidebarPosition::Left),
+        });
+
+        // TODO: Render actual sidebar content using the Element system
+        // For now, the sidebar just shows a background color as a placeholder
 
         Ok(())
     }
 
     fn paint_right_sidebar(&mut self, layers: &mut TripleLayerQuadAllocator) -> Result<()> {
-        log::info!("paint_right_sidebar called");
-
         let mut sidebar_manager = self.sidebar_manager.borrow_mut();
         // Use the actual sidebar width, not the dynamically calculated width
         // which changes during animation and breaks position calculations
         let full_width = sidebar_manager.get_right_sidebar_actual_width() as f32;
         let x_offset = sidebar_manager.get_right_position_offset();
         let expansion = sidebar_manager.get_window_expansion() as f32;
-
-        log::info!(
-            "Right sidebar: full_width={}, x_offset={}, expansion={}",
-            full_width,
-            x_offset,
-            expansion
-        );
 
         // No animation - sidebar is either fully visible or shows minimum width
         let (visible_width, sidebar_x) = if expansion == MIN_SIDEBAR_WIDTH as f32 {
@@ -180,14 +207,6 @@ impl crate::TermWindow {
             // Expanded state
             (full_width, self.dimensions.pixel_width as f32 - expansion)
         };
-
-        log::info!(
-            "Right sidebar rendering at x={}, visible_width={}, window_width={}, expansion={}",
-            sidebar_x,
-            visible_width,
-            self.dimensions.pixel_width,
-            expansion
-        );
 
         // Draw the sidebar background
         // Use layer 2 to render on top of terminal content and overlay

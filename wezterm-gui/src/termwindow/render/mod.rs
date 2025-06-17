@@ -351,11 +351,20 @@ impl crate::TermWindow {
             pixel_cell: self.render_metrics.cell_size.height as f32,
         };
 
-        let padding_left = self
+        let mut padding_left = self
             .config
             .window_padding
             .left
             .evaluate_as_pixels(h_context);
+
+        // Add left button bar width if left sidebar is enabled
+        let sidebar_manager = self.sidebar_manager.borrow();
+        let has_left_sidebar = sidebar_manager.get_left_sidebar().is_some();
+        drop(sidebar_manager);
+
+        if has_left_sidebar {
+            padding_left += 40.0; // Left button bar width
+        }
         let padding_right = self.config.window_padding.right;
         let padding_top = self.config.window_padding.top.evaluate_as_pixels(v_context);
         let padding_bottom = self
