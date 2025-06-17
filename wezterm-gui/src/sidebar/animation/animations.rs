@@ -54,10 +54,18 @@ impl SidebarAnimation {
 
     /// Start an animation in the specified direction
     pub fn start(&mut self, animating_in: bool) {
+        let was_animating = self.is_animating();
+        let was_direction = self.animating_in;
         self.animating_in = animating_in;
         let now = Instant::now();
         self.start_time = Some(now);
         self.color_ease.update_start(now);
+        log::info!(
+            "SidebarAnimation::start: animating_in={}, was_animating={}, was_direction={}",
+            animating_in,
+            was_animating,
+            was_direction
+        );
     }
 
     /// Get the current animation progress (0.0 to 1.0)
@@ -149,6 +157,12 @@ impl SidebarPositionAnimation {
 
     /// Start the animation
     pub fn start(&mut self, forward: bool) {
+        log::info!(
+            "SidebarPositionAnimation::start: forward={}, start_pos={}, end_pos={}",
+            forward,
+            self.start_position,
+            self.end_position
+        );
         self.animation.start(forward);
     }
 

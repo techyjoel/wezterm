@@ -530,6 +530,13 @@ impl TermWindow {
         if show_on_startup {
             log::info!("Setting right sidebar to visible based on show_on_startup");
             sidebar_manager.set_right_visible(true);
+            // Also ensure the AI sidebar's internal state matches
+            if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
+                let mut sidebar_locked = sidebar.lock().unwrap();
+                if !sidebar_locked.is_visible() {
+                    sidebar_locked.toggle_visibility();
+                }
+            }
         }
 
         // Drop the borrow before trying to invalidate

@@ -70,29 +70,6 @@ The workflow you should use is:
    - Include "Created with AI assistance" in your git commit messages. DO NOT say anything else about AI like "co-authored" or anything else. DO NOT mention Claude.
    - Don't use any emojii in git commit messages
 
-## Important Implementation Notes
-
-### Window Resizing with Sidebars
-
-When implementing sidebars that expand the window width, it's critical to understand the resize flow:
-
-1. **Window Expansion Calculation**: The `get_window_expansion()` method in `SidebarManager` should only return a non-zero value when the sidebar is meant to be visible, NOT during animations. Use `animation_target_visible` instead of `is_animating()`:
-   ```rust
-   // CORRECT - only expand when sidebar should be shown
-   let should_expand = self.config.mode == SidebarMode::Expand && 
-      self.right_state.animation_target_visible;
-   
-   // WRONG - causes resize calculation issues during animations
-   let should_expand = self.config.mode == SidebarMode::Expand && 
-      (self.right_state.animation_target_visible || self.right_state.is_animating());
-   ```
-
-2. **Window Resize Logic**: The `set_inner_size()` wrapper should NOT add expansion when called from sidebar toggle operations. The resize dimensions already include the desired expansion state.
-
-3. **Key Issue**: If `get_window_expansion()` returns a value during collapse animations, it creates a circular problem where the window resize calculations become incorrect, preventing the window from shrinking.
-
-4. **Sidebar Initialization**: When `show_on_startup` is true, ensure `set_right_visible(true)` is called during setup. Don't rely on `is_right_visible()` for this check in Expand mode as it always returns true.
-
 ## High-Level Architecture
 
 ### Core Components
@@ -143,7 +120,7 @@ When implementing sidebars that expand the window width, it's critical to unders
    - Extensible via user Lua scripts
    - Event definitions in `config/src/lua.rs`
 
-### Important Implementation Details
+### Other Implementation Details
 
 1. **Escape Sequence Parser** (`wezterm-escape-parser/`) - State machine-based parser using `vtparse` for performance
 
@@ -309,6 +286,29 @@ pub trait Modal {
 - `UIItem` registration for mouse handling
 - Layer system with z-ordering
 
+
+## Important Implementation Notes
+
+### Window Resizing with Sidebars
+
+When implementing sidebars that expand the window width, it's critical to understand the resize flow:
+
+1. **Window Expansion Calculation**: The `get_window_expansion()` method in `SidebarManager` should only return a non-zero value when the sidebar is meant to be visible, NOT during animations. Use `animation_target_visible` instead of `is_animating()`:
+   ```rust
+   // CORRECT - only expand when sidebar should be shown
+   let should_expand = self.config.mode == SidebarMode::Expand && 
+      self.right_state.animation_target_visible;
+   
+   // WRONG - causes resize calculation issues during animations
+   let should_expand = self.config.mode == SidebarMode::Expand && 
+      (self.right_state.animation_target_visible || self.right_state.is_animating());
+   ```
+
+2. **Window Resize Logic**: The `set_inner_size()` wrapper should NOT add expansion when called from sidebar toggle operations. The resize dimensions already include the desired expansion state.
+
+3. **Key Issue**: If `get_window_expansion()` returns a value during collapse animations, it creates a circular problem where the window resize calculations become incorrect, preventing the window from shrinking.
+
+4. **Sidebar Initialization**: When `show_on_startup` is true, ensure `set_right_visible(true)` is called during setup. Don't rely on `is_right_visible()` for this check in Expand mode as it always returns true.
 
 
 ## Implementation Plans

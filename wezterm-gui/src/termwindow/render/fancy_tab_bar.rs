@@ -117,7 +117,7 @@ impl crate::TermWindow {
             let active_tab = colors.active_tab();
             let inactive_tab_hover = colors.inactive_tab_hover();
 
-            let fg_active   = fg_color
+            let fg_active = fg_color
                 .unwrap_or_else(|| active_tab.fg_color.into())
                 .to_linear();
             let fg_inactive = fg_color
@@ -132,8 +132,8 @@ impl crate::TermWindow {
                 .vertical_align(VerticalAlign::Middle)
                 .colors(ElementColors {
                     border: BorderColor::default(),
-                    bg:    LinearRgba::TRANSPARENT.into(),
-                    text:  if is_active { fg_active } else { fg_inactive }.into(),
+                    bg: LinearRgba::TRANSPARENT.into(),
+                    text: if is_active { fg_active } else { fg_inactive }.into(),
                 })
                 // Add hover colors for inactive tabs
                 .hover_colors({

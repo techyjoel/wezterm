@@ -265,10 +265,7 @@ impl Element {
         }
     }
 
-    pub fn with_transparent_bg(
-        font: &Rc<LoadedFont>,
-        content: ElementContent,
-    ) -> Self {
+    pub fn with_transparent_bg(font: &Rc<LoadedFont>, content: ElementContent) -> Self {
         Element::new(font, content).colors(ElementColors {
             border: BorderColor::default(),
             bg: LinearRgba::TRANSPARENT.into(),

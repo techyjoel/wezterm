@@ -73,7 +73,7 @@ impl crate::TermWindow {
 
         // Calculate button position - align with left edge of scrollbar
         let padding = self.effective_right_padding(&self.config) as f32;
-        let terminal_scrollbar_padding = self.terminal_scrollbar_padding();
+        let _terminal_scrollbar_padding = self.terminal_scrollbar_padding();
 
         // Button should align with the left edge of the scrollbar
         // The scrollbar is positioned at: window_width - padding - border + terminal_scrollbar_padding

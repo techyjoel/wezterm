@@ -65,7 +65,15 @@ impl SidebarState {
 
     pub fn toggle_visibility(&mut self) {
         // Toggle target based on the final state, not the current visible state
+        let was_target = self.animation_target_visible;
         self.animation_target_visible = !self.animation_target_visible;
+        log::info!(
+            "SidebarState::toggle_visibility: was_target={}, new_target={}, visible={}, is_animating={}",
+            was_target,
+            self.animation_target_visible,
+            self.visible,
+            self.animation.is_animating()
+        );
         // Start animation in the correct direction
         self.animation.start(self.animation_target_visible);
     }
@@ -75,14 +83,17 @@ impl SidebarState {
     }
 
     pub fn finish_animation(&mut self) {
+        log::info!(
+            "SidebarState::finish_animation: visible {} -> {}",
+            self.visible,
+            self.animation_target_visible
+        );
         self.visible = self.animation_target_visible;
     }
 
-    pub fn get_animation_progress(&self, _duration_ms: u64) -> Option<f32> {
+    pub fn get_animation_progress(&mut self, _duration_ms: u64) -> Option<f32> {
         if self.animation.is_animating() {
-            // Get a copy to avoid borrow issues
-            let mut anim_copy = self.animation.clone();
-            anim_copy.get_progress()
+            self.animation.get_progress()
         } else {
             None
         }
@@ -223,7 +234,13 @@ impl SidebarManager {
             self.right_state.animation_target_visible
         );
         if let Some(sidebar) = &self.right_sidebar {
-            sidebar.lock().unwrap().toggle_visibility();
+            let mut sidebar_locked = sidebar.lock().unwrap();
+            // Synchronize the sidebar's visible state with our animation target
+            // This ensures both states stay in sync
+            let target_visible = self.right_state.animation_target_visible;
+            if sidebar_locked.is_visible() != target_visible {
+                sidebar_locked.toggle_visibility();
+            }
         }
     }
 
@@ -243,15 +260,8 @@ impl SidebarManager {
     pub fn set_right_visible(&mut self, visible: bool) {
         self.right_state.visible = visible;
         self.right_state.animation_target_visible = visible;
-        if let Some(sidebar) = &self.right_sidebar {
-            if visible {
-                // Ensure the sidebar itself also knows it's visible
-                let mut sidebar_locked = sidebar.lock().unwrap();
-                if !sidebar_locked.is_visible() {
-                    sidebar_locked.toggle_visibility();
-                }
-            }
-        }
+        // Don't toggle the sidebar visibility here - it should be managed
+        // through toggle_right_sidebar to avoid state synchronization issues
     }
 
     pub fn set_right_width(&mut self, width: u16) {
@@ -285,36 +295,43 @@ impl SidebarManager {
     pub fn update_animations(&mut self) -> bool {
         let mut needs_redraw = false;
 
-        if let Some(progress) = self
-            .left_state
-            .get_animation_progress(self.config.animation_duration_ms)
-        {
-            needs_redraw = true;
-            if progress >= 1.0 {
-                self.left_state.finish_animation();
+        // Update left sidebar animation
+        if self.left_state.animation.is_animating() {
+            if let Some(progress) = self
+                .left_state
+                .get_animation_progress(self.config.animation_duration_ms)
+            {
+                needs_redraw = true;
+                if progress >= 1.0 {
+                    self.left_state.finish_animation();
+                }
             }
         }
 
-        if let Some(progress) = self
-            .right_state
-            .get_animation_progress(self.config.animation_duration_ms)
-        {
-            needs_redraw = true;
-            if progress >= 1.0 {
-                self.right_state.finish_animation();
+        // Update right sidebar animation
+        if self.right_state.animation.is_animating() {
+            if let Some(progress) = self
+                .right_state
+                .get_animation_progress(self.config.animation_duration_ms)
+            {
+                needs_redraw = true;
+                if progress >= 1.0 {
+                    log::info!("Right sidebar animation complete at progress={}", progress);
+                    self.right_state.finish_animation();
+                }
             }
         }
 
         needs_redraw
     }
 
-    pub fn get_left_animation_progress(&self) -> f32 {
+    pub fn get_left_animation_progress(&mut self) -> f32 {
         self.left_state
             .get_animation_progress(self.config.animation_duration_ms)
             .unwrap_or(1.0)
     }
 
-    pub fn get_right_animation_progress(&self) -> f32 {
+    pub fn get_right_animation_progress(&mut self) -> f32 {
         self.right_state
             .get_animation_progress(self.config.animation_duration_ms)
             .unwrap_or(1.0)
