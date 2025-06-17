@@ -156,7 +156,9 @@ impl crate::TermWindow {
         log::info!("paint_right_sidebar called");
 
         let mut sidebar_manager = self.sidebar_manager.borrow_mut();
-        let full_width = sidebar_manager.get_right_width() as f32;
+        // Use the actual sidebar width, not the dynamically calculated width
+        // which changes during animation and breaks position calculations
+        let full_width = sidebar_manager.get_right_sidebar_actual_width() as f32;
         let x_offset = sidebar_manager.get_right_position_offset();
         let expansion = sidebar_manager.get_window_expansion() as f32;
 
@@ -167,21 +169,15 @@ impl crate::TermWindow {
             expansion
         );
 
-        // Calculate visible width and position based on animation state
+        // No animation - sidebar is either fully visible or shows minimum width
         let (visible_width, sidebar_x) = if expansion == MIN_SIDEBAR_WIDTH as f32 {
-            // Fully collapsed state - show only MIN_SIDEBAR_WIDTH
+            // Collapsed state - show only MIN_SIDEBAR_WIDTH
             (
                 MIN_SIDEBAR_WIDTH,
                 self.dimensions.pixel_width as f32 - MIN_SIDEBAR_WIDTH,
             )
-        } else if x_offset > 0.0 {
-            // Collapsing animation in progress
-            let progress = x_offset / (full_width - MIN_SIDEBAR_WIDTH);
-            let visible = full_width - (full_width - MIN_SIDEBAR_WIDTH) * progress;
-            let x_pos = self.dimensions.pixel_width as f32 - expansion + x_offset;
-            (visible, x_pos)
         } else {
-            // Fully expanded or expanding
+            // Expanded state
             (full_width, self.dimensions.pixel_width as f32 - expansion)
         };
 

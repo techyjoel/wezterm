@@ -165,21 +165,60 @@ impl SidebarPositionAnimation {
         );
         self.animation.start(forward);
     }
+    
+    /// Start the animation from the current position
+    pub fn start_from_current(&mut self, forward: bool) {
+        // Get the current position before starting
+        let current_pos = self.get_position();
+        
+        // Update start and end positions based on direction
+        if forward {
+            // Animating in (showing): go from current position to visible position (0)
+            self.start_position = current_pos;
+            self.end_position = 0.0;
+        } else {
+            // Animating out (hiding): go from current position to hidden position
+            self.start_position = current_pos;
+            self.end_position = current_pos.abs().max(300.0); // Use the original off-screen position
+        }
+        
+        log::info!(
+            "SidebarPositionAnimation::start_from_current: forward={}, current_pos={}, new_start={}, new_end={}",
+            forward,
+            current_pos,
+            self.start_position,
+            self.end_position
+        );
+        
+        self.animation.start(forward);
+    }
 
     /// Get the current position
     pub fn get_position(&mut self) -> f32 {
         match self.animation.get_progress() {
             Some(progress) => {
+                // Now that start/end are updated dynamically, just interpolate between them
                 let delta = self.end_position - self.start_position;
-                self.start_position + (delta * progress)
+                let position = self.start_position + (delta * progress);
+                log::trace!(
+                    "get_position: progress={}, start={}, end={}, delta={}, position={}, animating_in={}",
+                    progress,
+                    self.start_position,
+                    self.end_position,
+                    delta,
+                    position,
+                    self.animation.animating_in
+                );
+                position
             }
             None => {
-                // Animation complete, return final position
-                if self.animation.animating_in {
-                    self.end_position
-                } else {
-                    self.start_position
-                }
+                // Animation complete, return end position
+                let position = self.end_position;
+                log::trace!(
+                    "get_position: animation complete, returning end_position={}",
+                    position
+                );
+                position
             }
         }
     }

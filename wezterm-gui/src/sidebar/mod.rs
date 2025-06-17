@@ -68,18 +68,17 @@ impl SidebarState {
         let was_target = self.animation_target_visible;
         self.animation_target_visible = !self.animation_target_visible;
         log::info!(
-            "SidebarState::toggle_visibility: was_target={}, new_target={}, visible={}, is_animating={}",
+            "SidebarState::toggle_visibility: was_target={}, new_target={}, visible={}",
             was_target,
             self.animation_target_visible,
-            self.visible,
-            self.animation.is_animating()
+            self.visible
         );
-        // Start animation in the correct direction
-        self.animation.start(self.animation_target_visible);
+        // No animation - just update the visible state immediately
+        self.visible = self.animation_target_visible;
     }
 
     pub fn is_animating(&self) -> bool {
-        self.animation.is_animating()
+        false // No animation
     }
 
     pub fn finish_animation(&mut self) {
@@ -101,7 +100,12 @@ impl SidebarState {
 
     /// Get the current position offset for rendering
     pub fn get_position_offset(&mut self) -> f32 {
-        self.animation.get_position()
+        // No animation - sidebar is either fully visible or fully hidden
+        if self.visible {
+            0.0
+        } else {
+            self.width as f32
+        }
     }
 }
 
@@ -233,19 +237,12 @@ impl SidebarManager {
             self.right_state.visible,
             self.right_state.animation_target_visible
         );
-        if let Some(sidebar) = &self.right_sidebar {
-            let mut sidebar_locked = sidebar.lock().unwrap();
-            // Synchronize the sidebar's visible state with our animation target
-            // This ensures both states stay in sync
-            let target_visible = self.right_state.animation_target_visible;
-            if sidebar_locked.is_visible() != target_visible {
-                sidebar_locked.toggle_visibility();
-            }
-        }
+        // Don't synchronize the AI sidebar visibility here - it should follow
+        // the animation state, not toggle independently
     }
 
     pub fn is_left_visible(&self) -> bool {
-        self.left_state.visible || self.left_state.is_animating()
+        self.left_state.visible
     }
 
     pub fn is_right_visible(&self) -> bool {
@@ -253,7 +250,7 @@ impl SidebarManager {
         if self.config.mode == SidebarMode::Expand {
             true
         } else {
-            self.right_state.visible || self.right_state.is_animating()
+            self.right_state.visible
         }
     }
 
@@ -291,38 +288,15 @@ impl SidebarManager {
             0
         }
     }
+    
+    /// Get the actual configured width of the right sidebar (not affected by animation state)
+    pub fn get_right_sidebar_actual_width(&self) -> u16 {
+        self.right_state.width
+    }
 
     pub fn update_animations(&mut self) -> bool {
-        let mut needs_redraw = false;
-
-        // Update left sidebar animation
-        if self.left_state.animation.is_animating() {
-            if let Some(progress) = self
-                .left_state
-                .get_animation_progress(self.config.animation_duration_ms)
-            {
-                needs_redraw = true;
-                if progress >= 1.0 {
-                    self.left_state.finish_animation();
-                }
-            }
-        }
-
-        // Update right sidebar animation
-        if self.right_state.animation.is_animating() {
-            if let Some(progress) = self
-                .right_state
-                .get_animation_progress(self.config.animation_duration_ms)
-            {
-                needs_redraw = true;
-                if progress >= 1.0 {
-                    log::info!("Right sidebar animation complete at progress={}", progress);
-                    self.right_state.finish_animation();
-                }
-            }
-        }
-
-        needs_redraw
+        // No animations anymore
+        false
     }
 
     pub fn get_left_animation_progress(&mut self) -> f32 {
@@ -350,14 +324,11 @@ impl SidebarManager {
     /// Returns the extra window width needed for Expand-mode sidebars
     pub fn get_window_expansion(&self) -> u16 {
         // Only the right sidebar expands the window in our current design
-        // We should only expand the window when the sidebar is meant to be shown,
-        // NOT during the collapse animation. Otherwise the resize calculations get confused.
-        // Always keep a minimum width for the button
         const MIN_SIDEBAR_WIDTH: u16 = 25; // Just enough to show a hint of sidebar past button
 
         let should_expand = self.config.mode == SidebarMode::Expand;
         let result = if should_expand {
-            if self.right_state.animation_target_visible {
+            if self.right_state.visible {
                 self.right_state.width
             } else {
                 MIN_SIDEBAR_WIDTH
@@ -365,8 +336,8 @@ impl SidebarManager {
         } else {
             0
         };
-        log::trace!("get_window_expansion: mode={:?}, animation_target_visible={}, is_animating={}, result={}", 
-            self.config.mode, self.right_state.animation_target_visible, self.right_state.is_animating(), result);
+        log::trace!("get_window_expansion: mode={:?}, visible={}, result={}", 
+            self.config.mode, self.right_state.visible, result);
         result
     }
 

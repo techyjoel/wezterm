@@ -1,0 +1,735 @@
+11:05:15.988  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:15.988  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:15.988  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:15.988  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:15.988  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=0, expansion=400
+11:05:15.988  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1326, visible_width=400, window_width=1726, expansion=400
+11:05:15.988  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:15.988  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1726x1032, show_tab_bar: false
+11:05:15.988  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:15.988  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1304, y=10, size=40, visible=true
+11:05:15.988  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1304, 10) with size 40x40
+11:05:16.994  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:16.995  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:16.995  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:16.995  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:16.995  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=0, expansion=400
+11:05:16.995  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1326, visible_width=400, window_width=1726, expansion=400
+11:05:16.995  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:16.995  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1726x1032, show_tab_bar: false
+11:05:16.995  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:16.995  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1304, y=10, size=40, visible=true
+11:05:16.995  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1304, 10) with size 40x40
+11:05:17.486  INFO   wezterm_gui::termwindow::mouseevent         > Toggle sidebar Right
+11:05:17.486  INFO   wezterm_gui::termwindow::mouseevent         > Current expansion width: 400
+11:05:17.487  INFO   wezterm_gui::sidebar                        > toggle_right_sidebar: before - visible=true, animation_target_visible=true
+11:05:17.487  INFO   wezterm_gui::sidebar                        > SidebarState::toggle_visibility: was_target=true, new_target=false, visible=true, is_animating=false
+11:05:17.487  INFO   wezterm_gui::sidebar::animation::animations > SidebarPositionAnimation::start_from_current: forward=false, current_pos=0, new_start=0, new_end=300
+11:05:17.487  INFO   wezterm_gui::sidebar::animation::animations > SidebarAnimation::start: animating_in=false, was_animating=false, was_direction=true
+11:05:17.487  INFO   wezterm_gui::sidebar                        > toggle_right_sidebar: after - visible=true, animation_target_visible=false
+11:05:17.487  INFO   wezterm_gui::termwindow::mouseevent         > New expansion width: 25
+11:05:17.487  INFO   wezterm_gui::termwindow::mouseevent         > Expansion changed from 400 to 25
+11:05:17.488  INFO   wezterm_gui::termwindow::mouseevent         > Current window width: 1726, new window width: 1351
+11:05:17.491  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.491  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.491  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.491  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.491  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=299.78842, expansion=25
+11:05:17.491  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.491  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.491  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.491  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.491  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.491  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.502  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.503  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.503  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.503  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.503  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=296.7494, expansion=25
+11:05:17.503  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.503  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.503  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.503  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.503  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.503  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.513  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.513  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.513  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.513  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.513  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=291.17886, expansion=25
+11:05:17.513  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.514  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.514  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.514  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.514  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.514  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.529  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.529  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.529  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.529  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.529  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=278.4308, expansion=25
+11:05:17.529  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.529  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.529  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.529  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.529  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.529  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.538  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.538  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.538  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.538  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.538  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=268.98196, expansion=25
+11:05:17.538  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.538  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.538  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.538  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.538  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.538  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.549  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.549  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.549  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.549  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.549  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=256.43015, expansion=25
+11:05:17.549  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.549  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.549  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.549  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.549  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.549  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.562  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.563  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.563  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.563  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.563  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=236.98302, expansion=25
+11:05:17.563  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.563  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.563  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.563  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.563  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.563  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.579  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.579  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.579  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.579  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.579  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=209.8724, expansion=25
+11:05:17.579  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.579  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.580  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.580  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.580  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.580  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.596  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.596  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.596  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.596  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.596  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=180.32254, expansion=25
+11:05:17.596  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.596  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.596  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.596  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.596  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.596  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.612  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.613  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.613  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.613  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.613  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=148.49088, expansion=25
+11:05:17.613  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.613  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.613  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.613  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.613  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.613  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.629  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.629  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.629  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.629  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.629  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=115.01051, expansion=25
+11:05:17.629  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.629  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.629  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.629  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.629  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.630  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.639  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.639  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.639  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.639  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.639  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=94.867874, expansion=25
+11:05:17.639  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.639  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.639  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.639  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.639  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.639  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.649  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.649  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.649  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.649  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.649  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=74.63528, expansion=25
+11:05:17.649  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.649  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.649  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.649  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.649  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.649  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.662  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.662  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.662  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.662  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.663  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=47.418953, expansion=25
+11:05:17.663  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.663  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.663  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.663  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.663  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.663  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.679  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.679  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.679  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.679  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.679  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=14.201689, expansion=25
+11:05:17.679  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.679  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.679  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.679  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.679  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.679  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.696  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.696  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.696  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.696  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.696  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=110.89915, expansion=25
+11:05:17.696  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.696  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.696  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.696  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.696  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.696  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.712  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.713  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.713  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.713  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.713  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=96.86036, expansion=25
+11:05:17.713  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.713  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.713  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.713  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.713  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.713  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.729  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.729  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.729  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.729  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.729  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=96.50788, expansion=25
+11:05:17.729  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.730  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.730  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.730  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.730  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.730  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.746  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.746  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.746  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.746  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.746  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=107.56259, expansion=25
+11:05:17.746  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.746  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.746  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.746  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.746  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.746  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.762  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.762  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.762  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.762  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.762  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=126.72631, expansion=25
+11:05:17.762  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.762  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.763  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.763  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.763  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.763  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.772  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.772  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.772  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.772  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.772  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=141.71198, expansion=25
+11:05:17.773  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.773  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.773  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.773  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.773  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.773  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.782  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.782  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.782  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.782  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.782  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=158.36713, expansion=25
+11:05:17.783  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.783  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.783  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.783  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.783  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.783  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.796  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.796  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.796  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.796  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.796  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=182.45377, expansion=25
+11:05:17.796  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.796  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.796  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.796  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.796  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.796  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.806  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.806  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.806  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.806  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.806  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=200.56271, expansion=25
+11:05:17.806  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.806  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.806  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.806  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.806  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.806  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.815  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.815  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.816  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.816  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.816  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=218.82588, expansion=25
+11:05:17.816  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.816  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.816  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.816  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.816  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.816  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.829  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.829  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.829  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.829  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.829  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=242.98654, expansion=25
+11:05:17.829  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.829  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.829  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.829  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.829  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.829  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.846  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.846  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.846  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.846  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.846  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=268.95215, expansion=25
+11:05:17.846  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.846  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.846  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.846  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.846  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.846  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.855  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.855  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.855  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.855  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.855  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=280.77597, expansion=25
+11:05:17.855  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.855  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.856  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.856  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.856  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.856  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.865  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.865  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.865  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.865  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.865  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=290.7234, expansion=25
+11:05:17.865  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.866  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.866  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.866  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.866  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.866  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.879  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.879  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.879  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.879  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.879  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=298.6894, expansion=25
+11:05:17.879  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.879  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.879  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.879  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.879  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.879  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:17.896  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:17.896  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:17.896  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:17.896  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:17.896  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=25, x_offset=300, expansion=25
+11:05:17.896  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1327, visible_width=25, window_width=1352, expansion=25
+11:05:17.896  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:17.896  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1352x1032, show_tab_bar: false
+11:05:17.896  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:17.896  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1305, y=10, size=40, visible=true
+11:05:17.896  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1305, 10) with size 40x40
+11:05:18.624  INFO   wezterm_gui::termwindow::mouseevent         > Toggle sidebar Right
+11:05:18.624  INFO   wezterm_gui::termwindow::mouseevent         > Current expansion width: 25
+11:05:18.624  INFO   wezterm_gui::sidebar                        > toggle_right_sidebar: before - visible=true, animation_target_visible=false
+11:05:18.624  INFO   wezterm_gui::sidebar                        > SidebarState::toggle_visibility: was_target=false, new_target=true, visible=true, is_animating=false
+11:05:18.624  INFO   wezterm_gui::sidebar::animation::animations > SidebarPositionAnimation::start_from_current: forward=true, current_pos=300, new_start=300, new_end=0
+11:05:18.624  INFO   wezterm_gui::sidebar::animation::animations > SidebarAnimation::start: animating_in=true, was_animating=false, was_direction=false
+11:05:18.624  INFO   wezterm_gui::sidebar                        > toggle_right_sidebar: after - visible=true, animation_target_visible=true
+11:05:18.624  INFO   wezterm_gui::termwindow::mouseevent         > New expansion width: 400
+11:05:18.624  INFO   wezterm_gui::termwindow::mouseevent         > Expansion changed from 25 to 400
+11:05:18.624  INFO   wezterm_gui::termwindow::mouseevent         > Current window width: 1352, new window width: 1727
+11:05:18.629  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.629  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.629  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.629  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.629  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=299.64688, expansion=400
+11:05:18.629  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1627.6469, visible_width=100.35312, window_width=1728, expansion=400
+11:05:18.629  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.630  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.630  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.630  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.630  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.646  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.647  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.648  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.648  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.648  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=293.23352, expansion=400
+11:05:18.648  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1621.2335, visible_width=106.76648, window_width=1728, expansion=400
+11:05:18.648  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.648  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.648  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.648  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.648  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.663  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.663  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.663  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.663  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.663  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=282.19412, expansion=400
+11:05:18.663  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1610.1941, visible_width=117.80588, window_width=1728, expansion=400
+11:05:18.663  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.663  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.663  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.663  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.663  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.679  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.679  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.679  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.679  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.679  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=265.0069, expansion=400
+11:05:18.679  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1593.0068, visible_width=134.9931, window_width=1728, expansion=400
+11:05:18.679  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.679  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.679  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.679  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.679  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.689  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.689  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.689  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.689  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.689  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=252.77219, expansion=400
+11:05:18.689  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1580.7722, visible_width=147.22781, window_width=1728, expansion=400
+11:05:18.689  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.689  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.689  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.689  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.689  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.699  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.700  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.700  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.700  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.700  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=237.61505, expansion=400
+11:05:18.700  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1565.615, visible_width=162.38496, window_width=1728, expansion=400
+11:05:18.700  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.700  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.700  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.700  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.700  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.712  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.713  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.713  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.713  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.713  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=217.18935, expansion=400
+11:05:18.713  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1545.1893, visible_width=182.81065, window_width=1728, expansion=400
+11:05:18.713  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.713  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.713  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.713  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.713  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.729  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.729  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.730  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.730  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.730  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=187.6482, expansion=400
+11:05:18.730  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1515.6482, visible_width=212.3518, window_width=1728, expansion=400
+11:05:18.730  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.730  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.730  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.730  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.730  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.746  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.746  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.746  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.746  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.746  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=156.42868, expansion=400
+11:05:18.746  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1484.4287, visible_width=243.57132, window_width=1728, expansion=400
+11:05:18.746  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.746  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.746  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.746  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.746  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.763  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.763  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.763  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.763  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.763  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=123.464554, expansion=400
+11:05:18.763  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1451.4646, visible_width=276.53546, window_width=1728, expansion=400
+11:05:18.763  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.763  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.763  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.763  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.763  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.772  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.772  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.772  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.772  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.772  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=103.747314, expansion=400
+11:05:18.772  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1431.7473, visible_width=296.2527, window_width=1728, expansion=400
+11:05:18.772  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.772  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.772  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.772  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.773  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.782  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.782  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.782  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.782  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.782  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=83.425156, expansion=400
+11:05:18.782  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1411.4252, visible_width=316.57483, window_width=1728, expansion=400
+11:05:18.782  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.782  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.782  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.782  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.782  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.796  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.796  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.796  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.796  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.796  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=55.729614, expansion=400
+11:05:18.796  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1383.7296, visible_width=344.2704, window_width=1728, expansion=400
+11:05:18.796  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.796  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.796  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.796  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.796  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.813  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.813  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.813  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.813  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.813  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=21.935303, expansion=400
+11:05:18.813  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1349.9353, visible_width=378.0647, window_width=1728, expansion=400
+11:05:18.813  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.813  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.813  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.813  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.813  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.829  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.829  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.829  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.829  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.829  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=116.99078, expansion=400
+11:05:18.829  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1444.9907, visible_width=283.00922, window_width=1728, expansion=400
+11:05:18.829  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.829  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.830  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.830  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.830  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.846  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.846  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.846  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.846  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.846  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=98.99161, expansion=400
+11:05:18.846  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1426.9916, visible_width=301.0084, window_width=1728, expansion=400
+11:05:18.846  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.846  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.846  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.846  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.846  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.863  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.863  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.863  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.863  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.863  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=95.417694, expansion=400
+11:05:18.863  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1423.4177, visible_width=304.5823, window_width=1728, expansion=400
+11:05:18.863  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.863  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.863  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.863  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.863  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.879  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.879  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.879  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.879  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.879  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=103.79257, expansion=400
+11:05:18.879  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1431.7926, visible_width=296.20743, window_width=1728, expansion=400
+11:05:18.879  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.880  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.880  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.880  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.880  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.896  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.896  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.896  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.896  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.896  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=121.450775, expansion=400
+11:05:18.896  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1449.4508, visible_width=278.54922, window_width=1728, expansion=400
+11:05:18.896  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.896  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.896  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.896  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.896  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.905  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.906  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.906  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.906  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.906  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=134.93956, expansion=400
+11:05:18.906  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1462.9396, visible_width=265.06042, window_width=1728, expansion=400
+11:05:18.906  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.906  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.906  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.906  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.906  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.915  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.915  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.916  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.916  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.916  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=150.74335, expansion=400
+11:05:18.916  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1478.7434, visible_width=249.25665, window_width=1728, expansion=400
+11:05:18.916  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.916  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.916  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.916  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.916  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.929  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.929  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.929  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.929  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.929  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=174.82623, expansion=400
+11:05:18.929  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1502.8262, visible_width=225.17377, window_width=1728, expansion=400
+11:05:18.929  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.929  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.929  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.929  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.929  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.946  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.946  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.946  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.946  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.946  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=205.69664, expansion=400
+11:05:18.946  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1533.6967, visible_width=194.30336, window_width=1728, expansion=400
+11:05:18.946  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.946  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.946  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.946  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.946  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.955  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.955  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.955  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.955  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.955  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=223.08444, expansion=400
+11:05:18.955  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1551.0845, visible_width=176.91556, window_width=1728, expansion=400
+11:05:18.955  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.955  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.956  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.956  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.956  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.965  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.965  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.965  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.965  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.965  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=240.58095, expansion=400
+11:05:18.965  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1568.5809, visible_width=159.41907, window_width=1728, expansion=400
+11:05:18.965  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.965  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.965  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.965  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.966  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.979  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.979  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.979  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.979  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.979  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=262.82257, expansion=400
+11:05:18.979  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1590.8225, visible_width=137.17743, window_width=1728, expansion=400
+11:05:18.979  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.979  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.979  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.979  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.979  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:18.996  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:18.996  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:18.996  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:18.996  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:18.996  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=284.0226, expansion=400
+11:05:18.996  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1612.0226, visible_width=115.97739, window_width=1728, expansion=400
+11:05:18.996  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:18.996  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:18.996  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:18.996  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:18.996  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:19.013  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:19.013  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:19.013  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:19.013  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:19.013  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=297.18927, expansion=400
+11:05:19.013  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1625.1892, visible_width=102.81073, window_width=1728, expansion=400
+11:05:19.013  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:19.013  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:19.013  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:19.013  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:19.013  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:19.029  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:19.029  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:19.029  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:19.029  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:19.029  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=0, expansion=400
+11:05:19.029  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1328, visible_width=400, window_width=1728, expansion=400
+11:05:19.029  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:19.029  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:19.030  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:19.030  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:19.030  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:19.712  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:19.713  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:19.713  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:19.713  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:19.713  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=0, expansion=400
+11:05:19.713  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1328, visible_width=400, window_width=1728, expansion=400
+11:05:19.713  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:19.713  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:19.713  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:19.713  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:19.713  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:19.729  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:19.729  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:19.729  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:19.729  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:19.730  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=0, expansion=400
+11:05:19.730  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1328, visible_width=400, window_width=1728, expansion=400
+11:05:19.730  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:19.730  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:19.730  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:19.730  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:19.730  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
+11:05:20.894  INFO   wezterm_gui::termwindow::render::paint      > paint_pass called
+11:05:20.894  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebars called
+11:05:20.894  INFO   wezterm_gui::termwindow::render::sidebar    > Sidebar visibility check: left=false, right=true
+11:05:20.894  INFO   wezterm_gui::termwindow::render::sidebar    > paint_right_sidebar called
+11:05:20.894  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar: full_width=400, x_offset=0, expansion=400
+11:05:20.894  INFO   wezterm_gui::termwindow::render::sidebar    > Right sidebar rendering at x=1328, visible_width=400, window_width=1728, expansion=400
+11:05:20.894  INFO   wezterm_gui::termwindow::render::sidebar    > paint_sidebar_toggle_buttons called
+11:05:20.894  INFO   wezterm_gui::termwindow::render::sidebar    > Window dimensions: 1728x1032, show_tab_bar: false
+11:05:20.894  INFO   wezterm_gui::termwindow::render::sidebar    > Border: Border { top: 0, left: 0, bottom: 0, right: 0, color: LinearRgba(0.0, 0.0, 0.0, 0.0) }
+11:05:20.894  INFO   wezterm_gui::termwindow::render::sidebar    > Button position: x=1306, y=10, size=40, visible=true
+11:05:20.894  INFO   wezterm_gui::termwindow::render::sidebar    > Added UI item at (1306, 10) with size 40x40
