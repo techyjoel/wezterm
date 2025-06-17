@@ -254,11 +254,11 @@ if user_config.appearance then
             },
             inactive_tab_edge = cust_inactive_tab_bg_color,
             new_tab = {
-                bg_color = cust_inactive_tab_bg_color,
+                bg_color = adjust_intensity(cust_inactive_tab_bg_color, true),
                 fg_color = user_config.appearance.inactive_tab_fg_color or '#999999',
             },
             new_tab_hover = {
-                bg_color = adjust_intensity(cust_inactive_tab_bg_color, true),
+                bg_color = adjust_intensity(cust_inactive_tab_bg_color, true, 50),
                 fg_color = user_config.appearance.inactive_tab_fg_color or '#999999',
             },
         },

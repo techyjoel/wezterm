@@ -213,7 +213,7 @@ impl crate::TermWindow {
                             text: new_tab_hover.fg_color.to_linear().into(),
                         }))
                 }
-                .min_height(Some(Dimension::Pixels(tab_bar_height - 1.))),
+                .min_height(Some(Dimension::Pixels(tab_bar_height - 2.))), // Adjust to match tabs
                 TabBarItem::Tab { active, .. } if active => element
                     .item_type(UIItemType::TabBar(item.item.clone()))
                     .margin(BoxDimension {
@@ -242,7 +242,7 @@ impl crate::TermWindow {
                             .into(),
                         text: fg_active.into(),
                     })
-                    .min_height(Some(Dimension::Pixels(tab_bar_height))),
+                    .min_height(Some(Dimension::Pixels(tab_bar_height - 1.))), // Adjust to border height
                 TabBarItem::Tab { .. } => element
                     .item_type(UIItemType::TabBar(item.item.clone()))
                     .margin(BoxDimension {
@@ -289,7 +289,7 @@ impl crate::TermWindow {
                             text: fg_inactive_hover.into(),
                         })
                     })
-                    .min_height(Some(Dimension::Pixels(tab_bar_height))),
+                    .min_height(Some(Dimension::Pixels(tab_bar_height - 1.))), // Adjust to border height
                 TabBarItem::WindowButton(button) => window_button_element(
                     button,
                     self.window_state.contains(window::WindowState::MAXIMIZED),
@@ -433,7 +433,7 @@ impl crate::TermWindow {
             Element::new(&font, ElementContent::Text("".to_string()))
                 .colors(bar_colors.clone())
                 .min_width(Some(Dimension::Pixels(tab_bar_width))) // Fill remaining space
-                .min_height(Some(Dimension::Pixels(tab_bar_height))),
+                .min_height(Some(Dimension::Pixels(tab_bar_height))), // add 1px to match borders on elements
         );
 
         // Add the tab row container
