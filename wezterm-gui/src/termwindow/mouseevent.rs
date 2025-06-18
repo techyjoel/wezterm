@@ -401,6 +401,9 @@ impl super::TermWindow {
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
+        // Set cursor to arrow for sidebar buttons
+        context.set_cursor(Some(MouseCursor::Arrow));
+        
         match event.kind {
             WMEK::Press(MousePress::Left) => {
                 log::info!("Toggle sidebar {:?}", position);
