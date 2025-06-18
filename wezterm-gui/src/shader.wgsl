@@ -114,7 +114,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // the texture is the alpha channel/color mask
     // and we need to tint with the fg_color
     color = in.fg_color;
-    color.a = nearest_tex.a;
+    // Multiply the glyph mask alpha with the color alpha to preserve transparency
+    color.a = nearest_tex.a * in.fg_color.a;
     hsv *= uniforms.foreground_text_hsb;
   }
 

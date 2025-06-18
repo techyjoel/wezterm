@@ -148,7 +148,8 @@ void main() {
     // and we need to tint with the fg_color
     color = fg_color;
     if (!subpixel_aa) {
-      color.a = colorMask.a;
+      // Multiply the glyph mask alpha with the color alpha to preserve transparency
+      color.a = colorMask.a * fg_color.a;
     }
     color = apply_hsv(color, foreground_text_hsb);
   }

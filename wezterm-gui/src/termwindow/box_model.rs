@@ -200,12 +200,32 @@ struct ResolvedColor {
     color: LinearRgba,
     alt_color: LinearRgba,
     mix_value: f32,
+    alpha_override: Option<f32>,
 }
 
 impl ResolvedColor {
     fn apply(&self, quad: &mut QuadImpl) {
-        quad.set_fg_color(self.color);
-        quad.set_alt_color_and_mix_value(self.alt_color, self.mix_value);
+        if let Some(alpha) = self.alpha_override {
+            // Apply colors with alpha override
+            let color_with_alpha = LinearRgba::with_components(
+                self.color.0,
+                self.color.1,
+                self.color.2,
+                alpha,
+            );
+            let alt_color_with_alpha = LinearRgba::with_components(
+                self.alt_color.0,
+                self.alt_color.1,
+                self.alt_color.2,
+                alpha,
+            );
+            quad.set_fg_color(color_with_alpha);
+            quad.set_alt_color_and_mix_value(alt_color_with_alpha, self.mix_value);
+        } else {
+            // Normal behavior - use colors as-is
+            quad.set_fg_color(self.color);
+            quad.set_alt_color_and_mix_value(self.alt_color, self.mix_value);
+        }
     }
 }
 
@@ -215,6 +235,7 @@ impl From<LinearRgba> for ResolvedColor {
             color,
             alt_color: color,
             mix_value: 0.,
+            alpha_override: None,
         }
     }
 }
@@ -1011,7 +1032,15 @@ impl super::TermWindow {
                 Some(colors) => self.resolve_text(colors, None),
                 None => LinearRgba::TRANSPARENT.into(),
             },
-            InheritableColor::Color(color) => (*color).into(),
+            InheritableColor::Color(color) => {
+                // Check if the color has non-standard alpha (not fully opaque)
+                let mut resolved = ResolvedColor::from(*color);
+                if color.3 < 1.0 {
+                    // Preserve the alpha from the original color
+                    resolved.alpha_override = Some(color.3);
+                }
+                resolved
+            },
             InheritableColor::Animated {
                 color,
                 alt_color,
@@ -1020,13 +1049,25 @@ impl super::TermWindow {
             } => {
                 if let Some((mix_value, next)) = ease.borrow_mut().intensity(*one_shot) {
                     self.update_next_frame_time(Some(next));
-                    ResolvedColor {
+                    let mut resolved = ResolvedColor {
                         color: *color,
                         alt_color: *alt_color,
                         mix_value,
+                        alpha_override: None,
+                    };
+                    // Check if either color has non-standard alpha
+                    if color.3 < 1.0 || alt_color.3 < 1.0 {
+                        // For animated colors, we might need to interpolate alpha
+                        // For now, just use the primary color's alpha
+                        resolved.alpha_override = Some(color.3);
                     }
+                    resolved
                 } else {
-                    (*color).into()
+                    let mut resolved = ResolvedColor::from(*color);
+                    if color.3 < 1.0 {
+                        resolved.alpha_override = Some(color.3);
+                    }
+                    resolved
                 }
             }
         }
@@ -1055,6 +1096,7 @@ impl super::TermWindow {
                         color: *color,
                         alt_color: *alt_color,
                         mix_value,
+                        alpha_override: None,
                     }
                 } else {
                     (*color).into()
