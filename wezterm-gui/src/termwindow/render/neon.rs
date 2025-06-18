@@ -206,14 +206,7 @@ impl NeonRenderer for TermWindow {
             };
 
             // Render border outline - use layer 2 (max layer)
-            render_rect_outline(
-                self,
-                layers,
-                2,
-                bounds,
-                style.border_width,
-                border_color,
-            )?;
+            render_rect_outline(self, layers, 2, bounds, style.border_width, border_color)?;
 
             // Inner glow on border when active
             if style.is_active && style.glow_intensity > 0.0 {

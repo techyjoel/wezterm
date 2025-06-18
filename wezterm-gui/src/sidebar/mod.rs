@@ -248,9 +248,10 @@ impl SidebarManager {
     }
 
     pub fn is_right_visible(&self) -> bool {
-        // In Expand mode, the right sidebar is always at least partially visible
+        // For Expand mode, check if the sidebar is actually expanded beyond the minimum width
         if self.config.mode == SidebarMode::Expand {
-            true
+            // The sidebar is considered visible if it's expanded (not collapsed to minimum)
+            self.right_state.visible && self.right_state.animation_target_visible
         } else {
             self.right_state.visible
         }
