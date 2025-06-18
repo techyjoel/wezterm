@@ -28,7 +28,7 @@ impl crate::TermWindow {
         let sidebar_manager = self.sidebar_manager.borrow();
         let has_left_sidebar = sidebar_manager.get_left_sidebar().is_some();
         let left_visible = sidebar_manager.is_left_visible();
-        let right_visible = sidebar_manager.is_right_visible();
+        let _right_visible = sidebar_manager.is_right_visible();
         drop(sidebar_manager);
 
         // Paint left button bar background if left sidebar exists
@@ -41,8 +41,12 @@ impl crate::TermWindow {
             self.paint_left_sidebar(layers)?;
         }
 
-        // Paint right sidebar if visible
-        if right_visible {
+        // Paint right sidebar if it exists (even when collapsed)
+        let sidebar_manager = self.sidebar_manager.borrow();
+        let has_right_sidebar = sidebar_manager.get_right_sidebar().is_some();
+        drop(sidebar_manager);
+
+        if has_right_sidebar {
             self.paint_right_sidebar(layers)?;
         }
 
@@ -141,15 +145,14 @@ impl crate::TermWindow {
             )?;
 
             // Render gear icon with neon effect
-            let icon_position = euclid::point2(
-                left_button_x + button_size * 0.28, // Adjusted for better centering
-                button_y + button_size * 0.22,
-            );
+            let icon_font = self.fonts.sidebar_icon_font()?;
+            let icon_position = euclid::point2(left_button_x, button_y);
+
             self.render_neon_glyph(
                 layers,
                 "\u{f013}", // fa_gear
                 icon_position,
-                &self.fonts.sidebar_icon_font()?,
+                &icon_font,
                 &left_neon_style,
             )?;
 
@@ -208,15 +211,14 @@ impl crate::TermWindow {
         )?;
 
         // Render AI assistant icon with neon effect
-        let icon_position = euclid::point2(
-            right_button_x + button_size * 0.28, // Adjusted for better centering
-            button_y + button_size * 0.22,
-        );
+        let icon_font = self.fonts.sidebar_icon_font()?;
+        let icon_position = euclid::point2(right_button_x, button_y);
+
         self.render_neon_glyph(
             layers,
             "\u{f0064}", // md_assistant
             icon_position,
-            &self.fonts.sidebar_icon_font()?,
+            &icon_font,
             &right_neon_style,
         )?;
 
@@ -277,16 +279,17 @@ impl crate::TermWindow {
         let _x_offset = sidebar_manager.get_right_position_offset();
         let expansion = sidebar_manager.get_window_expansion() as f32;
 
-        // No animation - sidebar is either fully visible or shows minimum width
-        let (visible_width, sidebar_x) = if expansion == MIN_SIDEBAR_WIDTH as f32 {
+        // Determine visible width and position based on sidebar state
+        let is_visible = sidebar_manager.is_right_visible();
+        let (visible_width, sidebar_x) = if is_visible {
+            // Expanded state - show full width
+            (full_width, self.dimensions.pixel_width as f32 - expansion)
+        } else {
             // Collapsed state - show only MIN_SIDEBAR_WIDTH
             (
                 MIN_SIDEBAR_WIDTH,
                 self.dimensions.pixel_width as f32 - MIN_SIDEBAR_WIDTH,
             )
-        } else {
-            // Expanded state
-            (full_width, self.dimensions.pixel_width as f32 - expansion)
         };
 
         // Draw the sidebar background

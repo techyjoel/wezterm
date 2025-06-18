@@ -154,9 +154,9 @@ fn default_glow_intensity() -> f64 {
 }
 
 fn default_glow_layers() -> u8 {
-    5
+    6
 }
 
 fn default_glow_radius() -> f32 {
-    12.0
+    20.0
 }

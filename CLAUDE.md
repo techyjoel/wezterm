@@ -57,8 +57,8 @@ The workflow you should use is:
 4. Create a branch if doing any notable work (feature or other material change)
 5. Once in agreement on the proposed work, implement the change
 6. Run auto-format of code
-7. Run a type check and then release mode build to test if changes compile successfully
-9. If you made GUI changes then prompt the user to run the build to test it (since you won't be able to see the graphic results)
+7. Run a type check and then a release mode build to test if changes compile successfully
+9. If you made GUI changes then prompt the user to run the build to test it (since you won't be able to see the graphic results). DO NOT move on to further steps until this step is complete.
 10. Git add and commit (only after succesfully compiling and testing). Then if on a branch, git push (if not then the user will push when desired)
 11. Update TASKS.md (if it is in use)
   - Check off tasks that are fully complete
