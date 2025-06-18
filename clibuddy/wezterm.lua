@@ -409,6 +409,12 @@ end)
 -- Add file watching for the user config to enable hot reload
 wezterm.add_to_config_reload_watch_list(get_user_config_path())
 
+config.clibuddy = {
+    sidebar_button = {
+        icon_font_size = 16.0,
+    }
+}
+
 -- CLIBuddy Sidebar Configuration (stored separately from main config)
 -- This will be read by our Rust code directly, not by WezTerm's config system
 local clibuddy_config = {

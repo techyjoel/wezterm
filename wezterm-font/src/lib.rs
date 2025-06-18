@@ -458,6 +458,7 @@ enum Entity {
     CommandPalette,
     CharSelect,
     PaneSelect,
+    SidebarIcon,
 }
 
 struct FontConfigInner {
@@ -473,6 +474,7 @@ struct FontConfigInner {
     pane_select_font: RefCell<Option<Rc<LoadedFont>>>,
     char_select_font: RefCell<Option<Rc<LoadedFont>>>,
     command_palette_font: RefCell<Option<Rc<LoadedFont>>>,
+    sidebar_icon_font: RefCell<Option<Rc<LoadedFont>>>,
     fallback_channel: RefCell<Option<Sender<FallbackResolveInfo>>>,
 }
 
@@ -494,6 +496,7 @@ impl FontConfigInner {
             pane_select_font: RefCell::new(None),
             char_select_font: RefCell::new(None),
             command_palette_font: RefCell::new(None),
+            sidebar_icon_font: RefCell::new(None),
             font_scale: RefCell::new(1.0),
             dpi: RefCell::new(dpi),
             config: RefCell::new(config.clone()),
@@ -512,6 +515,7 @@ impl FontConfigInner {
         self.pane_select_font.borrow_mut().take();
         self.char_select_font.borrow_mut().take();
         self.command_palette_font.borrow_mut().take();
+        self.sidebar_icon_font.borrow_mut().take();
         self.metrics.borrow_mut().take();
         *self.font_dirs.borrow_mut() = Arc::new(FontDatabase::with_font_dirs(config)?);
         Ok(())
@@ -615,6 +619,14 @@ impl FontConfigInner {
                 config.pane_select_font_size,
                 config.pane_select_font.as_ref(),
             ),
+            Entity::SidebarIcon => (
+                config
+                    .clibuddy
+                    .sidebar_button
+                    .icon_font_size
+                    .unwrap_or(config.window_frame.font_size.unwrap_or(sys_size)),
+                None, // Use same font family as title
+            ),
         };
 
         let text_style =
@@ -705,6 +717,20 @@ impl FontConfigInner {
         let loaded = self.make_entity_font_impl(myself, Entity::PaneSelect)?;
 
         pane_select_font.replace(Rc::clone(&loaded));
+
+        Ok(loaded)
+    }
+
+    fn sidebar_icon_font(&self, myself: &Rc<Self>) -> anyhow::Result<Rc<LoadedFont>> {
+        let mut sidebar_icon_font = self.sidebar_icon_font.borrow_mut();
+
+        if let Some(entry) = sidebar_icon_font.as_ref() {
+            return Ok(Rc::clone(entry));
+        }
+
+        let loaded = self.make_entity_font_impl(myself, Entity::SidebarIcon)?;
+
+        sidebar_icon_font.replace(Rc::clone(&loaded));
 
         Ok(loaded)
     }
@@ -1077,6 +1103,10 @@ impl FontConfiguration {
 
     pub fn char_select_font(&self) -> anyhow::Result<Rc<LoadedFont>> {
         self.inner.char_select_font(&self.inner)
+    }
+
+    pub fn sidebar_icon_font(&self) -> anyhow::Result<Rc<LoadedFont>> {
+        self.inner.sidebar_icon_font(&self.inner)
     }
 
     /// Given a text style, load (with caching) the font that best

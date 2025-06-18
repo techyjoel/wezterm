@@ -284,7 +284,7 @@ impl crate::TermWindow {
         button_size: f32,
         icon_color: LinearRgba,
     ) -> Result<()> {
-        let font = &self.fonts.title_font()?;
+        let font = &self.fonts.sidebar_icon_font()?;
         let metrics = RenderMetrics::with_font_metrics(&font.metrics());
 
         // Create text element with the icon character
@@ -304,7 +304,7 @@ impl crate::TermWindow {
                 text: icon_color.into(),
             })
             .padding(BoxDimension {
-                left: Dimension::Pixels(button_size * 0.01),
+                left: Dimension::Pixels(button_size * 0.1),
                 right: Dimension::Pixels(button_size * 0.01),
                 top: Dimension::Pixels(button_size * 0.01),
                 bottom: Dimension::Pixels(button_size * 0.01),

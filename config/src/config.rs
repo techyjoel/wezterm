@@ -886,6 +886,10 @@ pub struct Config {
 
     #[dynamic(default = "default_ulimit_nproc")]
     pub ulimit_nproc: u64,
+
+    /// CLiBuddy-specific configuration
+    #[dynamic(default)]
+    pub clibuddy: crate::clibuddy::ClibuddyConfig,
 }
 impl_lua_conversion_dynamic!(Config);
 
