@@ -412,6 +412,39 @@ wezterm.add_to_config_reload_watch_list(get_user_config_path())
 config.clibuddy = {
     sidebar_button = {
         icon_font_size = 16.0,
+        border_width = 2.0,
+        corner_radius = 8.0,
+        
+        -- Default neon style for all buttons (optional)
+        -- neon = {
+        --     color = '#00FFFF',      -- Cyan
+        --     base_color = '#0A0A0F', -- Dark blue-black
+        --     glow_intensity = 0.7,
+        --     glow_layers = 5,
+        --     glow_radius = 12.0,
+        -- },
+        
+        -- Override for left button (settings)
+        left_style = {
+            neon = {
+                color = '#00FFFF',      -- Cyan neon
+                base_color = '#0A0A0F', -- Dark blue-black
+                glow_intensity = 0.7,
+                glow_layers = 5,
+                glow_radius = 12.0,
+            }
+        },
+        
+        -- Override for right button (AI assistant)
+        right_style = {
+            neon = {
+                color = '#FF1493',      -- Deep pink neon
+                base_color = '#0F0A0F', -- Dark purple-black
+                glow_intensity = 0.8,
+                glow_layers = 5,
+                glow_radius = 12.0,
+            }
+        }
     }
 }
 

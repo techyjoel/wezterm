@@ -2,6 +2,7 @@ use crate::quad::{QuadTrait, TripleLayerQuadAllocator, TripleLayerQuadAllocatorT
 use crate::termwindow::box_model::{
     BoxDimension, Element, ElementColors, ElementContent, VerticalAlign,
 };
+use crate::termwindow::render::neon::{NeonRenderer, NeonStyle};
 use crate::termwindow::{UIItem, UIItemType};
 use crate::utilsprites::RenderMetrics;
 use anyhow::Result;
@@ -10,7 +11,7 @@ use euclid;
 use std::rc::Rc;
 use wezterm_font::LoadedFont;
 use window::color::LinearRgba;
-use window::{RectF, WindowOps};
+use window::{PointF, RectF, WindowOps};
 
 // Minimum width to keep visible when sidebar is "collapsed"
 const MIN_SIDEBAR_WIDTH: f32 = 25.0;
@@ -79,7 +80,7 @@ impl crate::TermWindow {
         &mut self,
         layers: &mut TripleLayerQuadAllocator,
     ) -> Result<()> {
-        let _config = &self.config;
+        let config = self.config.clone();
 
         // Common button configuration
         let button_size = 40.0;
@@ -100,33 +101,56 @@ impl crate::TermWindow {
         let sidebar_manager = self.sidebar_manager.borrow();
         let has_left_sidebar = sidebar_manager.get_left_sidebar().is_some();
         let is_left_visible = sidebar_manager.is_left_visible();
-        let _is_right_visible = sidebar_manager.is_right_visible();
+        let is_right_visible = sidebar_manager.is_right_visible();
         let expansion = sidebar_manager.get_window_expansion() as f32;
         drop(sidebar_manager);
 
         if has_left_sidebar {
             // Left button is always at x=0 (left edge)
             let left_button_x = border.left.get() as f32;
-
-            // Left button background (gear icon)
             let left_button_rect = euclid::rect(left_button_x, button_y, button_size, button_size);
-            let left_button_color = if is_left_visible {
-                LinearRgba::with_components(0.3, 0.3, 0.35, 1.0) // Darker when active
-            } else {
-                LinearRgba::with_components(0.2, 0.2, 0.25, 1.0) // Dark gray
-            };
 
-            // Draw background rectangle
-            self.filled_rectangle(layers, 2, left_button_rect, left_button_color)?;
+            // Create neon style for left button
+            let left_neon_style =
+                if let Some(left_style) = &config.clibuddy.sidebar_button.left_style {
+                    if let Some(neon) = &left_style.neon {
+                        NeonStyle::from_config(
+                            neon.color.to_linear(),
+                            neon.base_color.to_linear(),
+                            Some(neon.glow_intensity),
+                            Some(neon.glow_layers),
+                            Some(neon.glow_radius),
+                            Some(config.clibuddy.sidebar_button.border_width),
+                            is_left_visible,
+                        )
+                    } else {
+                        // Fall back to default neon config
+                        self.get_default_left_neon_style(is_left_visible, &config)
+                    }
+                } else {
+                    // Use default style
+                    self.get_default_left_neon_style(is_left_visible, &config)
+                };
 
-            // Render gear icon
-            self.render_sidebar_icon(
+            // Render button with neon effect
+            self.render_neon_rect(
                 layers,
-                '\u{f013}', // fa_gear
-                left_button_x,
-                button_y,
-                button_size,
-                LinearRgba::with_components(0.7, 0.7, 0.7, 1.0), // Medium gray icon for better contrast
+                left_button_rect,
+                &left_neon_style,
+                Some(config.clibuddy.sidebar_button.corner_radius),
+            )?;
+
+            // Render gear icon with neon effect
+            let icon_position = euclid::point2(
+                left_button_x + button_size * 0.28, // Adjusted for better centering
+                button_y + button_size * 0.22,
+            );
+            self.render_neon_glyph(
+                layers,
+                "\u{f013}", // fa_gear
+                icon_position,
+                &self.fonts.sidebar_icon_font()?,
+                &left_neon_style,
             )?;
 
             // Add UI item for left button click detection
@@ -151,21 +175,49 @@ impl crate::TermWindow {
             self.dimensions.pixel_width as f32 - padding - border.right.get() as f32
         };
 
-        // Right button background
         let right_button_rect = euclid::rect(right_button_x, button_y, button_size, button_size);
-        let right_button_color = LinearRgba::with_components(0.2, 0.4, 1.0, 1.0); // Bright blue
 
-        // Draw background rectangle
-        self.filled_rectangle(layers, 2, right_button_rect, right_button_color)?;
+        // Create neon style for right button
+        let right_neon_style =
+            if let Some(right_style) = &config.clibuddy.sidebar_button.right_style {
+                if let Some(neon) = &right_style.neon {
+                    NeonStyle::from_config(
+                        neon.color.to_linear(),
+                        neon.base_color.to_linear(),
+                        Some(neon.glow_intensity),
+                        Some(neon.glow_layers),
+                        Some(neon.glow_radius),
+                        Some(config.clibuddy.sidebar_button.border_width),
+                        is_right_visible,
+                    )
+                } else {
+                    // Fall back to default neon config
+                    self.get_default_right_neon_style(is_right_visible, &config)
+                }
+            } else {
+                // Use default style
+                self.get_default_right_neon_style(is_right_visible, &config)
+            };
 
-        // Render AI assistant icon
-        self.render_sidebar_icon(
+        // Render button with neon effect
+        self.render_neon_rect(
             layers,
-            '\u{f0064}', // md_assistant
-            right_button_x,
-            button_y,
-            button_size,
-            LinearRgba::with_components(1.0, 1.0, 1.0, 1.0), // White icon
+            right_button_rect,
+            &right_neon_style,
+            Some(config.clibuddy.sidebar_button.corner_radius),
+        )?;
+
+        // Render AI assistant icon with neon effect
+        let icon_position = euclid::point2(
+            right_button_x + button_size * 0.28, // Adjusted for better centering
+            button_y + button_size * 0.22,
+        );
+        self.render_neon_glyph(
+            layers,
+            "\u{f0064}", // md_assistant
+            icon_position,
+            &self.fonts.sidebar_icon_font()?,
+            &right_neon_style,
         )?;
 
         // Add UI item for right button click detection
@@ -274,66 +326,65 @@ impl crate::TermWindow {
         Ok(())
     }
 
-    /// Helper method to render a nerdfont icon at the specified position
-    fn render_sidebar_icon(
-        &mut self,
-        _layers: &mut TripleLayerQuadAllocator,
-        icon_char: char,
-        x: f32,
-        y: f32,
-        button_size: f32,
-        icon_color: LinearRgba,
-    ) -> Result<()> {
-        let font = &self.fonts.sidebar_icon_font()?;
-        let metrics = RenderMetrics::with_font_metrics(&font.metrics());
+    /// Get default neon style for left button
+    fn get_default_left_neon_style(
+        &self,
+        is_active: bool,
+        config: &config::ConfigHandle,
+    ) -> NeonStyle {
+        // Check if there's a default neon config at the sidebar_button level
+        if let Some(neon) = &config.clibuddy.sidebar_button.neon {
+            NeonStyle::from_config(
+                neon.color.to_linear(),
+                neon.base_color.to_linear(),
+                Some(neon.glow_intensity),
+                Some(neon.glow_layers),
+                Some(neon.glow_radius),
+                Some(config.clibuddy.sidebar_button.border_width),
+                is_active,
+            )
+        } else {
+            // Hardcoded default cyan neon
+            NeonStyle {
+                neon_color: LinearRgba::with_components(0.0, 1.0, 1.0, 1.0), // Cyan
+                base_color: LinearRgba::with_components(0.05, 0.05, 0.06, 1.0), // Dark gray
+                glow_intensity: 0.7,
+                glow_layers: 5,
+                glow_radius: 12.0,
+                border_width: 2.0,
+                is_active,
+            }
+        }
+    }
 
-        // Create text element with the icon character
-        let icon_text = icon_char.to_string();
-
-        // Use the full button bounds for positioning
-        let icon_bounds = RectF::new(
-            euclid::point2(x, y),
-            euclid::size2(button_size, button_size),
-        );
-
-        let icon_element = Element::new(font, ElementContent::Text(icon_text))
-            .vertical_align(VerticalAlign::Middle)
-            .colors(ElementColors {
-                border: crate::termwindow::box_model::BorderColor::default(),
-                bg: LinearRgba::TRANSPARENT.into(),
-                text: icon_color.into(),
-            })
-            .padding(BoxDimension {
-                left: Dimension::Pixels(button_size * 0.1),
-                right: Dimension::Pixels(button_size * 0.01),
-                top: Dimension::Pixels(button_size * 0.01),
-                bottom: Dimension::Pixels(button_size * 0.01),
-            });
-
-        // Create layout context
-        let context = crate::termwindow::box_model::LayoutContext {
-            width: DimensionContext {
-                dpi: self.dimensions.dpi as f32,
-                pixel_max: self.dimensions.pixel_width as f32,
-                pixel_cell: metrics.cell_size.width as f32,
-            },
-            height: DimensionContext {
-                dpi: self.dimensions.dpi as f32,
-                pixel_max: self.dimensions.pixel_height as f32,
-                pixel_cell: metrics.cell_size.height as f32,
-            },
-            bounds: icon_bounds,
-            metrics: &metrics,
-            gl_state: self.render_state.as_ref().unwrap(),
-            zindex: 3, // Render above background
-        };
-
-        // Compute the element layout
-        let computed = self.compute_element(&context, &icon_element)?;
-
-        // Render the computed element
-        self.render_element(&computed, self.render_state.as_ref().unwrap(), None)?;
-
-        Ok(())
+    /// Get default neon style for right button
+    fn get_default_right_neon_style(
+        &self,
+        is_active: bool,
+        config: &config::ConfigHandle,
+    ) -> NeonStyle {
+        // Check if there's a default neon config at the sidebar_button level
+        if let Some(neon) = &config.clibuddy.sidebar_button.neon {
+            NeonStyle::from_config(
+                neon.color.to_linear(),
+                neon.base_color.to_linear(),
+                Some(neon.glow_intensity),
+                Some(neon.glow_layers),
+                Some(neon.glow_radius),
+                Some(config.clibuddy.sidebar_button.border_width),
+                is_active,
+            )
+        } else {
+            // Hardcoded default pink/magenta neon
+            NeonStyle {
+                neon_color: LinearRgba::with_components(1.0, 0.08, 0.58, 1.0), // Deep pink
+                base_color: LinearRgba::with_components(0.06, 0.04, 0.06, 1.0), // Dark purple-black
+                glow_intensity: 0.8,
+                glow_layers: 5,
+                glow_radius: 12.0,
+                border_width: 2.0,
+                is_active,
+            }
+        }
     }
 }

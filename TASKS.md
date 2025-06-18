@@ -199,6 +199,17 @@ The implementation is divided into 7 phases:
   - **Implementation**: ActivityFilter enum with all variants
   - Filter chips rendered with selection state ✓
   - Activity items filtered based on selection ✓
+- [x] **2.1.4** Implement generic neon glow effect system
+  - **Development status**: Completed
+  - Create reusable neon renderer for buttons, borders, dividers ✓
+  - Layered gradient system to simulate glow effects ✓
+  - Configurable neon colors, base colors, glow intensity ✓
+  - State-based appearance: active (lit), inactive (unlit), hover ✓
+  - **Usage**: Sidebar buttons, tab controls, pane borders, UI dividers
+  - **Config**: Per-element neon styling in clibuddy.lua config
+  - **Implementation**: Created neon.rs module with NeonRenderer trait
+  - **Features**: Multiple glow layers, configurable intensity/radius, border support
+  - **Integration**: Applied to sidebar toggle buttons with per-button configs
 
 ### 2.2 Status and Goal Components
 - [x] **2.2.1** Implement status chip
