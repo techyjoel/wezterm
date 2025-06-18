@@ -1,9 +1,16 @@
 use crate::quad::{QuadTrait, TripleLayerQuadAllocator, TripleLayerQuadAllocatorTrait};
+use crate::termwindow::box_model::{
+    BoxDimension, Element, ElementColors, ElementContent, VerticalAlign,
+};
 use crate::termwindow::{UIItem, UIItemType};
+use crate::utilsprites::RenderMetrics;
 use anyhow::Result;
+use config::{Dimension, DimensionContext};
 use euclid;
+use std::rc::Rc;
+use wezterm_font::LoadedFont;
 use window::color::LinearRgba;
-use window::WindowOps;
+use window::{RectF, WindowOps};
 
 // Minimum width to keep visible when sidebar is "collapsed"
 const MIN_SIDEBAR_WIDTH: f32 = 25.0;
@@ -93,7 +100,7 @@ impl crate::TermWindow {
         let sidebar_manager = self.sidebar_manager.borrow();
         let has_left_sidebar = sidebar_manager.get_left_sidebar().is_some();
         let is_left_visible = sidebar_manager.is_left_visible();
-        let is_right_visible = sidebar_manager.is_right_visible();
+        let _is_right_visible = sidebar_manager.is_right_visible();
         let expansion = sidebar_manager.get_window_expansion() as f32;
         drop(sidebar_manager);
 
@@ -109,7 +116,18 @@ impl crate::TermWindow {
                 LinearRgba::with_components(0.2, 0.2, 0.25, 1.0) // Dark gray
             };
 
+            // Draw background rectangle
             self.filled_rectangle(layers, 2, left_button_rect, left_button_color)?;
+
+            // Render gear icon
+            self.render_sidebar_icon(
+                layers,
+                '\u{f013}', // fa_gear
+                left_button_x,
+                button_y,
+                button_size,
+                LinearRgba::with_components(0.7, 0.7, 0.7, 1.0), // Medium gray icon for better contrast
+            )?;
 
             // Add UI item for left button click detection
             self.ui_items.push(UIItem {
@@ -137,7 +155,18 @@ impl crate::TermWindow {
         let right_button_rect = euclid::rect(right_button_x, button_y, button_size, button_size);
         let right_button_color = LinearRgba::with_components(0.2, 0.4, 1.0, 1.0); // Bright blue
 
+        // Draw background rectangle
         self.filled_rectangle(layers, 2, right_button_rect, right_button_color)?;
+
+        // Render AI assistant icon
+        self.render_sidebar_icon(
+            layers,
+            '\u{f0064}', // md_assistant
+            right_button_x,
+            button_y,
+            button_size,
+            LinearRgba::with_components(1.0, 1.0, 1.0, 1.0), // White icon
+        )?;
 
         // Add UI item for right button click detection
         self.ui_items.push(UIItem {
@@ -193,7 +222,7 @@ impl crate::TermWindow {
         // Use the actual sidebar width, not the dynamically calculated width
         // which changes during animation and breaks position calculations
         let full_width = sidebar_manager.get_right_sidebar_actual_width() as f32;
-        let x_offset = sidebar_manager.get_right_position_offset();
+        let _x_offset = sidebar_manager.get_right_position_offset();
         let expansion = sidebar_manager.get_window_expansion() as f32;
 
         // No animation - sidebar is either fully visible or shows minimum width
@@ -241,6 +270,69 @@ impl crate::TermWindow {
             sidebar_locked.render();
             // TODO: Convert the rendered content to quads
         }
+
+        Ok(())
+    }
+
+    /// Helper method to render a nerdfont icon at the specified position
+    fn render_sidebar_icon(
+        &mut self,
+        _layers: &mut TripleLayerQuadAllocator,
+        icon_char: char,
+        x: f32,
+        y: f32,
+        button_size: f32,
+        icon_color: LinearRgba,
+    ) -> Result<()> {
+        let font = &self.fonts.title_font()?;
+        let metrics = RenderMetrics::with_font_metrics(&font.metrics());
+
+        // Create text element with the icon character
+        let icon_text = icon_char.to_string();
+
+        // Use the full button bounds for positioning
+        let icon_bounds = RectF::new(
+            euclid::point2(x, y),
+            euclid::size2(button_size, button_size),
+        );
+
+        let icon_element = Element::new(font, ElementContent::Text(icon_text))
+            .vertical_align(VerticalAlign::Middle)
+            .colors(ElementColors {
+                border: crate::termwindow::box_model::BorderColor::default(),
+                bg: LinearRgba::TRANSPARENT.into(),
+                text: icon_color.into(),
+            })
+            .padding(BoxDimension {
+                left: Dimension::Pixels(button_size * 0.01),
+                right: Dimension::Pixels(button_size * 0.01),
+                top: Dimension::Pixels(button_size * 0.01),
+                bottom: Dimension::Pixels(button_size * 0.01),
+            });
+
+        // Create layout context
+        let context = crate::termwindow::box_model::LayoutContext {
+            width: DimensionContext {
+                dpi: self.dimensions.dpi as f32,
+                pixel_max: self.dimensions.pixel_width as f32,
+                pixel_cell: metrics.cell_size.width as f32,
+            },
+            height: DimensionContext {
+                dpi: self.dimensions.dpi as f32,
+                pixel_max: self.dimensions.pixel_height as f32,
+                pixel_cell: metrics.cell_size.height as f32,
+            },
+            bounds: icon_bounds,
+            metrics: &metrics,
+            gl_state: self.render_state.as_ref().unwrap(),
+            zindex: 3, // Render above background
+        };
+
+        // Compute the element layout
+        let computed = self.compute_element(&context, &icon_element)?;
+
+        // Render the computed element
+        self.render_element(&computed, self.render_state.as_ref().unwrap(), None)?;
 
         Ok(())
     }

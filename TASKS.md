@@ -53,6 +53,7 @@ The implementation is divided into 7 phases:
   - Create `SidebarState` struct for animation and visibility tracking via Instant timestamps
   - Add `SidebarConfig` with width: 300, position: Right, show_on_startup: false, animation_duration_ms: 200
   - **Note**: Uses Element-based rendering instead of termwiz widgets
+  - **Key insight**: Painting a background rectangle for the left button bar (on layer 1) is required to properly offset terminal content. Without this visual separation, the terminal padding calculations don't take effect.
 - [x] **1.1.2** Implement `Sidebar` trait
   ```rust
   pub trait Sidebar: Send + Sync {
