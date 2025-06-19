@@ -1,184 +1,257 @@
-# GPU Blur Implementation Steps
+# GPU Blur Next Steps
 
-## Overview
-Implementing GPU-based blur shaders for neon glow effects to replace the current 240-pass rendering approach. Expected performance improvement: 100-240x.
+## Immediate Troubleshooting Tasks
 
-This plan leverages existing WezTerm infrastructure rather than building from scratch.
+### 1. Fix Glow Positioning
+**Issue**: Glow may not be perfectly centered on icons
 
-## Implementation Steps
+**Steps**:
+1. Add debug visualization to show glow bounds
+   ```rust
+   // In effects_overlay.rs composite_glow()
+   log::info!("Icon at ({}, {}), glow at ({}, {}) size {}x{}", 
+       effect.position.x, effect.position.y,
+       glow_x, glow_y, glow_width, glow_height);
+   ```
 
-### Phase 1: Extend Existing Texture Infrastructure
-- [x] Extend `WebGpuTexture::new()` in `termwindow/webgpu.rs`
-  - [x] Add support for `RENDER_ATTACHMENT` usage flag
-  - [x] Create texture views for render targets
-  - [x] Add render target texture pool to `WebGpuState`
-- [x] Extend `RenderContext` in `renderstate.rs`
-  - [x] Add `allocate_render_target()` method similar to `allocate_texture_atlas()`
-  - [ ] Add render target binding methods
-  - [x] Support both OpenGL (Glium) and WebGPU backends (WebGPU only for now)
-- [ ] Extend Atlas system in `window/src/bitmaps/atlas.rs`
-  - [ ] Add render target allocation support
-  - [ ] Implement texture pooling for blur targets
+2. Verify offset calculation
+   - Current: `glow_x = effect.position.x - (glow_width - 40.0) / 2.0`
+   - May need to account for icon centering within button
+   - Check if position is top-left or center of icon
 
-### Phase 2: Blur Shader Implementation
-- [x] Create blur shader module
-  - [x] Create `blur.wgsl` with Gaussian blur implementation
-  - [x] Implement separable blur passes (horizontal/vertical)
-  - [x] Add blur uniforms structure
-- [x] Extend WebGpuState pipeline
-  - [x] Add blur render pipeline fields to `WebGpuState`
-  - [x] Create blur-specific bind group layouts
-  - [x] Integrate with existing shader compilation
-- [ ] OpenGL implementation
-  - [ ] Extend Glium backend for render targets
-  - [ ] Add GLSL blur shaders
-  - [ ] Match WebGPU functionality
+3. Test with visual markers
+   - Temporarily draw a colored border around glow texture
+   - Compare with icon position visually
 
-### Phase 3: Blur Cache System (Using Existing Patterns)
-- [x] Implement blur cache similar to `GlyphCache`
-  - [x] Use HashMap-based caching with LRU eviction
-  - [x] Content-based cache keys for frame reuse
-  - [ ] Integrate with Atlas texture management
-- [x] Memory management
-  - [x] Leverage existing texture size limits
-  - [x] Implement texture pooling for render targets
-  - [x] Monitor GPU memory usage
+### 2. Fix Glow Color
+**Issue**: Glow color might not match neon color exactly
 
-### Phase 4: Create Blur Render Module
-- [x] Create `termwindow/render/blur.rs`
-  - [x] Similar structure to existing render modules
-  - [x] Manage blur render passes
-  - [x] Interface with existing render pipeline
-- [x] Initialize blur pipelines on WebGPU startup
-  - [x] Add initialization in `termwindow/mod.rs`
-  - [x] Add blur module to render exports
-- [x] Complete blur pass implementation
-  - [x] Create texture bind groups
-  - [x] Implement command encoder integration
-  - [x] Draw full-screen triangles
+**Steps**:
+1. Verify color space handling
+   - Check if colors need sRGB to linear conversion
+   - Ensure premultiplied alpha is handled correctly
 
-### Phase 5: Integration with Neon Rendering
-- [x] Modify `termwindow/render/neon.rs`
-  - [x] Replace multi-pass glow with blur module calls
-  - [x] Use render targets for glow generation
-  - [x] Cache blur results between frames
-- [x] Icon-to-texture rendering
-  - [x] Create method to rasterize glyphs to textures
-  - [x] Handle color and alpha correctly
-  - [x] Center icons in texture with padding
-- [x] Debug logging
-  - [x] Pipeline initialization logging
-  - [x] Blur test logging  
-  - [x] Multi-pass count logging
+2. Debug color values
+   ```rust
+   // In create_icon_texture()
+   log::info!("Icon color: {:?}", color);
+   // In blur shader
+   // Add debug output for sampled colors
+   ```
 
-### Phase 6: Texture Binding Challenge & Solution
-- [x] Identified issue: WezTerm expects all quads to use same atlas texture
-  - [x] Blurred textures are separate and can't be displayed via quad system
-  - [x] Investigated multiple architectural solutions
-- [x] Implemented Effects Overlay System as solution:
-  - [x] Created `effects_overlay.rs` with separate rendering layer
-  - [x] Created `glow_composite.wgsl` for additive blending
-  - [x] Renders effects after main content with own textures
-  - [ ] Connect overlay to main render pipeline in `draw.rs`
-  - [ ] Modify neon.rs to use overlay instead of multi-pass
+3. Check blending equation
+   - Current: Additive blending
+   - May need to adjust for color accuracy
 
-### Phase 7: Final Integration Steps ✓
-- [x] Connect Effects Overlay to Render Pipeline
-  - [x] Add effects_overlay field to TermWindow (already done)
-  - [x] Initialize effects overlay in TermWindow::new
-  - [x] Add overlay.render() call in draw.rs after main content
-  - [x] Clear effects at start of each frame
-- [x] Modify Neon Rendering to Use Overlay
-  - [x] Replace multi-pass loop with GPU blur in overlay
-  - [x] Pre-blur textures in neon.rs before adding to overlay
-  - [x] Create GlowEffect with pre-blurred textures
-  - [x] Keep CPU fallback for non-WebGPU backends
-- [ ] Testing & Verification
-  - [ ] Visual verification of glow effects
-  - [ ] Verify coordinate alignment
-  - [ ] Performance testing at 120fps
-  - [ ] Memory usage monitoring
+### 3. Fine-tune Intensity
+**Issue**: 80% intensity might be too bright/dim
 
-## Key Reusable Components
+**Steps**:
+1. Make intensity configurable in wezterm.lua
+   ```lua
+   config.clibuddy.sidebar_button.neon = {
+       glow_intensity = 0.8,  -- Base intensity
+       glow_multiplier = 0.8, -- GPU multiplier
+   }
+   ```
 
-1. **Atlas System** (`window/src/bitmaps/atlas.rs`) - Texture allocation
-2. **WebGpuTexture** (`termwindow/webgpu.rs`) - Texture creation
-3. **RenderContext** (`renderstate.rs`) - Backend abstraction
-4. **GlyphCache Pattern** (`glyphcache.rs`) - Caching strategy
-5. **Shader Infrastructure** (`shader.wgsl`) - Shader system
-6. **UniformBuilder** (`uniforms.rs`) - Uniform management
-7. **Render Pass System** (`termwindow/render/draw.rs`) - Multi-pass rendering
+2. Add dynamic adjustment based on background
+   - Detect dark vs light themes
+   - Adjust intensity accordingly
 
-## Performance Targets
-- < 0.2ms per glow effect
-- Support for 120fps rendering
-- Cache hit rate > 95% for static content
-- < 10MB GPU memory usage
+3. Consider non-linear intensity curves
+   - Current: Linear multiplication
+   - Try: Power curves for more natural falloff
 
-## Current Status
-Phase 1-5 complete. GPU blur fully integrated:
-- ✅ WebGpuTexture extended with render target support
-- ✅ Blur shader (blur.wgsl) with high-quality Gaussian blur
-- ✅ BlurRenderer module with caching and texture pooling
-- ✅ Pipeline initialization integrated into WebGPU startup
-- ✅ RenderContext extended with render target allocation
-- ✅ Blur pass implementation with full command encoder integration
-- ✅ Icon-to-texture rendering implemented
-- ✅ Neon rendering integrated with GPU blur (with CPU fallback)
+## OpenGL Implementation Plan
 
-Next steps: Fix texture binding issue for blur output
+### Phase 1: OpenGL Blur Infrastructure
 
-## Summary of Implementation So Far
+1. **Create OpenGL Blur Shaders**
+   ```glsl
+   // blur_vertex.glsl
+   #version 330 core
+   layout(location = 0) in vec2 position;
+   layout(location = 1) in vec2 texCoord;
+   out vec2 TexCoord;
+   void main() {
+       gl_Position = vec4(position, 0.0, 1.0);
+       TexCoord = texCoord;
+   }
+   
+   // blur_fragment.glsl
+   #version 330 core
+   in vec2 TexCoord;
+   out vec4 FragColor;
+   uniform sampler2D sourceTexture;
+   uniform vec2 direction;
+   uniform float kernel[MAX_KERNEL_SIZE];
+   uniform int kernelSize;
+   // ... Gaussian blur implementation
+   ```
 
-### Completed Components
+2. **Extend BlurRenderer for OpenGL**
+   ```rust
+   // In blur.rs
+   enum BlurPipeline {
+       WebGpu(WebGpuBlurPipeline),
+       OpenGl(OpenGlBlurPipeline),
+   }
+   
+   impl BlurRenderer {
+       pub fn init_opengl_pipeline(&mut self, gl_state: &GliumRenderState) -> Result<()> {
+           // Create shaders, framebuffers, etc.
+       }
+   }
+   ```
 
-1. **Render Target Support** (`webgpu.rs`)
-   - Added `new_render_target()` method with RENDER_ATTACHMENT usage
-   - Added `create_view()` method for texture views
-   - Extended WebGpuState with blur pipeline fields
+3. **Create OpenGL Render Targets**
+   - Use Framebuffer Objects (FBOs)
+   - Implement texture pooling for OpenGL
+   - Handle texture format compatibility
 
-2. **Blur Shader** (`shaders/blur.wgsl`)
-   - Full-screen triangle vertex shader
-   - Gaussian blur fragment shader with dynamic kernel
-   - Optimized small kernel variant
-   - Proper edge clamping and weight normalization
+### Phase 2: OpenGL Effects Overlay
 
-3. **Blur Renderer** (`termwindow/render/blur.rs`)
-   - Content-based caching with LRU eviction
-   - Render target pooling for efficiency
-   - Two-pass separable blur implementation
-   - Memory management with configurable limits
+1. **Port glow_composite shader to GLSL**
+   ```glsl
+   // glow_composite_fragment.glsl
+   #version 330 core
+   uniform sampler2D glowTexture;
+   uniform float intensity;
+   uniform vec4 glowBounds; // x, y, width, height
+   // Additive blending implementation
+   ```
 
-4. **Integration Points**
-   - RenderContext extended with `allocate_render_target()`
-   - Blur module added to render exports
-   - Pipeline initialization in WebGPU startup
+2. **Extend EffectsOverlay for OpenGL**
+   ```rust
+   impl EffectsOverlay {
+       pub fn render_opengl(
+           &mut self, 
+           frame: &mut glium::Frame,
+           gl_state: &GliumRenderState,
+       ) -> Result<()> {
+           // Render each glow effect
+       }
+   }
+   ```
 
-### Remaining Work
+3. **Handle OpenGL state management**
+   - Save/restore blend state
+   - Manage texture bindings
+   - Handle viewport changes
 
-1. **Texture Binding Issue**
-   - The blurred texture is created but not displayed
-   - WezTerm's quad system expects all quads to use the same atlas texture
-   - Need to either:
-     a. Add the blurred result to the glyph atlas
-     b. Implement per-quad texture binding
-     c. Use a different rendering approach for blur textures
+### Phase 3: Integration
 
-2. **Testing & Optimization**
-   - Verify GPU blur is actually being used (check logs)
-   - Confirm 120fps performance with multiple active glows
-   - Test cache effectiveness
-   - Profile GPU memory usage
+1. **Update Initialization**
+   ```rust
+   // In termwindow/mod.rs
+   match &render_state.context {
+       RenderContext::WebGpu(_) => { /* existing code */ }
+       RenderContext::Glium(gl_state) => {
+           blur_renderer.init_opengl_pipeline(gl_state)?;
+           // Initialize OpenGL effects overlay
+       }
+   }
+   ```
 
-### Current State
-- GPU blur pipeline is complete and functional ✓
-- Icon-to-texture rendering is implemented ✓
-- Effects overlay system implemented and integrated ✓
-- Neon rendering uses GPU blur via overlay, falls back to CPU ✓
-- Integration complete, ready for testing
-- Expected performance improvement: 120x+ (2 passes vs 240)
+2. **Update Rendering Path**
+   ```rust
+   // In render_neon_glyph()
+   let can_use_gpu = matches!(
+       &self.render_state.as_ref().unwrap().context,
+       RenderContext::WebGpu(_) | RenderContext::Glium(_)
+   );
+   ```
 
-### Implementation Complete
-1. **Texture Binding Solution**: Effects overlay system successfully implemented
-2. **Full Integration**: Overlay connected to render pipeline and neon system modified
-3. **Ready for Testing**: Visual verification and performance benchmarking needed
+3. **Update draw calls**
+   ```rust
+   // In call_draw_glium()
+   if let Some(ref mut overlay) = self.effects_overlay.borrow_mut().as_mut() {
+       overlay.render_opengl(frame, gl_state)?;
+   }
+   ```
+
+### Phase 4: Platform-Specific Optimizations
+
+1. **OpenGL ES Support** (for older systems)
+   - Adjust shader versions
+   - Handle extension availability
+   - Fallback for missing features
+
+2. **Performance Tuning**
+   - Use PBOs for async texture transfers
+   - Implement triple buffering
+   - Profile and optimize draw calls
+
+3. **Compatibility Testing**
+   - Test on macOS (OpenGL 4.1)
+   - Test on Linux (various drivers)
+   - Test on Windows (ANGLE fallback)
+
+## Testing Strategy
+
+### Visual Tests
+1. Screenshot comparison between WebGPU and OpenGL
+2. Verify glow alignment with grid overlay
+3. Color accuracy tests with reference images
+
+### Performance Tests
+1. Measure frame time with 0, 1, 5, 10 active glows
+2. Compare WebGPU vs OpenGL performance
+3. Profile GPU usage and memory consumption
+
+### Compatibility Tests
+1. Test with `front_end = "OpenGL"` configuration
+2. Test with software rendering fallback
+3. Test on integrated vs discrete GPUs
+
+## Configuration Schema
+
+```lua
+config.clibuddy.sidebar_button.neon = {
+    -- Existing
+    color = { 0.0, 1.0, 1.0, 1.0 },
+    glow_radius = 8.0,
+    glow_intensity = 0.9,
+    
+    -- New options
+    glow_gpu_multiplier = 0.8,    -- Fine-tune GPU intensity
+    glow_quality = "high",         -- "low", "medium", "high"
+    glow_debug = false,            -- Show debug overlays
+    force_cpu_blur = false,        -- Disable GPU acceleration
+}
+```
+
+## Debug Helpers
+
+1. **Visual Debug Mode**
+   - Draw glow bounds as colored rectangles
+   - Show texture dimensions on screen
+   - Display performance metrics
+
+2. **Logging Improvements**
+   - Add performance timers for each stage
+   - Log texture cache hit rates
+   - Track memory usage
+
+3. **Interactive Tuning**
+   - Hotkeys to adjust intensity in real-time
+   - Toggle between CPU/GPU rendering
+   - Save/load test configurations
+
+## Implementation Status
+
+### Completed (WebGPU)
+- ✅ GPU blur pipeline with 2-pass separable Gaussian blur
+- ✅ Effects overlay system for rendering glows
+- ✅ Icon texture creation and rasterization
+- ✅ Integration with neon rendering system
+- ✅ Basic glow visibility at 80% intensity
+- ✅ 120x+ performance improvement achieved
+
+### To Do
+- [ ] Fix glow positioning accuracy
+- [ ] Verify glow color matches neon color
+- [ ] Implement OpenGL support
+- [ ] Add configuration options
+- [ ] Performance profiling and optimization
