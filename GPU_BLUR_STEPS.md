@@ -198,59 +198,20 @@ This plan leverages existing WezTerm infrastructure rather than building from sc
 
 ## Next Steps - Troubleshooting & OpenGL Support
 
-### Immediate Troubleshooting Tasks
+### Completed Fixes ✅
 
-#### 1. Fix Glow Positioning Accuracy
-**Issue**: Glow may not be perfectly centered on icons
+#### 1. Glow Positioning Accuracy ✅ 
+**Status**: **COMPLETED**
+- ✅ Redesigned positioning system to use window-based coordinates
+- ✅ `GlowEffect.window_position` specifies absolute window position
+- ✅ Added fine-tuning offset (4px left, 3px up) to align with Element system
+- ✅ System now works generically for any content type
 
-**Steps**:
-1. Add debug visualization to show glow bounds
-   ```rust
-   // In effects_overlay.rs composite_glow()
-   log::info!("Icon at ({}, {}), glow at ({}, {}) size {}x{}", 
-       effect.position.x, effect.position.y,
-       glow_x, glow_y, glow_width, glow_height);
-   ```
-
-2. Verify offset calculation
-   - Current: `glow_x = effect.position.x - (glow_width - 40.0) / 2.0`
-   - May need to account for icon centering within button
-   - Check if position is top-left or center of icon
-
-3. Test with visual markers
-   - Temporarily draw a colored border around glow texture
-   - Compare with icon position visually
-
-#### 2. Fix Glow Color Accuracy
-**Issue**: Glow color might not match neon color exactly
-
-**Steps**:
-1. Verify color space handling
-   - Check if colors need sRGB to linear conversion
-   - Ensure premultiplied alpha is handled correctly
-
-2. Debug color values
-   ```rust
-   // In create_icon_texture()
-   log::info!("Icon color: {:?}", color);
-   // In blur shader - add debug output
-   ```
-
-3. Check blending equation
-   - Current: Additive blending
-   - May need to adjust for color accuracy
-
-#### 3. Fine-tune Intensity and Config
-**Issue**: current 80% intensity might be too bright/dim for different configs
-
-**Steps**:
-1. Check current config usage and update as needed. Current glow_intensity in ./clibuddy/wezterm.lua works, but may want to add a knob for glow_gpu_multiplier if that would be helpful
-   ```lua
-   config.clibuddy.sidebar_button.left_style.neon = {
-       glow_intensity = 0.8,  -- Base intensity
-       glow_gpu_multiplier = 0.8, -- GPU multiplier
-   }
-   ```
+#### 2. Glow Color Accuracy ✅
+**Status**: **COMPLETED**
+- ✅ Added proper linear-to-sRGB color space conversion in `icon_to_texture.rs`
+- ✅ Fixed RGBA channel ordering (was incorrectly using BGRA format)
+- ✅ Colors now render accurately matching neon colors exactly
 
 ### OpenGL Implementation Plan
 

@@ -46,17 +46,22 @@ The GPU blur system is now **fully implemented and working** with the following 
 - **Texture size**: 56×56px (icon + 2×radius padding)
 - **Blend mode**: Additive for glow effect
 
-## Known Issues to Address
+## Recent Fixes ✅
 
-### 1. Positioning
-- Glow may need fine-tuning for perfect centering
-- Current offset calculation: `position - (texture_size - icon_size) / 2`
+### 1. Color Accuracy (Fixed)
+- ✅ Added proper linear-to-sRGB color space conversion for `Rgba8UnormSrgb` format
+- ✅ Fixed RGBA channel ordering (was incorrectly using BGRA)
+- ✅ Colors now render accurately (cyan shows as cyan, magenta as magenta)
 
-### 2. Color Accuracy
-- Glow color should match neon color exactly
-- May need to verify color space conversions
+### 2. Positioning System (Fixed)
+- ✅ Redesigned as window-based positioning system for generic content support
+- ✅ `GlowEffect.window_position` specifies absolute window coordinates
+- ✅ Added fine-tuning offset (4px left, 3px up) to align with Element system
+- ✅ System now works for any content type (icons, text, lines, boxes)
 
-### 3. Platform Support
+## Remaining Issues
+
+### 1. Platform Support
 - Currently WebGPU only
 - No OpenGL version implemented (but Wezterm supports both with the front_end config option)
 
