@@ -22,6 +22,11 @@ impl crate::TermWindow {
         // Start with the assumption that we should allow images to render
         self.allow_images = AllowImage::Yes;
 
+        // Clear effects from previous frame
+        if let Some(ref mut overlay) = self.effects_overlay.borrow_mut().as_mut() {
+            overlay.clear_effects();
+        }
+
         let start = Instant::now();
 
         {

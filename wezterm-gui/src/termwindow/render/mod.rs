@@ -34,10 +34,14 @@ use wezterm_term::color::{ColorAttribute, ColorPalette};
 use wezterm_term::{CellAttributes, Line, StableRowIndex};
 use window::color::LinearRgba;
 
+pub mod blur;
+pub mod blur_atlas_integration;
 pub mod borders;
 pub mod corners;
 pub mod draw;
+pub mod effects_overlay;
 pub mod fancy_tab_bar;
+pub mod icon_to_texture;
 pub mod neon;
 pub mod paint;
 pub mod pane;

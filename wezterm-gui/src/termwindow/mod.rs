@@ -469,6 +469,8 @@ pub struct TermWindow {
     sidebar_manager: RefCell<crate::sidebar::SidebarManager>,
     config_subscription: Option<config::ConfigSubscription>,
     glow_cache: RefCell<Option<crate::glowcache_simple::GlowCache>>,
+    blur_renderer: RefCell<Option<render::blur::BlurRenderer>>,
+    effects_overlay: RefCell<Option<render::effects_overlay::EffectsOverlay>>,
 }
 
 impl TermWindow {
@@ -701,6 +703,22 @@ impl TermWindow {
                 &self.config,
             );
             self.glow_cache.replace(Some(glow_cache));
+
+            // Initialize blur renderer for GPU-based effects
+            let mut blur_renderer = render::blur::BlurRenderer::new(50); // 50MB cache
+
+            // Test the blur pipeline if using WebGPU
+            if let RenderContext::WebGpu(_) = &render_state.context {
+                if let Err(e) = blur_renderer.test_blur_pipeline(&render_state.context) {
+                    log::error!("Blur pipeline test failed: {}", e);
+                }
+            }
+
+            self.blur_renderer.replace(Some(blur_renderer));
+
+            // Initialize effects overlay
+            let effects_overlay = render::effects_overlay::EffectsOverlay::new();
+            self.effects_overlay.replace(Some(effects_overlay));
         }
 
         Ok(())
@@ -918,6 +936,8 @@ impl TermWindow {
                 crate::sidebar::SidebarConfig::default(),
             )),
             glow_cache: RefCell::new(None),
+            blur_renderer: RefCell::new(None),
+            effects_overlay: RefCell::new(None),
         };
 
         let tw = Rc::new(RefCell::new(myself));
@@ -1012,9 +1032,14 @@ impl TermWindow {
         {
             let mut myself = tw.borrow_mut();
             let webgpu = match config.front_end {
-                FrontEndSelection::WebGpu => Some(Rc::new(
-                    WebGpuState::new(&window, dimensions, &config).await?,
-                )),
+                FrontEndSelection::WebGpu => {
+                    let mut state = WebGpuState::new(&window, dimensions, &config).await?;
+                    // Initialize blur pipelines
+                    if let Err(err) = render::blur::BlurRenderer::init_pipelines(&mut state) {
+                        log::warn!("Failed to initialize blur pipelines: {}", err);
+                    }
+                    Some(Rc::new(state))
+                }
                 _ => None,
             };
             myself.config_subscription.replace(config_subscription);

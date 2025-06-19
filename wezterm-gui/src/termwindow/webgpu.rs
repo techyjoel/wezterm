@@ -35,6 +35,10 @@ pub struct WebGpuState {
     pub texture_nearest_sampler: wgpu::Sampler,
     pub texture_linear_sampler: wgpu::Sampler,
     pub handle: RawHandlePair,
+    // Blur-specific fields
+    pub blur_horizontal_pipeline: Option<wgpu::RenderPipeline>,
+    pub blur_vertical_pipeline: Option<wgpu::RenderPipeline>,
+    pub blur_uniform_bind_group_layout: Option<wgpu::BindGroupLayout>,
 }
 
 pub struct RawHandlePair {
@@ -165,6 +169,55 @@ impl WebGpuTexture {
             height,
             queue: Arc::clone(&state.queue),
         })
+    }
+
+    pub fn new_render_target(width: u32, height: u32, state: &WebGpuState) -> anyhow::Result<Self> {
+        let limit = state.device.limits().max_texture_dimension_2d;
+
+        if width > limit || height > limit {
+            anyhow::bail!(
+                "render target dimensions {width}x{height} exceed the \
+                 max dimension {limit} supported by your GPU"
+            );
+        }
+
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let view_formats = if state
+            .downlevel_caps
+            .flags
+            .contains(wgpu::DownlevelFlags::SURFACE_VIEW_FORMATS)
+        {
+            vec![format, format.remove_srgb_suffix()]
+        } else {
+            vec![]
+        };
+        let texture = state.device.create_texture(&wgpu::TextureDescriptor {
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            label: Some("Blur Render Target"),
+            view_formats: &view_formats,
+        });
+        Ok(Self {
+            texture,
+            width,
+            height,
+            queue: Arc::clone(&state.queue),
+        })
+    }
+
+    pub fn create_view(&self) -> wgpu::TextureView {
+        self.texture
+            .create_view(&wgpu::TextureViewDescriptor::default())
     }
 }
 
@@ -506,6 +559,9 @@ impl WebGpuState {
             texture_bind_group_layout,
             texture_nearest_sampler,
             texture_linear_sampler,
+            blur_horizontal_pipeline: None,
+            blur_vertical_pipeline: None,
+            blur_uniform_bind_group_layout: None,
         })
     }
 

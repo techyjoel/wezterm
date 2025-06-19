@@ -106,6 +106,41 @@ impl RenderContext {
         }
     }
 
+    pub fn allocate_render_target(
+        &self,
+        width: usize,
+        height: usize,
+    ) -> anyhow::Result<Rc<dyn Texture2d>> {
+        match self {
+            Self::Glium(context) => {
+                let caps = context.get_capabilities();
+                let max_texture_size: usize = caps
+                    .max_texture_size
+                    .try_into()
+                    .context("represent Capabilities.max_texture_size as usize")?;
+                if width > max_texture_size || height > max_texture_size {
+                    anyhow::bail!(
+                        "Cannot use a render target of size {}x{} as it is larger \
+                         than the max {} supported by your GPU",
+                        width,
+                        height,
+                        caps.max_texture_size
+                    );
+                }
+                // For now, return error for Glium backend as framebuffer support needs implementation
+                anyhow::bail!("Render target support not yet implemented for OpenGL backend")
+            }
+            Self::WebGpu(state) => {
+                let texture: Rc<dyn Texture2d> = Rc::new(WebGpuTexture::new_render_target(
+                    width as u32,
+                    height as u32,
+                    state,
+                )?);
+                Ok(texture)
+            }
+        }
+    }
+
     pub fn renderer_info(&self) -> String {
         match self {
             Self::Glium(ctx) => format!(

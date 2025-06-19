@@ -5,9 +5,11 @@
 //! simulate the glow of neon lights.
 
 use crate::quad::{QuadTrait, TripleLayerQuadAllocator, TripleLayerQuadAllocatorTrait};
+use crate::renderstate::RenderContext;
 use crate::termwindow::box_model::{
     BoxDimension, Element, ElementColors, ElementContent, VerticalAlign,
 };
+use crate::termwindow::render::blur::{BlurCacheKey, BlurRenderer};
 use crate::termwindow::TermWindow;
 use crate::utilsprites::RenderMetrics;
 use anyhow::Result;
@@ -15,6 +17,7 @@ use config::Dimension;
 use euclid::{Point2D, Size2D, Vector2D};
 use std::rc::Rc;
 use wezterm_font::LoadedFont;
+use window::bitmaps::{TextureCoord, TextureRect};
 use window::color::LinearRgba;
 use window::{Point, PointF, Rect, RectF};
 
@@ -244,66 +247,160 @@ impl NeonRenderer for TermWindow {
             euclid::size2(button_size, button_size),
         );
 
-        // Render glow effect using pre-rendered texture when active
+        // Render glow effect first (behind the icon) when active
         if style.is_active && style.glow_intensity > 0.0 {
-            // Try to get or create the glow texture from cache
-            if let Some(ref mut glow_cache) = &mut *self.glow_cache.borrow_mut() {
-                match glow_cache.get_or_create_text_glow(
+            // Check if we can use GPU blur via overlay system
+            let can_use_gpu = self
+                .render_state
+                .as_ref()
+                .map(|rs| matches!(&rs.context, RenderContext::WebGpu(_)))
+                .unwrap_or(false);
+
+            if can_use_gpu
+                && self.effects_overlay.borrow().is_some()
+                && self.blur_renderer.borrow().is_some()
+            {
+                // Use GPU-accelerated blur via effects overlay
+                log::debug!(
+                    "Using GPU blur overlay for '{}' with radius {}",
+                    text,
+                    style.glow_radius
+                );
+
+                // Create and blur the icon texture
+                match self.create_icon_texture(
                     text,
                     font,
-                    style.neon_color, // Use neon color as base when active
-                    style.neon_color, // Glow color same as base
-                    style.glow_radius,
-                    style.glow_layers,
-                    style.glow_intensity,
+                    style.neon_color,
+                    button_size as u32,
+                    style.glow_radius as u32,
                 ) {
-                    Ok(sprite) => {
-                        // Calculate position for the glow sprite (centered on button)
-                        let glow_padding = style.glow_radius;
-                        let glow_x = position.x - glow_padding;
-                        let glow_y = position.y - glow_padding;
-                        let glow_width = button_size + glow_padding * 2.0;
-                        let glow_height = button_size + glow_padding * 2.0;
+                    Ok(icon_texture) => {
+                        // Apply GPU blur
+                        let cache_key = BlurCacheKey {
+                            content_hash:
+                                crate::termwindow::render::blur::BlurRenderer::compute_content_hash(
+                                    text.as_bytes(),
+                                ),
+                            radius: style.glow_radius as u32,
+                            width: (button_size + style.glow_radius * 2.0) as u32,
+                            height: (button_size + style.glow_radius * 2.0) as u32,
+                        };
 
-                        // Transform to OpenGL coordinates (center at 0,0)
-                        let left_offset = self.dimensions.pixel_width as f32 / 2.0;
-                        let top_offset = self.dimensions.pixel_height as f32 / 2.0;
-
-                        // Allocate a quad for the glow texture
-                        let mut quad = layers.allocate(1)?; // Layer 1 for glow (behind icon)
-
-                        // Set texture coordinates from the sprite
-                        let tex_coords = sprite.texture_coords();
-                        quad.set_texture(tex_coords);
-
-                        // Set position with OpenGL coordinate transformation
-                        quad.set_position(
-                            glow_x - left_offset,
-                            glow_y - top_offset,
-                            (glow_x + glow_width) - left_offset,
-                            (glow_y + glow_height) - top_offset,
-                        );
-
-                        // Set color (white to show texture as-is)
-                        quad.set_fg_color(LinearRgba::with_components(1.0, 1.0, 1.0, 1.0));
-                        quad.set_has_color(true);
-
-                        log::debug!(
-                            "Glow quad rendered at ({}, {}) with size {}x{}, tex_coords: {:?}",
-                            glow_x,
-                            glow_y,
-                            glow_width,
-                            glow_height,
-                            tex_coords
-                        );
+                        let render_context = self.render_state.as_ref().unwrap().context.clone();
+                        if let Some(blur_renderer) = self.blur_renderer.borrow_mut().as_mut() {
+                            match blur_renderer.apply_blur(
+                                &*icon_texture,
+                                style.glow_radius,
+                                Some(cache_key),
+                                &render_context,
+                            ) {
+                                Ok(blurred_texture) => {
+                                    // Add glow effect to overlay with pre-blurred texture
+                                    if let Some(ref mut overlay) =
+                                        self.effects_overlay.borrow_mut().as_mut()
+                                    {
+                                        overlay.add_glow(crate::termwindow::render::effects_overlay::GlowEffect {
+                                            texture: blurred_texture,
+                                            position: euclid::point2(position.x as isize, position.y as isize),
+                                            intensity: (style.glow_intensity * 0.08) as f32, // Match CPU's 8% brightness
+                                        });
+                                    }
+                                    log::info!("✓ GPU blur successfully applied for '{}'", text);
+                                }
+                                Err(e) => {
+                                    log::debug!("GPU blur failed, falling back to CPU: {}", e);
+                                }
+                            }
+                        }
                     }
-                    Err(err) => {
-                        log::warn!("Failed to create glow texture: {}", err);
-                        // Fall back to no glow
+                    Err(e) => {
+                        log::debug!("Failed to create icon texture: {}", e);
                     }
                 }
             } else {
-                log::warn!("Glow cache not initialized");
+                // Use the baseline multi-pass approach
+                // This is the slow 240-pass method
+
+                let glow_radius = style.glow_radius;
+                let base_alpha = 0.08 * style.glow_intensity;
+
+                let rings = style.glow_layers.min(10) as usize;
+
+                let mut samples_per_ring = vec![0];
+                for i in 1..rings {
+                    samples_per_ring.push((i * 6).min(24));
+                }
+
+                // Log multi-pass rendering details
+                let total_passes: usize = samples_per_ring.iter().sum();
+                log::debug!(
+                    "CPU multi-pass glow for '{}': {} rings, {} total passes",
+                    text,
+                    rings,
+                    total_passes
+                );
+
+                for ring in 1..=rings {
+                    let ring_radius = (ring as f32 / rings as f32) * glow_radius;
+                    let samples = samples_per_ring.get(ring - 1).copied().unwrap_or(0);
+
+                    let falloff = 1.0 - (ring as f32 - 1.0) / rings as f32;
+                    let ring_alpha = base_alpha * falloff as f64 * 0.7;
+
+                    if samples == 0 {
+                        continue;
+                    }
+
+                    for sample in 0..samples {
+                        let angle = (sample as f32 / samples as f32) * std::f32::consts::PI * 2.0;
+                        let x_offset = angle.cos() * ring_radius;
+                        let y_offset = angle.sin() * ring_radius;
+
+                        let glow_alpha = ring_alpha as f32;
+                        let glow_color = with_alpha(style.neon_color, glow_alpha);
+
+                        let glow_bounds = RectF::new(
+                            euclid::point2(position.x + x_offset, position.y + y_offset),
+                            euclid::size2(button_size, button_size),
+                        );
+
+                        let glow_element =
+                            Element::new(font, ElementContent::Text(text.to_string()))
+                                .vertical_align(VerticalAlign::Middle)
+                                .colors(ElementColors {
+                                    border: crate::termwindow::box_model::BorderColor::default(),
+                                    bg: LinearRgba::TRANSPARENT.into(),
+                                    text: glow_color.into(),
+                                })
+                                .padding(BoxDimension {
+                                    left: Dimension::Pixels(button_size * 0.01),
+                                    right: Dimension::Pixels(button_size * 0.01),
+                                    top: Dimension::Pixels(button_size * 0.01),
+                                    bottom: Dimension::Pixels(button_size * 0.01),
+                                });
+
+                        let glow_context = crate::termwindow::box_model::LayoutContext {
+                            width: config::DimensionContext {
+                                dpi: self.dimensions.dpi as f32,
+                                pixel_max: self.dimensions.pixel_width as f32,
+                                pixel_cell: metrics.cell_size.width as f32,
+                            },
+                            height: config::DimensionContext {
+                                dpi: self.dimensions.dpi as f32,
+                                pixel_max: self.dimensions.pixel_height as f32,
+                                pixel_cell: metrics.cell_size.height as f32,
+                            },
+                            bounds: glow_bounds,
+                            metrics: &metrics,
+                            gl_state: self.render_state.as_ref().unwrap(),
+                            zindex: 2,
+                        };
+
+                        let computed = self.compute_element(&glow_context, &glow_element)?;
+                        self.render_element(&computed, self.render_state.as_ref().unwrap(), None)?;
+                    }
+                }
             }
         }
 

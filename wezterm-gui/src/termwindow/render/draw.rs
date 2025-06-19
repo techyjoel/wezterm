@@ -34,7 +34,7 @@ impl crate::TermWindow {
             });
         let tex = render_state.glyph_cache.borrow().atlas.texture();
         let tex = tex.downcast_ref::<WebGpuTexture>().unwrap();
-        let texture_view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let texture_view = tex.create_view();
 
         let texture_linear_bind_group =
             webgpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -139,6 +139,13 @@ impl crate::TermWindow {
                 }
 
                 vb.next_index();
+            }
+        }
+
+        // Render effects overlay after main content
+        if let Some(ref mut overlay) = self.effects_overlay.borrow_mut().as_mut() {
+            if let Err(e) = overlay.render(webgpu, &view, &mut encoder, &self.dimensions) {
+                log::warn!("Effects overlay render failed: {}", e);
             }
         }
 
