@@ -16,7 +16,7 @@ This plan leverages existing WezTerm infrastructure rather than building from sc
   - [x] Add `allocate_render_target()` method similar to `allocate_texture_atlas()`
   - [ ] Add render target binding methods
   - [x] Support both OpenGL (Glium) and WebGPU backends (WebGPU only for now)
-- [ ] Extend Atlas system in `window/src/bitmaps/atlas.rs`
+- [ ] Extend Atlas system in `window/src/bitmaps/atlas.rs`  (was this decided against? Not sure if is still needed)
   - [ ] Add render target allocation support
   - [ ] Implement texture pooling for blur targets
 
@@ -79,8 +79,8 @@ This plan leverages existing WezTerm infrastructure rather than building from sc
   - [x] Created `effects_overlay.rs` with separate rendering layer
   - [x] Created `glow_composite.wgsl` for additive blending
   - [x] Renders effects after main content with own textures
-  - [ ] Connect overlay to main render pipeline in `draw.rs`
-  - [ ] Modify neon.rs to use overlay instead of multi-pass
+  - [ ] Connect overlay to main render pipeline in `draw.rs` (not sure if still needed)
+  - [ ] Modify neon.rs to use overlay instead of multi-pass (not sure if still needed)
 
 ### Phase 7: Final Integration Steps ✓
 - [x] Connect Effects Overlay to Render Pipeline
@@ -187,8 +187,8 @@ This plan leverages existing WezTerm infrastructure rather than building from sc
 - Effects overlay system implemented and integrated ✓
 - Neon rendering uses GPU blur via overlay ✓
 - All CPU glow rendering removed (no fallback) ✓
-- Glow effects visible with 80% intensity ✓
-- Performance improvement achieved: 120x+ (2 passes vs 240) ✓
+- Glow effects visible ✓
+- Performance improvement achieved: likely 120x+ (2 passes vs 240), but need to test to confirm ✓
 
 ### Implementation Complete
 1. **Texture Binding Solution**: Effects overlay system successfully implemented
@@ -240,25 +240,17 @@ This plan leverages existing WezTerm infrastructure rather than building from sc
    - Current: Additive blending
    - May need to adjust for color accuracy
 
-#### 3. Fine-tune Intensity
-**Issue**: 80% intensity might be too bright/dim for different configs
+#### 3. Fine-tune Intensity and Config
+**Issue**: current 80% intensity might be too bright/dim for different configs
 
 **Steps**:
-1. Make intensity configurable in wezterm.lua
+1. Check current config usage and update as needed. Current glow_intensity in ./clibuddy/wezterm.lua works, but may want to add a knob for glow_gpu_multiplier if that would be helpful
    ```lua
-   config.clibuddy.sidebar_button.neon = {
+   config.clibuddy.sidebar_button.left_style.neon = {
        glow_intensity = 0.8,  -- Base intensity
        glow_gpu_multiplier = 0.8, -- GPU multiplier
    }
    ```
-
-2. Add dynamic adjustment based on background
-   - Detect dark vs light themes
-   - Adjust intensity accordingly
-
-3. Consider non-linear intensity curves
-   - Current: Linear multiplication
-   - Try: Power curves for more natural falloff
 
 ### OpenGL Implementation Plan
 
@@ -309,23 +301,7 @@ This plan leverages existing WezTerm infrastructure rather than building from sc
    - Test on Linux (various drivers)
    - Test on Windows (ANGLE)
 
-### Configuration Schema
-```lua
-config.clibuddy.sidebar_button.neon = {
-    -- Existing
-    color = { 0.0, 1.0, 1.0, 1.0 },
-    glow_radius = 8.0,
-    glow_intensity = 0.9,
-    
-    -- New options
-    glow_gpu_multiplier = 0.8,    -- Fine-tune GPU intensity
-    glow_quality = "high",         -- "low", "medium", "high"
-    glow_debug = false,            -- Show debug overlays
-    force_cpu_blur = false,        -- Disable GPU acceleration
-}
-```
-
-### Debug Helpers
+### Debug Helpers (optional as needed)
 1. **Visual Debug Mode**
    - Draw glow bounds as colored rectangles
    - Show texture dimensions on screen
@@ -335,8 +311,3 @@ config.clibuddy.sidebar_button.neon = {
    - Add performance timers for each stage
    - Log texture cache hit rates
    - Track memory usage
-
-3. **Interactive Tuning**
-   - Hotkeys to adjust intensity in real-time
-   - Toggle between CPU/GPU rendering
-   - Save/load test configurations
