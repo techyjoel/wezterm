@@ -207,12 +207,8 @@ impl ResolvedColor {
     fn apply(&self, quad: &mut QuadImpl) {
         if let Some(alpha) = self.alpha_override {
             // Apply colors with alpha override
-            let color_with_alpha = LinearRgba::with_components(
-                self.color.0,
-                self.color.1,
-                self.color.2,
-                alpha,
-            );
+            let color_with_alpha =
+                LinearRgba::with_components(self.color.0, self.color.1, self.color.2, alpha);
             let alt_color_with_alpha = LinearRgba::with_components(
                 self.alt_color.0,
                 self.alt_color.1,
@@ -1040,7 +1036,7 @@ impl super::TermWindow {
                     resolved.alpha_override = Some(color.3);
                 }
                 resolved
-            },
+            }
             InheritableColor::Animated {
                 color,
                 alt_color,

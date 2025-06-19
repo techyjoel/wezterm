@@ -42,9 +42,9 @@ impl Default for NeonStyle {
         Self {
             neon_color: LinearRgba::with_components(0.0, 1.0, 1.0, 1.0), // Cyan
             base_color: LinearRgba::with_components(0.05, 0.05, 0.06, 1.0), // Dark gray
-            glow_intensity: 1.0,  // Full intensity (will be multiplied by 0.08 for 8% brightness)
-            glow_layers: 5,       // 5 layers worked well
-            glow_radius: 20.0,    // 20 pixels extension worked well
+            glow_intensity: 1.0, // Full intensity (will be multiplied by 0.08 for 8% brightness)
+            glow_layers: 5,      // 5 layers worked well
+            glow_radius: 20.0,   // 20 pixels extension worked well
             border_width: 2.0,
             is_active: false,
         }
@@ -227,7 +227,7 @@ impl NeonRenderer for TermWindow {
 
     fn render_neon_glyph(
         &mut self,
-        _layers: &mut TripleLayerQuadAllocator,
+        layers: &mut TripleLayerQuadAllocator,
         text: &str,
         position: PointF,
         font: &Rc<LoadedFont>,
@@ -244,90 +244,66 @@ impl NeonRenderer for TermWindow {
             euclid::size2(button_size, button_size),
         );
 
-        // Render glow effect first (behind the icon) when active
+        // Render glow effect using pre-rendered texture when active
         if style.is_active && style.glow_intensity > 0.0 {
-            // Create a subtle blur by rendering the icon at strategic positions
-            // Use concentric circles for more efficient blur effect
-            let glow_radius = style.glow_radius; // Use configured radius
-            let base_alpha = 0.08 * style.glow_intensity; // 8% brightness at most
-            
-            // Render in concentric circles for a more natural glow
-            let rings = style.glow_layers.min(10) as usize; // Use configured layers (max 10 for performance)
-            
-            // Calculate samples per ring dynamically based on number of rings
-            let mut samples_per_ring = vec![0]; // First ring has 0 samples (center)
-            for i in 1..rings {
-                // Increase samples with distance for better coverage
-                samples_per_ring.push((i * 6).min(24));
-            }
-            
-            for ring in 1..=rings {
-                let ring_radius = (ring as f32 / rings as f32) * glow_radius;
-                let samples = samples_per_ring.get(ring - 1).copied().unwrap_or(0);
-                
-                // Calculate alpha falloff for this ring
-                let falloff = 1.0 - (ring as f32 - 1.0) / rings as f32;
-                let ring_alpha = base_alpha * falloff as f64 * 0.7; // Further reduce overall brightness
-                
-                if samples == 0 {
-                    // Center point - skip as we'll render the main icon there
-                    continue;
-                }
-                
-                for sample in 0..samples {
-                    let angle = (sample as f32 / samples as f32) * std::f32::consts::PI * 2.0;
-                    let x_offset = angle.cos() * ring_radius;
-                    let y_offset = angle.sin() * ring_radius;
-                    
-                    // Create glow copy with calculated alpha
-                    let glow_alpha = ring_alpha as f32;
-                    let glow_color = with_alpha(style.neon_color, glow_alpha);
-                    
-                    // Debug log to verify alpha values
-                    if ring == 1 && sample == 0 {
-                        log::debug!("Neon glow: ring={}, alpha={:.3}, color={:?}", 
-                            ring, glow_alpha, glow_color);
+            // Try to get or create the glow texture from cache
+            if let Some(ref mut glow_cache) = &mut *self.glow_cache.borrow_mut() {
+                match glow_cache.get_or_create_text_glow(
+                    text,
+                    font,
+                    style.neon_color, // Use neon color as base when active
+                    style.neon_color, // Glow color same as base
+                    style.glow_radius,
+                    style.glow_layers,
+                    style.glow_intensity,
+                ) {
+                    Ok(sprite) => {
+                        // Calculate position for the glow sprite (centered on button)
+                        let glow_padding = style.glow_radius;
+                        let glow_x = position.x - glow_padding;
+                        let glow_y = position.y - glow_padding;
+                        let glow_width = button_size + glow_padding * 2.0;
+                        let glow_height = button_size + glow_padding * 2.0;
+
+                        // Transform to OpenGL coordinates (center at 0,0)
+                        let left_offset = self.dimensions.pixel_width as f32 / 2.0;
+                        let top_offset = self.dimensions.pixel_height as f32 / 2.0;
+
+                        // Allocate a quad for the glow texture
+                        let mut quad = layers.allocate(1)?; // Layer 1 for glow (behind icon)
+
+                        // Set texture coordinates from the sprite
+                        let tex_coords = sprite.texture_coords();
+                        quad.set_texture(tex_coords);
+
+                        // Set position with OpenGL coordinate transformation
+                        quad.set_position(
+                            glow_x - left_offset,
+                            glow_y - top_offset,
+                            (glow_x + glow_width) - left_offset,
+                            (glow_y + glow_height) - top_offset,
+                        );
+
+                        // Set color (white to show texture as-is)
+                        quad.set_fg_color(LinearRgba::with_components(1.0, 1.0, 1.0, 1.0));
+                        quad.set_has_color(true);
+
+                        log::debug!(
+                            "Glow quad rendered at ({}, {}) with size {}x{}, tex_coords: {:?}",
+                            glow_x,
+                            glow_y,
+                            glow_width,
+                            glow_height,
+                            tex_coords
+                        );
                     }
-                    
-                    let glow_bounds = RectF::new(
-                        euclid::point2(position.x + x_offset, position.y + y_offset),
-                        euclid::size2(button_size, button_size),
-                    );
-                    
-                    let glow_element = Element::new(font, ElementContent::Text(text.to_string()))
-                        .vertical_align(VerticalAlign::Middle)
-                        .colors(ElementColors {
-                            border: crate::termwindow::box_model::BorderColor::default(),
-                            bg: LinearRgba::TRANSPARENT.into(),
-                            text: glow_color.into(),
-                        })
-                        .padding(BoxDimension {
-                            left: Dimension::Pixels(button_size * 0.01),
-                            right: Dimension::Pixels(button_size * 0.01),
-                            top: Dimension::Pixels(button_size * 0.01),
-                            bottom: Dimension::Pixels(button_size * 0.01),
-                        });
-                    
-                    let glow_context = crate::termwindow::box_model::LayoutContext {
-                        width: config::DimensionContext {
-                            dpi: self.dimensions.dpi as f32,
-                            pixel_max: self.dimensions.pixel_width as f32,
-                            pixel_cell: metrics.cell_size.width as f32,
-                        },
-                        height: config::DimensionContext {
-                            dpi: self.dimensions.dpi as f32,
-                            pixel_max: self.dimensions.pixel_height as f32,
-                            pixel_cell: metrics.cell_size.height as f32,
-                        },
-                        bounds: glow_bounds,
-                        metrics: &metrics,
-                        gl_state: self.render_state.as_ref().unwrap(),
-                        zindex: 2, // Behind the main icon
-                    };
-                    
-                    let computed = self.compute_element(&glow_context, &glow_element)?;
-                    self.render_element(&computed, self.render_state.as_ref().unwrap(), None)?;
+                    Err(err) => {
+                        log::warn!("Failed to create glow texture: {}", err);
+                        // Fall back to no glow
+                    }
                 }
+            } else {
+                log::warn!("Glow cache not initialized");
             }
         }
 
@@ -397,9 +373,9 @@ impl NeonStyle {
         Self {
             neon_color,
             base_color,
-            glow_intensity: glow_intensity.unwrap_or(1.0),   // Default to full intensity
-            glow_layers: glow_layers.unwrap_or(5),           // 5 layers for smooth glow
-            glow_radius: glow_radius.unwrap_or(20.0),        // 20 pixel extension
+            glow_intensity: glow_intensity.unwrap_or(1.0), // Default to full intensity
+            glow_layers: glow_layers.unwrap_or(5),         // 5 layers for smooth glow
+            glow_radius: glow_radius.unwrap_or(20.0),      // 20 pixel extension
             border_width: border_width.unwrap_or(2.0),
             is_active,
         }

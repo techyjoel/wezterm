@@ -468,6 +468,7 @@ pub struct TermWindow {
 
     sidebar_manager: RefCell<crate::sidebar::SidebarManager>,
     config_subscription: Option<config::ConfigSubscription>,
+    glow_cache: RefCell<Option<crate::glowcache_simple::GlowCache>>,
 }
 
 impl TermWindow {
@@ -689,6 +690,19 @@ impl TermWindow {
             panic!("No OpenGL");
         }
 
+        // Initialize glow cache
+        if let Some(render_state) = &self.render_state {
+            let texture = render_state.context.allocate_texture_atlas(ATLAS_SIZE)?;
+            let atlas = ::window::bitmaps::atlas::Atlas::new(&texture)?;
+            let glow_cache = crate::glowcache_simple::GlowCache::new(
+                atlas,
+                &self.render_metrics,
+                256, // max cache entries
+                &self.config,
+            );
+            self.glow_cache.replace(Some(glow_cache));
+        }
+
         Ok(())
     }
 }
@@ -903,6 +917,7 @@ impl TermWindow {
             sidebar_manager: RefCell::new(crate::sidebar::SidebarManager::new(
                 crate::sidebar::SidebarConfig::default(),
             )),
+            glow_cache: RefCell::new(None),
         };
 
         let tw = Rc::new(RefCell::new(myself));
