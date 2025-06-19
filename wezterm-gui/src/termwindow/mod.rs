@@ -468,7 +468,6 @@ pub struct TermWindow {
 
     sidebar_manager: RefCell<crate::sidebar::SidebarManager>,
     config_subscription: Option<config::ConfigSubscription>,
-    glow_cache: RefCell<Option<crate::glowcache_simple::GlowCache>>,
     blur_renderer: RefCell<Option<render::blur::BlurRenderer>>,
     effects_overlay: RefCell<Option<render::effects_overlay::EffectsOverlay>>,
 }
@@ -692,19 +691,8 @@ impl TermWindow {
             panic!("No OpenGL");
         }
 
-        // Initialize glow cache
+        // Initialize blur renderer for GPU-based effects
         if let Some(render_state) = &self.render_state {
-            let texture = render_state.context.allocate_texture_atlas(ATLAS_SIZE)?;
-            let atlas = ::window::bitmaps::atlas::Atlas::new(&texture)?;
-            let glow_cache = crate::glowcache_simple::GlowCache::new(
-                atlas,
-                &self.render_metrics,
-                256, // max cache entries
-                &self.config,
-            );
-            self.glow_cache.replace(Some(glow_cache));
-
-            // Initialize blur renderer for GPU-based effects
             let mut blur_renderer = render::blur::BlurRenderer::new(50); // 50MB cache
 
             // Test the blur pipeline if using WebGPU
@@ -935,7 +923,6 @@ impl TermWindow {
             sidebar_manager: RefCell::new(crate::sidebar::SidebarManager::new(
                 crate::sidebar::SidebarConfig::default(),
             )),
-            glow_cache: RefCell::new(None),
             blur_renderer: RefCell::new(None),
             effects_overlay: RefCell::new(None),
         };

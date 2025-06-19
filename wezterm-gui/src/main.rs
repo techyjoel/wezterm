@@ -39,7 +39,6 @@ mod commands;
 mod customglyph;
 mod download;
 mod frontend;
-mod glowcache_simple;
 mod glyphcache;
 mod inputmap;
 mod overlay;

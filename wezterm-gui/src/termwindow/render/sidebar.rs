@@ -122,7 +122,6 @@ impl crate::TermWindow {
                             neon.color.to_linear(),
                             neon.base_color.to_linear(),
                             Some(neon.glow_intensity),
-                            Some(neon.glow_layers),
                             Some(neon.glow_radius),
                             Some(config.clibuddy.sidebar_button.border_width),
                             is_left_visible,
@@ -188,7 +187,6 @@ impl crate::TermWindow {
                         neon.color.to_linear(),
                         neon.base_color.to_linear(),
                         Some(neon.glow_intensity),
-                        Some(neon.glow_layers),
                         Some(neon.glow_radius),
                         Some(config.clibuddy.sidebar_button.border_width),
                         is_right_visible,
@@ -341,7 +339,6 @@ impl crate::TermWindow {
                 neon.color.to_linear(),
                 neon.base_color.to_linear(),
                 Some(neon.glow_intensity),
-                Some(neon.glow_layers),
                 Some(neon.glow_radius),
                 Some(config.clibuddy.sidebar_button.border_width),
                 is_active,
@@ -352,7 +349,6 @@ impl crate::TermWindow {
                 neon_color: LinearRgba::with_components(0.0, 1.0, 1.0, 1.0), // Cyan
                 base_color: LinearRgba::with_components(0.05, 0.05, 0.06, 1.0), // Dark gray
                 glow_intensity: 0.7,
-                glow_layers: 5,
                 glow_radius: 12.0,
                 border_width: 2.0,
                 is_active,
@@ -372,7 +368,6 @@ impl crate::TermWindow {
                 neon.color.to_linear(),
                 neon.base_color.to_linear(),
                 Some(neon.glow_intensity),
-                Some(neon.glow_layers),
                 Some(neon.glow_radius),
                 Some(config.clibuddy.sidebar_button.border_width),
                 is_active,
@@ -383,7 +378,6 @@ impl crate::TermWindow {
                 neon_color: LinearRgba::with_components(1.0, 0.08, 0.58, 1.0), // Deep pink
                 base_color: LinearRgba::with_components(0.06, 0.04, 0.06, 1.0), // Dark purple-black
                 glow_intensity: 0.8,
-                glow_layers: 5,
                 glow_radius: 12.0,
                 border_width: 2.0,
                 is_active,
