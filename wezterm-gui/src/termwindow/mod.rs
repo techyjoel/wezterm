@@ -693,6 +693,13 @@ impl TermWindow {
 
         // Initialize blur renderer for GPU-based effects
         if let Some(render_state) = &self.render_state {
+            log::debug!("Initializing blur renderer, context type: {:?}", 
+                match &render_state.context {
+                    RenderContext::WebGpu(_) => "WebGPU",
+                    _ => "OpenGL"
+                }
+            );
+            
             let mut blur_renderer = render::blur::BlurRenderer::new(50); // 50MB cache
 
             // Test the blur pipeline if using WebGPU

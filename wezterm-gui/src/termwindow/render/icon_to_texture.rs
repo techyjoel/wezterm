@@ -16,6 +16,10 @@ impl TermWindow {
         icon_size: u32,
         padding: u32,
     ) -> Result<Rc<dyn Texture2d>> {
+        log::debug!(
+            "create_icon_texture called for '{}', icon_size={}, padding={}, color={:?}",
+            text, icon_size, padding, color
+        );
         // Get render state
         let render_state = self
             .render_state

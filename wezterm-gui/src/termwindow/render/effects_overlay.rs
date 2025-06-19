@@ -129,6 +129,7 @@ impl EffectsOverlay {
 
     /// Add a glow effect to be rendered this frame
     pub fn add_glow(&mut self, effect: GlowEffect) {
+        log::info!("Adding glow effect at position {:?}, intensity: {}", effect.position, effect.intensity);
         self.active_effects.push(effect);
     }
 
@@ -148,6 +149,8 @@ impl EffectsOverlay {
         if self.active_effects.is_empty() {
             return Ok(());
         }
+        
+        log::info!("Rendering {} glow effects", self.active_effects.len());
 
         // Initialize pipeline if needed
         if self.composite_pipeline.is_none() {
@@ -214,10 +217,46 @@ impl EffectsOverlay {
         // Set pipeline
         render_pass.set_pipeline(self.composite_pipeline.as_ref().unwrap());
 
-        // Create uniforms for glow position and color
-        let uniforms = crate::termwindow::webgpu::ShaderUniform {
-            foreground_text_hsb: [effect.intensity, 0.0, 0.0], // Abuse HSB for intensity
-            milliseconds: 0,
+        // Create custom uniform structure for glow shader
+        #[repr(C)]
+        #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+        struct GlowUniforms {
+            intensity: f32,
+            glow_x: f32,
+            glow_y: f32,
+            glow_width: f32,
+            glow_height: f32,
+            screen_width: f32,
+            screen_height: f32,
+            _padding: u32,
+            projection: [[f32; 4]; 4],
+        }
+
+        // Get glow texture dimensions
+        let glow_width = glow_webgpu.width() as f32;
+        let glow_height = glow_webgpu.height() as f32;
+
+        // Calculate position - center the glow on the effect position
+        // The effect position is the top-left of the icon, so we need to offset
+        // to center the larger glow texture
+        let glow_x = effect.position.x as f32 - (glow_width - 40.0) / 2.0;
+        let glow_y = effect.position.y as f32 - (glow_height - 40.0) / 2.0;
+        
+        log::info!(
+            "Compositing glow: texture {}x{}, position ({}, {}), screen {}x{}", 
+            glow_width, glow_height, glow_x, glow_y,
+            dimensions.pixel_width, dimensions.pixel_height
+        );
+
+        let uniforms = GlowUniforms {
+            intensity: effect.intensity,
+            glow_x,
+            glow_y,
+            glow_width,
+            glow_height,
+            screen_width: dimensions.pixel_width as f32,
+            screen_height: dimensions.pixel_height as f32,
+            _padding: 0,
             projection: self.create_projection_matrix(dimensions),
         };
 
@@ -259,8 +298,8 @@ impl EffectsOverlay {
         render_pass.set_bind_group(0, &uniform_bind_group, &[]);
         render_pass.set_bind_group(1, &texture_bind_group, &[]);
 
-        // Draw full-screen triangle
-        render_pass.draw(0..3, 0..1);
+        // Draw a quad (6 vertices for 2 triangles)
+        render_pass.draw(0..6, 0..1);
 
         Ok(())
     }

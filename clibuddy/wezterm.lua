@@ -192,6 +192,10 @@ end
 -- Load user configuration
 local user_config = load_user_config()
 
+-- May need to revert this to OpenGL, as Windows may show some issues with transparency and font
+-- TODO: Should likely make this configurable in user config too
+config.front_end = 'WebGpu'  -- 'OpenGL' or 'WebGpu'
+
 -- Hardcoded font settings
 -- Try to get fonts to look a bit bolder
 config.font = wezterm.font('JetBrains Mono', { weight = 'Medium' })

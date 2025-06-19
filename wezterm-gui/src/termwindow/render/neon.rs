@@ -43,8 +43,8 @@ impl Default for NeonStyle {
         Self {
             neon_color: LinearRgba::with_components(0.0, 1.0, 1.0, 1.0), // Cyan
             base_color: LinearRgba::with_components(0.05, 0.05, 0.06, 1.0), // Dark gray
-            glow_intensity: 1.0, // Full intensity (will be multiplied by 0.08 for 8% brightness)
-            glow_radius: 20.0,   // 20 pixels extension
+            glow_intensity: 1.0, // Full intensity
+            glow_radius: 8.0,    // 8 pixels extension for subtle glow
             border_width: 2.0,
             is_active: false,
         }
@@ -180,6 +180,11 @@ impl NeonRenderer for TermWindow {
         font: &Rc<LoadedFont>,
         style: &NeonStyle,
     ) -> Result<()> {
+        log::info!(
+            "render_neon_glyph called for '{}' at {:?}, is_active={}, glow_intensity={}",
+            text, position, style.is_active, style.glow_intensity
+        );
+        
         let metrics = RenderMetrics::with_font_metrics(&font.metrics());
 
         // Use 40x40 button size like in the working version
@@ -199,13 +204,20 @@ impl NeonRenderer for TermWindow {
                 .as_ref()
                 .map(|rs| matches!(&rs.context, RenderContext::WebGpu(_)))
                 .unwrap_or(false);
+            
+            log::info!(
+                "Checking GPU blur availability: can_use_gpu={}, has_overlay={}, has_blur={}",
+                can_use_gpu,
+                self.effects_overlay.borrow().is_some(),
+                self.blur_renderer.borrow().is_some()
+            );
 
             if can_use_gpu
                 && self.effects_overlay.borrow().is_some()
                 && self.blur_renderer.borrow().is_some()
             {
                 // Use GPU-accelerated blur via effects overlay
-                log::debug!(
+                log::info!(
                     "Using GPU blur overlay for '{}' with radius {}",
                     text,
                     style.glow_radius
@@ -247,7 +259,7 @@ impl NeonRenderer for TermWindow {
                                         overlay.add_glow(crate::termwindow::render::effects_overlay::GlowEffect {
                                             texture: blurred_texture,
                                             position: euclid::point2(position.x as isize, position.y as isize),
-                                            intensity: (style.glow_intensity * 0.08) as f32, // Match CPU's 8% brightness
+                                            intensity: (style.glow_intensity * 0.8) as f32, // Use 80% intensity for visible glow
                                         });
                                     }
                                     log::info!("✓ GPU blur successfully applied for '{}'", text);
@@ -264,7 +276,7 @@ impl NeonRenderer for TermWindow {
                 }
             } else {
                 // No GPU support - skip glow effects entirely
-                log::debug!(
+                log::info!(
                     "GPU blur not available for '{}', skipping glow effects",
                     text
                 );
