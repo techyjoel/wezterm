@@ -18,7 +18,10 @@ impl TermWindow {
     ) -> Result<Rc<dyn Texture2d>> {
         log::debug!(
             "create_icon_texture called for '{}', icon_size={}, padding={}, color={:?}",
-            text, icon_size, padding, color
+            text,
+            icon_size,
+            padding,
+            color
         );
         // Get render state
         let render_state = self
@@ -72,10 +75,16 @@ impl TermWindow {
                             // Get mutable data pointer
                             unsafe {
                                 let data = image.pixel_data_mut();
-                                // Premultiply alpha (BGRA format)
-                                *data.add(dst_idx + 0) = (color.2 * alpha * 255.0) as u8; // B
-                                *data.add(dst_idx + 1) = (color.1 * alpha * 255.0) as u8; // G
-                                *data.add(dst_idx + 2) = (color.0 * alpha * 255.0) as u8; // R
+                                // Convert from linear to sRGB for Rgba8UnormSrgb format
+                                // LinearRgba is already in linear space, so we need to convert to sRGB
+                                let srgb_r = color.0.powf(1.0 / 2.2);
+                                let srgb_g = color.1.powf(1.0 / 2.2);
+                                let srgb_b = color.2.powf(1.0 / 2.2);
+
+                                // Write as RGBA format with sRGB conversion
+                                *data.add(dst_idx + 0) = (srgb_r * alpha * 255.0) as u8; // R
+                                *data.add(dst_idx + 1) = (srgb_g * alpha * 255.0) as u8; // G
+                                *data.add(dst_idx + 2) = (srgb_b * alpha * 255.0) as u8; // B
                                 *data.add(dst_idx + 3) = (alpha * 255.0) as u8; // A
                             }
                         }

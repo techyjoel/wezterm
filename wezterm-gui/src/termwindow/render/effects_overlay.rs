@@ -21,6 +21,8 @@ pub struct GlowEffect {
     pub texture: Rc<dyn window::bitmaps::Texture2d>,
     pub position: Point,
     pub intensity: f32,
+    /// Size of the original content (before blur padding)
+    pub content_size: (u32, u32),
 }
 
 impl EffectsOverlay {
@@ -129,7 +131,11 @@ impl EffectsOverlay {
 
     /// Add a glow effect to be rendered this frame
     pub fn add_glow(&mut self, effect: GlowEffect) {
-        log::info!("Adding glow effect at position {:?}, intensity: {}", effect.position, effect.intensity);
+        log::info!(
+            "Adding glow effect at position {:?}, intensity: {}",
+            effect.position,
+            effect.intensity
+        );
         self.active_effects.push(effect);
     }
 
@@ -149,7 +155,7 @@ impl EffectsOverlay {
         if self.active_effects.is_empty() {
             return Ok(());
         }
-        
+
         log::info!("Rendering {} glow effects", self.active_effects.len());
 
         // Initialize pipeline if needed
@@ -237,15 +243,23 @@ impl EffectsOverlay {
         let glow_height = glow_webgpu.height() as f32;
 
         // Calculate position - center the glow on the effect position
-        // The effect position is the top-left of the icon, so we need to offset
-        // to center the larger glow texture
-        let glow_x = effect.position.x as f32 - (glow_width - 40.0) / 2.0;
-        let glow_y = effect.position.y as f32 - (glow_height - 40.0) / 2.0;
-        
+        // The effect position is the top-left of the content, so we need to offset
+        // to center the larger glow texture around the original content
+        let content_width = effect.content_size.0 as f32;
+        let content_height = effect.content_size.1 as f32;
+        let glow_x = effect.position.x as f32 - (glow_width - content_width) / 2.0;
+        let glow_y = effect.position.y as f32 - (glow_height - content_height) / 2.0;
+
         log::info!(
-            "Compositing glow: texture {}x{}, position ({}, {}), screen {}x{}", 
-            glow_width, glow_height, glow_x, glow_y,
-            dimensions.pixel_width, dimensions.pixel_height
+            "Compositing glow: texture {}x{}, content {}x{}, position ({}, {}), screen {}x{}",
+            glow_width,
+            glow_height,
+            content_width,
+            content_height,
+            glow_x,
+            glow_y,
+            dimensions.pixel_width,
+            dimensions.pixel_height
         );
 
         let uniforms = GlowUniforms {

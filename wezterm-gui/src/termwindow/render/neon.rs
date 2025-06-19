@@ -43,8 +43,8 @@ impl Default for NeonStyle {
         Self {
             neon_color: LinearRgba::with_components(0.0, 1.0, 1.0, 1.0), // Cyan
             base_color: LinearRgba::with_components(0.05, 0.05, 0.06, 1.0), // Dark gray
-            glow_intensity: 1.0, // Full intensity
-            glow_radius: 8.0,    // 8 pixels extension for subtle glow
+            glow_intensity: 1.0,                                         // Full intensity
+            glow_radius: 8.0, // 8 pixels extension for subtle glow
             border_width: 2.0,
             is_active: false,
         }
@@ -96,7 +96,6 @@ fn blend_colors(a: LinearRgba, b: LinearRgba, factor: f32) -> LinearRgba {
 fn with_alpha(color: LinearRgba, alpha: f32) -> LinearRgba {
     LinearRgba::with_components(color.0, color.1, color.2, alpha)
 }
-
 
 impl NeonRenderer for TermWindow {
     fn render_neon_rect(
@@ -182,9 +181,12 @@ impl NeonRenderer for TermWindow {
     ) -> Result<()> {
         log::info!(
             "render_neon_glyph called for '{}' at {:?}, is_active={}, glow_intensity={}",
-            text, position, style.is_active, style.glow_intensity
+            text,
+            position,
+            style.is_active,
+            style.glow_intensity
         );
-        
+
         let metrics = RenderMetrics::with_font_metrics(&font.metrics());
 
         // Use 40x40 button size like in the working version
@@ -204,7 +206,7 @@ impl NeonRenderer for TermWindow {
                 .as_ref()
                 .map(|rs| matches!(&rs.context, RenderContext::WebGpu(_)))
                 .unwrap_or(false);
-            
+
             log::info!(
                 "Checking GPU blur availability: can_use_gpu={}, has_overlay={}, has_blur={}",
                 can_use_gpu,
@@ -259,7 +261,8 @@ impl NeonRenderer for TermWindow {
                                         overlay.add_glow(crate::termwindow::render::effects_overlay::GlowEffect {
                                             texture: blurred_texture,
                                             position: euclid::point2(position.x as isize, position.y as isize),
-                                            intensity: (style.glow_intensity * 0.8) as f32, // Use 80% intensity for visible glow
+                                            intensity: (style.glow_intensity * 0.5) as f32, // Use 50% intensity to test color accuracy
+                                            content_size: (button_size as u32, button_size as u32),
                                         });
                                     }
                                     log::info!("✓ GPU blur successfully applied for '{}'", text);
@@ -354,5 +357,4 @@ impl NeonStyle {
             is_active,
         }
     }
-
 }

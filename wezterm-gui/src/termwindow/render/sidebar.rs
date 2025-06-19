@@ -19,7 +19,7 @@ const MIN_SIDEBAR_WIDTH: f32 = 25.0;
 impl crate::TermWindow {
     pub fn paint_sidebars(&mut self, layers: &mut TripleLayerQuadAllocator) -> Result<()> {
         log::info!("paint_sidebars called");
-        
+
         // Update sidebar animations and check if we need to redraw
         let needs_redraw = self.sidebar_manager.borrow_mut().update_animations();
         if needs_redraw {
@@ -137,10 +137,12 @@ impl crate::TermWindow {
                     // Use default style
                     self.get_default_left_neon_style(is_left_visible, &config)
                 };
-            
+
             log::debug!(
                 "Left button style: is_active={}, glow_intensity={}, glow_radius={}",
-                left_neon_style.is_active, left_neon_style.glow_intensity, left_neon_style.glow_radius
+                left_neon_style.is_active,
+                left_neon_style.glow_intensity,
+                left_neon_style.glow_radius
             );
 
             // Render button with neon effect
@@ -357,7 +359,7 @@ impl crate::TermWindow {
                 neon_color: LinearRgba::with_components(0.0, 1.0, 1.0, 1.0), // Cyan
                 base_color: LinearRgba::with_components(0.05, 0.05, 0.06, 1.0), // Dark gray
                 glow_intensity: 0.7,
-                glow_radius: 8.0,  // 8px subtle glow
+                glow_radius: 8.0, // 8px subtle glow
                 border_width: 2.0,
                 is_active,
             }
@@ -386,7 +388,7 @@ impl crate::TermWindow {
                 neon_color: LinearRgba::with_components(1.0, 0.08, 0.58, 1.0), // Deep pink
                 base_color: LinearRgba::with_components(0.06, 0.04, 0.06, 1.0), // Dark purple-black
                 glow_intensity: 0.8,
-                glow_radius: 8.0,  // 8px subtle glow
+                glow_radius: 8.0, // 8px subtle glow
                 border_width: 2.0,
                 is_active,
             }
