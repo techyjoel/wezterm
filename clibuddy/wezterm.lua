@@ -420,22 +420,21 @@ config.clibuddy = {
         corner_radius = 8.0,
         
         -- Default neon style for all buttons (optional)
+        -- GPU-accelerated neon glow configuration
         -- neon = {
-        --     color = '#00FFFF',      -- Cyan
-        --     base_color = '#0A0A0F', -- Dark blue-black
-        --     glow_intensity = 0.7,
-        --     glow_layers = 5,
-        --     glow_radius = 12.0,
+        --     color = '#00FFFF',      -- Cyan - Primary neon color when "lit"
+        --     base_color = '#0A0A0F', -- Dark blue-black - Base color when "unlit"
+        --     glow_intensity = 0.7,   -- Glow intensity (0.0 = no glow, 1.0 = full glow)
+        --     glow_radius = 12.0,     -- Glow radius in pixels (blur extension)
         -- },
         
         -- Override for left button (settings)
         left_style = {
             neon = {
                 color = '#00FFFF',      -- Cyan neon
-                base_color = '#0A0A0F', -- Dark blue-black
-                glow_intensity = 0.9,
-                glow_layers = 4,
-                glow_radius = 8.0,
+                base_color = '#0F0F0F', -- Dark grey
+                glow_intensity = 0.9,   -- 90% glow intensity
+                glow_radius = 8.0,      -- 8 pixel blur radius
             }
         },
         
@@ -443,10 +442,9 @@ config.clibuddy = {
         right_style = {
             neon = {
                 color = '#FF1493',      -- Deep pink neon
-                base_color = '#0F0A0F', -- Dark purple-black
-                glow_intensity = 0.9,
-                glow_layers = 4,
-                glow_radius = 8.0,
+                base_color = '#0F0F0F', -- Dark grey
+                glow_intensity = 0.9,   -- 90% glow intensity
+                glow_radius = 8.0,      -- 8 pixel blur radius
             }
         }
     }

@@ -60,7 +60,9 @@ fn vs_glow(in: VertexInput) -> VertexOutput {
     let ndc_y = 1.0 - (screen_y / uniforms.screen_height) * 2.0;
     
     out.clip_position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
-    out.tex_coords = pos; // UV coordinates (0-1)
+    // Flip Y coordinate for texture sampling to match the coordinate system
+    // where Y=0 is at the top (texture space) vs bottom (NDC space)
+    out.tex_coords = vec2<f32>(pos.x, 1.0 - pos.y);
     
     return out;
 }

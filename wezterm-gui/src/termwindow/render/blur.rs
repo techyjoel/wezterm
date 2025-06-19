@@ -52,7 +52,8 @@ pub struct BlurUniforms {
     pub sigma: f32,
     pub kernel_size: u32,
     pub texture_size: [f32; 2],
-    pub _padding: [f32; 2], // Ensure 16-byte alignment
+    pub radius: f32,
+    pub _padding: f32, // Ensure 16-byte alignment
 }
 
 impl BlurRenderer {
@@ -122,7 +123,7 @@ impl BlurRenderer {
                         module: &blur_shader,
                         entry_point: Some("fs_blur"),
                         targets: &[Some(wgpu::ColorTargetState {
-                            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                            format: wgpu::TextureFormat::Rgba8Unorm, // Linear format for blur
                             blend: None,
                             write_mask: wgpu::ColorWrites::ALL,
                         })],
@@ -164,7 +165,7 @@ impl BlurRenderer {
                         module: &blur_shader,
                         entry_point: Some("fs_blur"),
                         targets: &[Some(wgpu::ColorTargetState {
-                            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                            format: wgpu::TextureFormat::Rgba8Unorm, // Linear format for blur
                             blend: None,
                             write_mask: wgpu::ColorWrites::ALL,
                         })],
@@ -260,13 +261,13 @@ impl BlurRenderer {
         let blurred = self.get_render_target(test_size, test_size, state)?;
 
         // Test horizontal blur pass
-        match self.blur_pass(&*test_texture, &*blurred, true, 5.0, 15, state) {
+        match self.blur_pass(&*test_texture, &*blurred, true, 5.0, 5.0/3.33, 15, state) {
             Ok(_) => {
                 log::info!("✓ Horizontal blur pass succeeded");
 
                 // Test vertical blur pass too
                 let final_blur = self.get_render_target(test_size, test_size, state)?;
-                match self.blur_pass(&*blurred, &*final_blur, false, 5.0, 15, state) {
+                match self.blur_pass(&*blurred, &*final_blur, false, 5.0, 5.0/3.33, 15, state) {
                     Ok(_) => log::info!("✓ Vertical blur pass succeeded"),
                     Err(e) => log::error!("✗ Vertical blur pass failed: {}", e),
                 }
@@ -347,20 +348,28 @@ impl BlurRenderer {
         let width = source.width() as u32;
         let height = source.height() as u32;
 
-        // Calculate blur parameters
-        let sigma = radius / 3.0; // Standard deviation from radius
-        let kernel_size = ((sigma * 6.0).ceil() as u32) | 1; // Ensure odd
+        // Calculate blur parameters using GIMP's formula
+        // GIMP uses: std_dev = sqrt(-(radius * radius) / (2 * log(1.0 / 255.0)))
+        // This simplifies to: sigma = radius / sqrt(2 * ln(255)) ≈ radius / 3.33
+        let sigma = radius / 3.33;
 
+        // Kernel size calculation based on GIMP's approach
+        // GIMP ensures kernel captures values down to 1/255 intensity
+        // kernel_radius = ceil(sqrt(-sigma² * log(1/255)))
+        let kernel_radius = (sigma * (2.0 * 255.0_f32.ln()).sqrt()).ceil() as u32;
+        let kernel_size = kernel_radius * 2 + 1; // Make it odd
+        
         // Get render targets for ping-pong
         let intermediate = self.get_render_target(width, height, state)?;
         let final_target = self.get_render_target(width, height, state)?;
 
         // Perform two-pass blur (horizontal then vertical)
-        self.blur_pass(source, &*intermediate, true, sigma, kernel_size, state)?;
+        self.blur_pass(source, &*intermediate, true, radius, sigma, kernel_size, state)?;
         self.blur_pass(
             &*intermediate,
             &*final_target,
             false,
+            radius,
             sigma,
             kernel_size,
             state,
@@ -375,6 +384,7 @@ impl BlurRenderer {
             self.add_to_cache(key, final_target.clone(), size_bytes);
         }
 
+
         Ok(final_target as Rc<dyn Texture2d>)
     }
 
@@ -384,6 +394,7 @@ impl BlurRenderer {
         source: &dyn Texture2d,
         target: &dyn Texture2d,
         horizontal: bool,
+        radius: f32,
         sigma: f32,
         kernel_size: u32,
         state: &WebGpuState,
@@ -402,7 +413,8 @@ impl BlurRenderer {
             sigma,
             kernel_size,
             texture_size: [source.width() as f32, source.height() as f32],
-            _padding: [0.0, 0.0],
+            radius,
+            _padding: 0.0,
         };
 
         // Create uniform buffer and bind group
@@ -530,5 +542,44 @@ impl BlurRenderer {
         let mut hasher = DefaultHasher::new();
         data.hash(&mut hasher);
         hasher.finish()
+    }
+
+    /// Save debug image of blurred texture
+    fn save_blur_debug_texture(&self, texture: &dyn Texture2d, width: u32, height: u32, radius: f32) {
+        use std::fs::File;
+        use std::io::Write;
+        use window::bitmaps::{Image, BitmapImage};
+        
+        let mut image = Image::new(width as usize, height as usize);
+        texture.read(
+            window::Rect::new(
+                window::Point::new(0, 0),
+                window::Size::new(width as isize, height as isize),
+            ),
+            &mut image,
+        );
+        
+        let filename = format!("/tmp/wezterm_blur_{}x{}_r{}.ppm", width, height, radius);
+        
+        if let Ok(mut file) = File::create(&filename) {
+            // PPM header
+            writeln!(file, "P6").ok();
+            writeln!(file, "{} {}", width, height).ok();
+            writeln!(file, "255").ok();
+            
+            // Write RGB data (convert from RGBA)
+            let data = unsafe {
+                std::slice::from_raw_parts(image.pixel_data(), (width * height * 4) as usize)
+            };
+            
+            for y in 0..height {
+                for x in 0..width {
+                    let idx = ((y * width + x) * 4) as usize;
+                    file.write_all(&[data[idx], data[idx + 1], data[idx + 2]]).ok();
+                }
+            }
+            
+            log::info!("Saved debug blur texture to: {}", filename);
+        }
     }
 }

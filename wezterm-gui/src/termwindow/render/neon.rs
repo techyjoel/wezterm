@@ -207,25 +207,12 @@ impl NeonRenderer for TermWindow {
                 .map(|rs| matches!(&rs.context, RenderContext::WebGpu(_)))
                 .unwrap_or(false);
 
-            log::info!(
-                "Checking GPU blur availability: can_use_gpu={}, has_overlay={}, has_blur={}",
-                can_use_gpu,
-                self.effects_overlay.borrow().is_some(),
-                self.blur_renderer.borrow().is_some()
-            );
 
             if can_use_gpu
                 && self.effects_overlay.borrow().is_some()
                 && self.blur_renderer.borrow().is_some()
             {
                 // Use GPU-accelerated blur via effects overlay
-                log::info!(
-                    "Using GPU blur overlay for '{}' with radius {}",
-                    text,
-                    style.glow_radius
-                );
-
-                // Create and blur the icon texture
                 match self.create_icon_texture(
                     text,
                     font,
@@ -241,8 +228,9 @@ impl NeonRenderer for TermWindow {
                                     text.as_bytes(),
                                 ),
                             radius: style.glow_radius as u32,
-                            width: (button_size + style.glow_radius * 2.0) as u32,
-                            height: (button_size + style.glow_radius * 2.0) as u32,
+                            // Use the actual texture dimensions for the cache key
+                            width: icon_texture.width() as u32,
+                            height: icon_texture.height() as u32,
                         };
 
                         let render_context = self.render_state.as_ref().unwrap().context.clone();
@@ -258,14 +246,33 @@ impl NeonRenderer for TermWindow {
                                     if let Some(ref mut overlay) =
                                         self.effects_overlay.borrow_mut().as_mut()
                                     {
+                                        // Calculate where to position the glow texture in window coordinates
+                                        // The blurred texture is larger than the original icon by blur radius on each side
+                                        // We need to offset by half the difference to center it on the icon
+                                        let texture_width = blurred_texture.width() as isize;
+                                        let texture_height = blurred_texture.height() as isize;
+                                        let icon_center_x =
+                                            position.x as isize + button_size as isize / 2;
+                                        let icon_center_y =
+                                            position.y as isize + button_size as isize / 2;
+
+                                        // Position the glow texture so its center aligns with the icon center
+                                        let glow_window_x = icon_center_x - texture_width / 2;
+                                        let glow_window_y = icon_center_y - texture_height / 2;
+                                        
+                                        log::info!(
+                                            "Glow positioning: icon at ({}, {}), size {}, texture {}x{}, glow at ({}, {})",
+                                            position.x, position.y, button_size,
+                                            texture_width, texture_height,
+                                            glow_window_x, glow_window_y
+                                        );
+
                                         overlay.add_glow(crate::termwindow::render::effects_overlay::GlowEffect {
                                             texture: blurred_texture,
-                                            position: euclid::point2(position.x as isize, position.y as isize),
-                                            intensity: (style.glow_intensity * 0.5) as f32, // Use 50% intensity to test color accuracy
-                                            content_size: (button_size as u32, button_size as u32),
+                                            window_position: euclid::point2(glow_window_x, glow_window_y),
+                                            intensity: (style.glow_intensity * 0.8) as f32, // Use 80% intensity for strongest visible glow
                                         });
                                     }
-                                    log::info!("✓ GPU blur successfully applied for '{}'", text);
                                 }
                                 Err(e) => {
                                     log::debug!("GPU blur failed, skipping glow: {}", e);
@@ -279,10 +286,6 @@ impl NeonRenderer for TermWindow {
                 }
             } else {
                 // No GPU support - skip glow effects entirely
-                log::info!(
-                    "GPU blur not available for '{}', skipping glow effects",
-                    text
-                );
             }
         }
 

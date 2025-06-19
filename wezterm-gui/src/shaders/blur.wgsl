@@ -10,6 +10,9 @@ struct BlurUniforms {
     kernel_size: u32,
     // Size of the texture being blurred
     texture_size: vec2<f32>,
+    // Blur radius in pixels
+    radius: f32,
+    _padding: f32,
 }
 
 struct VertexOutput {
@@ -39,7 +42,9 @@ fn vs_blur(
     let y = f32(vertex_idx & 2u);
     
     out.clip_position = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
-    out.tex_coords = vec2<f32>(x, y);
+    // Flip Y coordinate for texture sampling to match the coordinate system
+    // where Y=0 is at the top (texture space) vs bottom (NDC space)
+    out.tex_coords = vec2<f32>(x, 1.0 - y);
     
     return out;
 }
@@ -60,24 +65,45 @@ fn fs_blur(in: VertexOutput) -> @location(0) vec4<f32> {
     // Calculate half kernel size
     let half_kernel = i32(blur_uniforms.kernel_size / 2u);
     
-    // Perform blur in specified direction
+    // Pre-calculate all weights to ensure symmetry
+    var weights: array<f32, 31>; // Max kernel size we support
+    var weight_sum = 0.0;
+    
+    // Center weight (i=0) should be the highest
+    let center_idx = half_kernel;
+    
     for (var i = -half_kernel; i <= half_kernel; i++) {
-        let offset = vec2<f32>(f32(i)) * blur_uniforms.direction * texel_size;
-        let sample_pos = in.tex_coords + offset;
-        
-        // Clamp to texture bounds
-        let clamped_pos = clamp(sample_pos, vec2<f32>(0.0), vec2<f32>(1.0));
-        
-        // Calculate Gaussian weight
-        let weight = gaussian_weight(f32(i), blur_uniforms.sigma);
-        
-        // Sample texture and accumulate
-        color += textureSample(source_texture, texture_sampler, clamped_pos) * weight;
-        total_weight += weight;
+        let idx = i + half_kernel;
+        weights[idx] = gaussian_weight(f32(i), blur_uniforms.sigma);
+        weight_sum += weights[idx];
     }
     
-    // Normalize by total weight
-    return color / total_weight;
+    // Normalize weights to ensure they sum to 1.0
+    if (weight_sum > 0.0) {
+        for (var i = 0; i <= 2 * half_kernel; i++) {
+            weights[i] = weights[i] / weight_sum;
+        }
+    }
+    
+    // Perform blur in specified direction
+    // The step size should be based on sigma for proper Gaussian sampling
+    // This ensures we sample the Gaussian distribution properly, not at fixed pixel intervals
+    let step_size = 1.0; // Sample at every pixel within the kernel
+    
+    for (var i = -half_kernel; i <= half_kernel; i++) {
+        // Calculate offset in pixels
+        let pixel_offset = f32(i) * step_size;
+        let offset = pixel_offset * blur_uniforms.direction * texel_size;
+        let sample_pos = in.tex_coords + offset;
+        let idx = i + half_kernel;
+        
+        // Always sample and apply weight - the sampler will clamp to edge
+        let sample = textureSample(source_texture, texture_sampler, sample_pos);
+        color += sample * weights[idx];
+    }
+    
+    // Color already has normalized weights, so just return it
+    return color;
 }
 
 // Optimized fragment shader for small kernels (5-9 samples)
@@ -85,14 +111,21 @@ fn fs_blur(in: VertexOutput) -> @location(0) vec4<f32> {
 fn fs_blur_small(in: VertexOutput) -> @location(0) vec4<f32> {
     let texel_size = 1.0 / blur_uniforms.texture_size;
     
-    // Pre-calculated weights for 9-tap Gaussian blur (sigma ~1.5)
-    let weights = array<f32, 5>(
-        0.227027, // Center
-        0.1945946, // +/- 1
-        0.1216216, // +/- 2
-        0.054054,  // +/- 3
-        0.016216   // +/- 4
-    );
+    // Calculate weights dynamically based on actual sigma for better accuracy
+    var weights: array<f32, 5>;
+    var weight_sum = gaussian_weight(0.0, blur_uniforms.sigma);
+    weights[0] = weight_sum;
+    
+    for (var i = 1; i < 5; i++) {
+        let w = gaussian_weight(f32(i), blur_uniforms.sigma);
+        weights[i] = w;
+        weight_sum += 2.0 * w; // Account for both positive and negative offsets
+    }
+    
+    // Normalize weights
+    for (var i = 0; i < 5; i++) {
+        weights[i] = weights[i] / weight_sum;
+    }
     
     var color = textureSample(source_texture, texture_sampler, in.tex_coords) * weights[0];
     
@@ -100,17 +133,14 @@ fn fs_blur_small(in: VertexOutput) -> @location(0) vec4<f32> {
         let offset = vec2<f32>(f32(i)) * blur_uniforms.direction * texel_size;
         
         // Sample both positive and negative offsets
+        // Always sample - let the sampler handle edge clamping
         let sample_pos_p = in.tex_coords + offset;
         let sample_pos_n = in.tex_coords - offset;
         
-        // Clamp positions
-        let clamped_p = clamp(sample_pos_p, vec2<f32>(0.0), vec2<f32>(1.0));
-        let clamped_n = clamp(sample_pos_n, vec2<f32>(0.0), vec2<f32>(1.0));
-        
-        // Accumulate weighted samples
-        color += textureSample(source_texture, texture_sampler, clamped_p) * weights[i];
-        color += textureSample(source_texture, texture_sampler, clamped_n) * weights[i];
+        color += textureSample(source_texture, texture_sampler, sample_pos_p) * weights[i];
+        color += textureSample(source_texture, texture_sampler, sample_pos_n) * weights[i];
     }
     
+    // Weights are already normalized, just return the color
     return color;
 }

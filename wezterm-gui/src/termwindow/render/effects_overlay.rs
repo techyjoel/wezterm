@@ -19,10 +19,9 @@ pub struct EffectsOverlay {
 #[derive(Clone)]
 pub struct GlowEffect {
     pub texture: Rc<dyn window::bitmaps::Texture2d>,
-    pub position: Point,
+    /// Window-relative position where the glow should be rendered (top-left of glow area)
+    pub window_position: Point,
     pub intensity: f32,
-    /// Size of the original content (before blur padding)
-    pub content_size: (u32, u32),
 }
 
 impl EffectsOverlay {
@@ -132,8 +131,8 @@ impl EffectsOverlay {
     /// Add a glow effect to be rendered this frame
     pub fn add_glow(&mut self, effect: GlowEffect) {
         log::info!(
-            "Adding glow effect at position {:?}, intensity: {}",
-            effect.position,
+            "Adding glow effect at window position {:?}, intensity: {}",
+            effect.window_position,
             effect.intensity
         );
         self.active_effects.push(effect);
@@ -242,20 +241,15 @@ impl EffectsOverlay {
         let glow_width = glow_webgpu.width() as f32;
         let glow_height = glow_webgpu.height() as f32;
 
-        // Calculate position - center the glow on the effect position
-        // The effect position is the top-left of the content, so we need to offset
-        // to center the larger glow texture around the original content
-        let content_width = effect.content_size.0 as f32;
-        let content_height = effect.content_size.1 as f32;
-        let glow_x = effect.position.x as f32 - (glow_width - content_width) / 2.0;
-        let glow_y = effect.position.y as f32 - (glow_height - content_height) / 2.0;
+        // Use the pre-calculated window position directly
+        // The caller is responsible for positioning the glow correctly relative to the content
+        let glow_x = effect.window_position.x as f32;
+        let glow_y = effect.window_position.y as f32;
 
         log::info!(
-            "Compositing glow: texture {}x{}, content {}x{}, position ({}, {}), screen {}x{}",
+            "Compositing glow: texture {}x{}, position ({}, {}), screen {}x{}",
             glow_width,
             glow_height,
-            content_width,
-            content_height,
             glow_x,
             glow_y,
             dimensions.pixel_width,

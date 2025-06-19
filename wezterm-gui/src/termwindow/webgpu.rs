@@ -181,7 +181,8 @@ impl WebGpuTexture {
             );
         }
 
-        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        // Use linear format for render targets to avoid sRGB conversion between blur passes
+        let format = wgpu::TextureFormat::Rgba8Unorm;
         let view_formats = if state
             .downlevel_caps
             .flags
