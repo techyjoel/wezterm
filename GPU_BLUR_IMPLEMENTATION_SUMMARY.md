@@ -40,7 +40,7 @@ The GPU blur system is now **fully implemented and working** with the following 
 - **Target**: 120fps with multiple active glows achieved
 
 ### Key Parameters
-- **Glow radius**: Configurable (default 8px)
+- **Glow radius**: Configurable (default 8px, supports up to ~15-16px)
 - **Intensity**: 80% × style.glow_intensity
 - **Icon size**: 40×40px
 - **Texture size**: Dynamic based on blur kernel size
@@ -70,10 +70,12 @@ The GPU blur system is now **fully implemented and working** with the following 
 
 ## Remaining Issues
 
-### 1. Glow Position Offset at Large Radii
-- When `glow_radius` > ~10 pixels, the glow shifts down and right from center
-- Offset appears proportional to blur radius
-- Likely related to texture size or positioning calculations not accounting for larger kernels
+### 1. Glow Position Offset at Large Radii ✅ FIXED
+- **Status**: RESOLVED
+- **Problem**: When `glow_radius` > ~10 pixels, the glow would shift down and right from center
+- **Root Cause**: Blur shader had a hardcoded weight array size of 31 elements
+- **Fix**: Increased array size to 63 and added kernel_size clamping
+- **Result**: Supports glow_radius up to ~15-16 without issues
 
 ### 2. Platform Support
 - Currently WebGPU only
@@ -90,6 +92,7 @@ The GPU blur system is now **fully implemented and working** with the following 
 ### Blur Algorithm Details
 - **Sigma Calculation**: `sigma = (radius + 1.0) / 2.0`
 - **Kernel Size**: `kernel_radius = ceil(sigma * 3.0)` for 3-sigma coverage
+- **Maximum Kernel Size**: 63 elements (supports glow_radius up to ~15-16)
 - **Sampling**: Full convolution kernel with gaussian weights
 - **Normalization**: Weights normalized to sum to 1.0
 - **Edge Handling**: Clamp-to-edge texture sampling

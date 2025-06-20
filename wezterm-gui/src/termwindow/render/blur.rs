@@ -356,11 +356,31 @@ impl BlurRenderer {
         // To approximate this with convolution, we need a larger sigma.
         let effective_radius = radius.abs() + 1.0;
         let sigma = effective_radius / 2.0; // Larger sigma for more spread
+        
+        log::debug!(
+            "Blur calculation: radius={}, effective_radius={}, sigma={}",
+            radius, effective_radius, sigma
+        );
 
         // For proper blur spread, we need a kernel that extends beyond the nominal radius
         // to capture the gaussian tail. Use 3*sigma as a good approximation.
         let kernel_radius = (sigma * 3.0).ceil() as u32;
-        let kernel_size = kernel_radius * 2 + 1; // Make it odd
+        let mut kernel_size = kernel_radius * 2 + 1; // Make it odd
+        
+        // Clamp kernel_size to our shader's maximum supported size
+        const MAX_KERNEL_SIZE: u32 = 63;
+        if kernel_size > MAX_KERNEL_SIZE {
+            log::warn!(
+                "Blur radius {} requires kernel_size {} which exceeds maximum {}, clamping",
+                radius, kernel_size, MAX_KERNEL_SIZE
+            );
+            kernel_size = MAX_KERNEL_SIZE;
+        }
+        
+        log::debug!(
+            "Final blur parameters: kernel_radius={}, kernel_size={}",
+            kernel_radius, kernel_size
+        );
 
         // Get render targets for ping-pong
         let intermediate = self.get_render_target(width, height, state)?;

@@ -332,26 +332,22 @@ This properly centers the glow on the actual icon position rather than the butto
 
 This approximates GIMP's IIR filter behavior with our convolution approach, resulting in proper blur spread.
 
-### Known Issues - To Be Fixed
+### Known Issues - RESOLVED
 
-#### 1. Glow Position Offset with Large Radius
-**Problem**: When `glow_radius` is increased beyond ~10 pixels, the neon glow effect shifts down and to the right, moving away from center.
+#### 1. Glow Position Offset with Large Radius ✅
+**Status**: **RESOLVED**
 
-**Symptoms**:
-- Glow appears correctly centered at small radii (5-10)
-- As radius increases, glow progressively moves off-center
-- Offset appears proportional to the blur radius
+**Problem**: When `glow_radius` was increased beyond ~10 pixels, the neon glow effect would shift down and to the right, moving away from center.
 
-**Possible Causes**:
-- Texture size calculation not accounting for larger blur extent
-- Glow positioning calculation not adjusting for increased texture dimensions
-- Coordinate transformation issue in the shader or overlay system
+**Root Cause**: 
+The blur shader had a hardcoded maximum weight array size of 31 elements, but when glow_radius exceeded ~9-10, the calculated kernel_size exceeded this limit, causing undefined behavior as the shader tried to access array indices beyond bounds.
 
-**Next Steps**:
-1. Debug texture dimensions at various blur radii
-2. Check glow position calculation in `render_neon_glyph_with_bounds`
-3. Verify shader coordinate calculations in `glow_composite.wgsl`
-4. Test if the offset is related to the kernel size changes
+**Solution Implemented**:
+1. Increased the weight array size in blur.wgsl from 31 to 63 elements
+2. Added kernel_size clamping in blur.rs with warning logs when the theoretical kernel size exceeds 63
+3. This supports glow_radius values up to ~15-16 without clamping, and larger values work correctly with minor quality reduction
+
+The fix is sufficient for all practical use cases and maintains good performance.
 
 ### Debug Helpers (optional as needed)
 1. **Visual Debug Mode**

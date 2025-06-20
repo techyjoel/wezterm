@@ -65,7 +65,7 @@ fn fs_blur(in: VertexOutput) -> @location(0) vec4<f32> {
     let half_kernel = i32(blur_uniforms.kernel_size / 2u);
     
     // Pre-calculate all weights to ensure symmetry
-    var weights: array<f32, 31>; // Max kernel size we support
+    var weights: array<f32, 63>; // Max kernel size we support (increased from 31)
     var weight_sum = 0.0;
     
     // Center weight (i=0) should be the highest
