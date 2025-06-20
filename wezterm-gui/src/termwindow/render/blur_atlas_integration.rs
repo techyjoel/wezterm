@@ -54,9 +54,9 @@ impl BlurRenderer {
     /// Copy GPU texture to CPU image (placeholder - needs WebGPU implementation)
     fn copy_texture_to_image(
         &self,
-        texture: &dyn Texture2d,
-        image: &mut Image,
-        context: &RenderContext,
+        _texture: &dyn Texture2d,
+        _image: &mut Image,
+        _context: &RenderContext,
     ) -> Result<()> {
         // TODO: Implement GPU->CPU copy
         // This would use wgpu's CommandEncoder::copy_texture_to_buffer

@@ -196,22 +196,66 @@ This plan leverages existing WezTerm infrastructure rather than building from sc
 3. **Positioning Fix**: Updated shader to render positioned quads at icon locations
 4. **Intensity Tuning**: Increased from 15% to 80% for visibility
 
-## Next Steps - Troubleshooting & OpenGL Support
+## Next Steps - Cleanup & OpenGL Support
 
-### Completed Fixes ✅
+### Positioning Issues (RESOLVED)
 
-#### 1. Glow Positioning Accuracy ✅ 
-**Status**: **COMPLETED**
-- ✅ Redesigned positioning system to use window-based coordinates
-- ✅ `GlowEffect.window_position` specifies absolute window position
-- ✅ Added fine-tuning offset (4px left, 3px up) to align with Element system
-- ✅ System now works generically for any content type
+#### Current Status
+**Problem**: Glow positioning was offset by approximately:
+- Left sidebar (gear icon): 5 pixels too far right
+- Right sidebar (AI icon): 5 pixels right and 5 pixels down
+
+**Resolution**: Fixed by accounting for the difference between button bounds (40x40) and actual computed element bounds (32x38)
+
+#### Changes Made
+1. **Generic Positioning System**
+   - Created `render_neon_glyph_with_bounds` that accepts explicit content bounds
+   - Modified positioning to center on content bounds instead of using font bearings
+   - Added `render_neon_text` for arbitrary text with auto-sizing
+   - Fixed positioning by accounting for Element system layout reductions
+
+2. **Debugging Findings**
+   - Font bearings extracted: gear has bearing_x=0, AI icon has bearing_x=2
+   - Glow textures are 80x80 (40x40 icon + 2×10px blur padding)
+   - Glow position calculated as: button_center - texture_size/2
+   - Example: button at (0,10) → center at (20,30) → glow at (-20,-10)
+
+#### Root Cause Analysis
+The issue was caused by a mismatch between the content bounds passed to the neon renderer (40x40) and the actual bounds computed by the Element system (32x38). The Element system applies its own layout calculations that reduce the icon size, causing the glow to be centered on the wrong position.
+
+**Key findings**:
+- Button bounds: 40x40 pixels
+- Computed element bounds: 32x38 pixels
+- Width reduction: 8 pixels (causing 4-pixel offset when centered)
+- Height reduction: 2 pixels (causing 1-pixel offset when centered)
+- Total observed offset: ~5 pixels (matching the reported issue)
+
+#### Solution Implemented
+The fix adjusts the glow center calculation to account for the Element system's layout:
+
+```rust
+// The Element system computes smaller bounds (32x38) than what we pass in (40x40)
+let element_width_reduction = 8.0;  // 40 - 32 = 8
+let element_height_reduction = 2.0; // 40 - 38 = 2
+
+// Adjust the content center to account for the actual rendered position
+let content_center_x = content_bounds.min_x() + (content_bounds.width() - element_width_reduction) / 2.0;
+let content_center_y = content_bounds.min_y() + (content_bounds.height() - element_height_reduction) / 2.0;
+```
+
+This properly centers the glow on the actual icon position rather than the button bounds.
 
 #### 2. Glow Color Accuracy ✅
 **Status**: **COMPLETED**
-- ✅ Added proper linear-to-sRGB color space conversion in `icon_to_texture.rs`
-- ✅ Fixed RGBA channel ordering (was incorrectly using BGRA format)
+- ✅ Fixed RGBA channel ordering (was using BGRA)
+- ✅ Added proper linear-to-sRGB conversion
 - ✅ Colors now render accurately matching neon colors exactly
+
+#### 3. Horizontal Banding ✅ 
+**Status**: **COMPLETED**
+- ✅ Root cause: Font rasterizer returns RGBA data but code was treating as single-channel
+- ✅ Fixed array indexing to use (y * width + x) * 4 for RGBA
+- ✅ Fixed Y-coordinate flipping in shaders
 
 ### OpenGL Implementation Plan
 

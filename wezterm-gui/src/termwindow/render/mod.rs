@@ -46,7 +46,7 @@ pub mod neon;
 pub mod paint;
 pub mod pane;
 pub mod screen_line;
-pub mod sidebar;
+pub mod sidebar_render;
 pub mod split;
 pub mod tab_bar;
 pub mod window_buttons;

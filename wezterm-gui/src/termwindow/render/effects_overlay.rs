@@ -130,10 +130,12 @@ impl EffectsOverlay {
 
     /// Add a glow effect to be rendered this frame
     pub fn add_glow(&mut self, effect: GlowEffect) {
-        log::info!(
-            "Adding glow effect at window position {:?}, intensity: {}",
+        log::trace!(
+            "Adding glow effect at window position {:?}, intensity: {}, texture size: {}x{}",
             effect.window_position,
-            effect.intensity
+            effect.intensity,
+            effect.texture.width(),
+            effect.texture.height()
         );
         self.active_effects.push(effect);
     }
@@ -155,7 +157,7 @@ impl EffectsOverlay {
             return Ok(());
         }
 
-        log::info!("Rendering {} glow effects", self.active_effects.len());
+        log::trace!("Rendering {} glow effects", self.active_effects.len());
 
         // Initialize pipeline if needed
         if self.composite_pipeline.is_none() {
@@ -246,8 +248,8 @@ impl EffectsOverlay {
         let glow_x = effect.window_position.x as f32;
         let glow_y = effect.window_position.y as f32;
 
-        log::info!(
-            "Compositing glow: texture {}x{}, position ({}, {}), screen {}x{}",
+        log::error!(
+            "COMPOSITE DEBUG: Compositing glow: texture {}x{}, position ({}, {}), screen {}x{}",
             glow_width,
             glow_height,
             glow_x,

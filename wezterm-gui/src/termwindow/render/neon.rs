@@ -71,8 +71,37 @@ pub trait NeonRenderer {
         style: &NeonStyle,
     ) -> Result<()>;
 
-    /// Render neon text/icon with glow
+    /// Render neon text/icon with glow (legacy version for buttons)
     fn render_neon_glyph(
+        &mut self,
+        layers: &mut TripleLayerQuadAllocator,
+        text: &str,
+        position: PointF,
+        font: &Rc<LoadedFont>,
+        style: &NeonStyle,
+    ) -> Result<()>;
+
+    /// Render neon text/icon with explicit bounds
+    fn render_neon_glyph_with_bounds(
+        &mut self,
+        layers: &mut TripleLayerQuadAllocator,
+        text: &str,
+        content_bounds: RectF,
+        font: &Rc<LoadedFont>,
+        style: &NeonStyle,
+    ) -> Result<()>;
+
+    /// Render debug visualization rectangles
+    fn render_debug_rect(
+        &mut self,
+        layers: &mut TripleLayerQuadAllocator,
+        bounds: RectF,
+        color: LinearRgba,
+        label: &str,
+    ) -> Result<()>;
+
+    /// Render arbitrary neon text at a position (auto-sized)
+    fn render_neon_text(
         &mut self,
         layers: &mut TripleLayerQuadAllocator,
         text: &str,
@@ -179,24 +208,82 @@ impl NeonRenderer for TermWindow {
         font: &Rc<LoadedFont>,
         style: &NeonStyle,
     ) -> Result<()> {
-        log::info!(
-            "render_neon_glyph called for '{}' at {:?}, is_active={}, glow_intensity={}",
+        // This function currently assumes a 40x40 button size for backward compatibility
+        // TODO: Make this more generic by passing in content bounds
+        let content_bounds = euclid::rect(position.x, position.y, 40.0, 40.0);
+        self.render_neon_glyph_with_bounds(layers, text, content_bounds, font, style)
+    }
+
+    /// Generic version that accepts explicit content bounds
+    fn render_neon_glyph_with_bounds(
+        &mut self,
+        layers: &mut TripleLayerQuadAllocator,
+        text: &str,
+        content_bounds: RectF,
+        font: &Rc<LoadedFont>,
+        style: &NeonStyle,
+    ) -> Result<()> {
+        log::debug!(
+            "render_neon_glyph_with_bounds called for '{}' at {:?}, is_active={}, glow_intensity={}",
             text,
-            position,
+            content_bounds,
             style.is_active,
             style.glow_intensity
         );
 
+        // Enable debug visualization with environment variable
+        let debug_viz = std::env::var("WEZTERM_DEBUG_GLOW_POS").is_ok();
+
+        if debug_viz {
+            // Draw the content bounds in red
+            self.render_debug_rect(
+                layers,
+                content_bounds,
+                LinearRgba::with_components(1.0, 0.0, 0.0, 1.0),
+                "content_bounds",
+            )?;
+        }
+
+        // Shape the text to get glyph information including bearing values
+        let infos = font.shape(
+            text,
+            || {},
+            |_| {},
+            None,
+            wezterm_font::shaper::Direction::LeftToRight,
+            None,
+            None,
+        )?;
+
+        // Get bearing values from the first glyph
+        let (_bearing_x, _bearing_y) = if let Some(info) = infos.first() {
+            match font.rasterize_glyph(info.glyph_pos, info.font_idx) {
+                Ok(glyph) => {
+                    log::trace!(
+                        "Glyph '{}' bearing values: x={:?} ({}), y={:?} ({})",
+                        text,
+                        glyph.bearing_x,
+                        glyph.bearing_x.get(),
+                        glyph.bearing_y,
+                        glyph.bearing_y.get()
+                    );
+                    (glyph.bearing_x.get() as f32, glyph.bearing_y.get() as f32)
+                }
+                Err(e) => {
+                    log::debug!("Failed to get bearing values for glyph '{}': {}", text, e);
+                    (0.0, 0.0)
+                }
+            }
+        } else {
+            log::debug!("No glyph info for '{}', using default bearings", text);
+            (0.0, 0.0)
+        };
+
         let metrics = RenderMetrics::with_font_metrics(&font.metrics());
 
-        // Use 40x40 button size like in the working version
-        let button_size = 40.0;
-
-        // Create icon bounds using the full button area
-        let icon_bounds = RectF::new(
-            euclid::point2(position.x, position.y),
-            euclid::size2(button_size, button_size),
-        );
+        // Store debug visualization info outside the borrow scopes
+        let mut debug_glow_bounds = None;
+        let mut debug_center_bounds = None;
 
         // Render glow effect first (behind the icon) when active
         if style.is_active && style.glow_intensity > 0.0 {
@@ -207,7 +294,6 @@ impl NeonRenderer for TermWindow {
                 .map(|rs| matches!(&rs.context, RenderContext::WebGpu(_)))
                 .unwrap_or(false);
 
-
             if can_use_gpu
                 && self.effects_overlay.borrow().is_some()
                 && self.blur_renderer.borrow().is_some()
@@ -217,7 +303,7 @@ impl NeonRenderer for TermWindow {
                     text,
                     font,
                     style.neon_color,
-                    button_size as u32,
+                    content_bounds.width().max(content_bounds.height()) as u32,
                     style.glow_radius as u32,
                 ) {
                     Ok(icon_texture) => {
@@ -234,6 +320,7 @@ impl NeonRenderer for TermWindow {
                         };
 
                         let render_context = self.render_state.as_ref().unwrap().context.clone();
+
                         if let Some(blur_renderer) = self.blur_renderer.borrow_mut().as_mut() {
                             match blur_renderer.apply_blur(
                                 &*icon_texture,
@@ -251,21 +338,58 @@ impl NeonRenderer for TermWindow {
                                         // We need to offset by half the difference to center it on the icon
                                         let texture_width = blurred_texture.width() as isize;
                                         let texture_height = blurred_texture.height() as isize;
-                                        let icon_center_x =
-                                            position.x as isize + button_size as isize / 2;
-                                        let icon_center_y =
-                                            position.y as isize + button_size as isize / 2;
 
-                                        // Position the glow texture so its center aligns with the icon center
-                                        let glow_window_x = icon_center_x - texture_width / 2;
-                                        let glow_window_y = icon_center_y - texture_height / 2;
-                                        
-                                        log::info!(
-                                            "Glow positioning: icon at ({}, {}), size {}, texture {}x{}, glow at ({}, {})",
-                                            position.x, position.y, button_size,
+                                        // For proper positioning, we need to center the glow on the actual content
+                                        // The Element system computes smaller bounds (32x38) than what we pass in (40x40)
+                                        // This causes the icon to be rendered at a different position than expected
+                                        // Based on debug output, the computed bounds are typically 32x38 for a 40x40 button
+                                        // This means the icon is 4 pixels narrower and 2 pixels shorter
+                                        // Since the icon is left-aligned, we need to adjust the center calculation
+                                        let element_width_reduction = 8.0; // 40 - 32 = 8
+                                        let element_height_reduction = 2.0; // 40 - 38 = 2
+
+                                        // Adjust the content center to account for the actual rendered position
+                                        let content_center_x = content_bounds.min_x()
+                                            + (content_bounds.width() - element_width_reduction)
+                                                / 2.0;
+                                        let content_center_y = content_bounds.min_y()
+                                            + (content_bounds.height() - element_height_reduction)
+                                                / 2.0;
+
+                                        // Position the glow texture so its center aligns with the content center
+                                        let offset_correction = 0;
+                                        let glow_window_x = content_center_x as isize
+                                            - texture_width / 2
+                                            + offset_correction;
+                                        let glow_window_y = content_center_y as isize
+                                            - texture_height / 2
+                                            + offset_correction;
+
+                                        log::trace!(
+                                            "Glow position: content_bounds={:?}, adjusted center ({:.1}, {:.1}), texture {}x{}, final glow at ({}, {})",
+                                            content_bounds,
+                                            content_center_x, content_center_y,
                                             texture_width, texture_height,
                                             glow_window_x, glow_window_y
                                         );
+
+                                        if debug_viz {
+                                            // Store debug bounds to render later
+                                            debug_glow_bounds = Some(euclid::rect(
+                                                glow_window_x as f32,
+                                                glow_window_y as f32,
+                                                texture_width as f32,
+                                                texture_height as f32,
+                                            ));
+
+                                            let center_marker_size = 6.0;
+                                            debug_center_bounds = Some(euclid::rect(
+                                                content_center_x - center_marker_size / 2.0,
+                                                content_center_y - center_marker_size / 2.0,
+                                                center_marker_size,
+                                                center_marker_size,
+                                            ));
+                                        }
 
                                         overlay.add_glow(crate::termwindow::render::effects_overlay::GlowEffect {
                                             texture: blurred_texture,
@@ -283,6 +407,24 @@ impl NeonRenderer for TermWindow {
                     Err(e) => {
                         log::debug!("Failed to create icon texture: {}", e);
                     }
+                }
+
+                // Render debug visualization after borrowing is done
+                if let Some(glow_bounds) = debug_glow_bounds {
+                    self.render_debug_rect(
+                        layers,
+                        glow_bounds,
+                        LinearRgba::with_components(0.0, 1.0, 0.0, 1.0),
+                        "glow_bounds",
+                    )?;
+                }
+                if let Some(center_bounds) = debug_center_bounds {
+                    self.render_debug_rect(
+                        layers,
+                        center_bounds,
+                        LinearRgba::with_components(1.0, 1.0, 0.0, 1.0),
+                        "content_center",
+                    )?;
                 }
             } else {
                 // No GPU support - skip glow effects entirely
@@ -307,10 +449,10 @@ impl NeonRenderer for TermWindow {
                 text: icon_color.into(),
             })
             .padding(BoxDimension {
-                left: Dimension::Pixels(button_size * 0.01),
-                right: Dimension::Pixels(button_size * 0.01),
-                top: Dimension::Pixels(button_size * 0.01),
-                bottom: Dimension::Pixels(button_size * 0.01),
+                left: Dimension::Pixels(content_bounds.width() * 0.01),
+                right: Dimension::Pixels(content_bounds.width() * 0.01),
+                top: Dimension::Pixels(content_bounds.height() * 0.01),
+                bottom: Dimension::Pixels(content_bounds.height() * 0.01),
             });
 
         // Create layout context for main icon
@@ -325,17 +467,148 @@ impl NeonRenderer for TermWindow {
                 pixel_max: self.dimensions.pixel_height as f32,
                 pixel_cell: metrics.cell_size.height as f32,
             },
-            bounds: icon_bounds,
+            bounds: content_bounds,
             metrics: &metrics,
             gl_state: self.render_state.as_ref().unwrap(),
-            zindex: 3, // Render above glow
+            zindex: 2, // Render above glow
         };
 
         // Compute the element layout
         let computed = self.compute_element(&context, &icon_element)?;
 
+        // Log the computed bounds for debugging
+        log::trace!(
+            "Element bounds: content_bounds={:?}, computed.bounds={:?}",
+            content_bounds,
+            computed.bounds
+        );
+
+        if debug_viz {
+            // Draw the computed element bounds in blue to see where it actually renders
+            let elem_bounds = computed.bounds;
+            self.render_debug_rect(
+                layers,
+                elem_bounds,
+                LinearRgba::with_components(0.0, 0.0, 1.0, 1.0),
+                "computed_element_bounds",
+            )?;
+        }
+
         // Render the computed element
         self.render_element(&computed, self.render_state.as_ref().unwrap(), None)?;
+
+        Ok(())
+    }
+
+    fn render_neon_text(
+        &mut self,
+        layers: &mut TripleLayerQuadAllocator,
+        text: &str,
+        position: PointF,
+        font: &Rc<LoadedFont>,
+        style: &NeonStyle,
+    ) -> Result<()> {
+        // For arbitrary text, we need to measure it first
+        let _metrics = RenderMetrics::with_font_metrics(&font.metrics());
+
+        // Shape the text to get its dimensions
+        let infos = font.shape(
+            text,
+            || {},
+            |_| {},
+            None,
+            wezterm_font::shaper::Direction::LeftToRight,
+            None,
+            None,
+        )?;
+
+        // Calculate text bounds
+        let mut width = 0.0;
+        let mut max_height: f32 = 0.0;
+        for info in &infos {
+            width += info.x_advance.get() as f32;
+            if let Ok(glyph) = font.rasterize_glyph(info.glyph_pos, info.font_idx) {
+                let height = glyph.height as f32 + glyph.bearing_y.get() as f32;
+                max_height = max_height.max(height);
+            }
+        }
+
+        // Create bounds for the text with some padding for the glow
+        let padding = 4.0; // Small padding
+        let text_bounds = euclid::rect(
+            position.x - padding,
+            position.y - padding,
+            width + padding * 2.0,
+            max_height + padding * 2.0,
+        );
+
+        // Use the generic bounds version
+        self.render_neon_glyph_with_bounds(layers, text, text_bounds, font, style)
+    }
+
+    fn render_debug_rect(
+        &mut self,
+        layers: &mut TripleLayerQuadAllocator,
+        bounds: RectF,
+        color: LinearRgba,
+        label: &str,
+    ) -> Result<()> {
+        log::trace!(
+            "Debug rect: {} at {:?} with color {:?}",
+            label,
+            bounds,
+            color
+        );
+
+        // Draw a semi-transparent filled rectangle for visualization
+        let debug_color = LinearRgba::with_components(color.0, color.1, color.2, 0.3);
+        self.filled_rectangle(layers, 2, bounds, debug_color)?;
+
+        // Draw a solid border
+        let border_width = 1.0;
+        // Top border
+        self.filled_rectangle(
+            layers,
+            2,
+            euclid::rect(bounds.min_x(), bounds.min_y(), bounds.width(), border_width),
+            color,
+        )?;
+        // Bottom border
+        self.filled_rectangle(
+            layers,
+            2,
+            euclid::rect(
+                bounds.min_x(),
+                bounds.max_y() - border_width,
+                bounds.width(),
+                border_width,
+            ),
+            color,
+        )?;
+        // Left border
+        self.filled_rectangle(
+            layers,
+            2,
+            euclid::rect(
+                bounds.min_x(),
+                bounds.min_y(),
+                border_width,
+                bounds.height(),
+            ),
+            color,
+        )?;
+        // Right border
+        self.filled_rectangle(
+            layers,
+            2,
+            euclid::rect(
+                bounds.max_x() - border_width,
+                bounds.min_y(),
+                border_width,
+                bounds.height(),
+            ),
+            color,
+        )?;
 
         Ok(())
     }

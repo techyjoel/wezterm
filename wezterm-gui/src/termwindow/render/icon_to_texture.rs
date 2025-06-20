@@ -57,7 +57,7 @@ impl TermWindow {
         );
 
         let glyph = font.rasterize_glyph(info.glyph_pos, info.font_idx)?;
-        
+
         // Log font metrics to understand icon positioning
         let metrics = font.metrics();
         log::debug!(
@@ -90,9 +90,9 @@ impl TermWindow {
         // We need extra padding to ensure the blur doesn't get clipped
         let min_size = glyph_width.max(glyph_height) as u32;
         let blur_padding = padding; // This is the blur radius
-        // Add blur_padding on each side, plus some extra for safety
+                                    // Add blur_padding on each side, plus some extra for safety
         let texture_size = min_size.max(icon_size) + (blur_padding * 2) * 2;
-        
+
         log::info!(
             "Texture sizing: glyph {}x{}, icon_size {}, padding {}, blur_padding {}, final texture {}",
             glyph_width, glyph_height, icon_size, padding, blur_padding, texture_size
@@ -129,7 +129,8 @@ impl TermWindow {
         for y in 0..glyph_height {
             for x in 0..glyph_width {
                 let src_idx = (y * glyph.width + x) * 4; // RGBA: 4 bytes per pixel
-                if src_idx + 3 < glyph.data.len() && glyph.data[src_idx + 3] > 0 { // Check alpha channel
+                if src_idx + 3 < glyph.data.len() && glyph.data[src_idx + 3] > 0 {
+                    // Check alpha channel
                     actual_min_x = actual_min_x.min(x);
                     actual_max_x = actual_max_x.max(x);
                     actual_min_y = actual_min_y.min(y);
@@ -148,9 +149,12 @@ impl TermWindow {
             // Fall back to centering the glyph bitmap
             x_offset = (texture_size as isize - glyph_width as isize) / 2;
             y_offset = (texture_size as isize - glyph_height as isize) / 2;
-            log::debug!("No content found, centering glyph: offsets ({},{})", x_offset, y_offset);
+            log::debug!(
+                "No content found, centering glyph: offsets ({},{})",
+                x_offset,
+                y_offset
+            );
         }
-        
 
         // Copy glyph data to the image with the specified color
         // Note: glyph data is RGBA (4 bytes per pixel)
@@ -220,15 +224,18 @@ impl TermWindow {
         } else {
             log::warn!("No pixels were written to texture!");
         }
-        
+
         // Check if pixels are centered in texture
         let pixel_center_x = (min_x + max_x) / 2;
         let pixel_center_y = (min_y + max_y) / 2;
         let texture_center = texture_size as isize / 2;
         log::info!(
             "Pixel centering check: pixel_center=({}, {}), texture_center={}, offset=({}, {})",
-            pixel_center_x, pixel_center_y, texture_center,
-            pixel_center_x - texture_center, pixel_center_y - texture_center
+            pixel_center_x,
+            pixel_center_y,
+            texture_center,
+            pixel_center_x - texture_center,
+            pixel_center_y - texture_center
         );
 
         // Create texture from the image
@@ -259,29 +266,32 @@ fn save_icon_debug_texture(image: &Image, size: u32, text: &str) {
     use std::fs::File;
     use std::io::Write;
     use window::bitmaps::BitmapImage;
-    
+
     // Create a simple PPM file for debugging
-    let filename = format!("/tmp/wezterm_icon_{}_{}.ppm", 
-        text.chars().next().unwrap_or('?') as u32, size);
-    
+    let filename = format!(
+        "/tmp/wezterm_icon_{}_{}.ppm",
+        text.chars().next().unwrap_or('?') as u32,
+        size
+    );
+
     if let Ok(mut file) = File::create(&filename) {
         // PPM header
         writeln!(file, "P6").ok();
         writeln!(file, "{} {}", size, size).ok();
         writeln!(file, "255").ok();
-        
+
         // Write RGB data (convert from RGBA)
-        let data = unsafe {
-            std::slice::from_raw_parts(image.pixel_data(), (size * size * 4) as usize)
-        };
-        
+        let data =
+            unsafe { std::slice::from_raw_parts(image.pixel_data(), (size * size * 4) as usize) };
+
         for y in 0..size {
             for x in 0..size {
                 let idx = ((y * size + x) * 4) as usize;
-                file.write_all(&[data[idx], data[idx + 1], data[idx + 2]]).ok();
+                file.write_all(&[data[idx], data[idx + 1], data[idx + 2]])
+                    .ok();
             }
         }
-        
+
         log::info!("Saved debug icon texture to: {}", filename);
     }
 }

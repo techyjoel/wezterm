@@ -261,13 +261,13 @@ impl BlurRenderer {
         let blurred = self.get_render_target(test_size, test_size, state)?;
 
         // Test horizontal blur pass
-        match self.blur_pass(&*test_texture, &*blurred, true, 5.0, 5.0/3.33, 15, state) {
+        match self.blur_pass(&*test_texture, &*blurred, true, 5.0, 5.0 / 3.33, 15, state) {
             Ok(_) => {
                 log::info!("✓ Horizontal blur pass succeeded");
 
                 // Test vertical blur pass too
                 let final_blur = self.get_render_target(test_size, test_size, state)?;
-                match self.blur_pass(&*blurred, &*final_blur, false, 5.0, 5.0/3.33, 15, state) {
+                match self.blur_pass(&*blurred, &*final_blur, false, 5.0, 5.0 / 3.33, 15, state) {
                     Ok(_) => log::info!("✓ Vertical blur pass succeeded"),
                     Err(e) => log::error!("✗ Vertical blur pass failed: {}", e),
                 }
@@ -358,13 +358,21 @@ impl BlurRenderer {
         // kernel_radius = ceil(sqrt(-sigma² * log(1/255)))
         let kernel_radius = (sigma * (2.0 * 255.0_f32.ln()).sqrt()).ceil() as u32;
         let kernel_size = kernel_radius * 2 + 1; // Make it odd
-        
+
         // Get render targets for ping-pong
         let intermediate = self.get_render_target(width, height, state)?;
         let final_target = self.get_render_target(width, height, state)?;
 
         // Perform two-pass blur (horizontal then vertical)
-        self.blur_pass(source, &*intermediate, true, radius, sigma, kernel_size, state)?;
+        self.blur_pass(
+            source,
+            &*intermediate,
+            true,
+            radius,
+            sigma,
+            kernel_size,
+            state,
+        )?;
         self.blur_pass(
             &*intermediate,
             &*final_target,
@@ -383,7 +391,6 @@ impl BlurRenderer {
             let size_bytes = (width * height * 4) as usize;
             self.add_to_cache(key, final_target.clone(), size_bytes);
         }
-
 
         Ok(final_target as Rc<dyn Texture2d>)
     }
@@ -545,11 +552,17 @@ impl BlurRenderer {
     }
 
     /// Save debug image of blurred texture
-    fn save_blur_debug_texture(&self, texture: &dyn Texture2d, width: u32, height: u32, radius: f32) {
+    fn save_blur_debug_texture(
+        &self,
+        texture: &dyn Texture2d,
+        width: u32,
+        height: u32,
+        radius: f32,
+    ) {
         use std::fs::File;
         use std::io::Write;
-        use window::bitmaps::{Image, BitmapImage};
-        
+        use window::bitmaps::{BitmapImage, Image};
+
         let mut image = Image::new(width as usize, height as usize);
         texture.read(
             window::Rect::new(
@@ -558,27 +571,28 @@ impl BlurRenderer {
             ),
             &mut image,
         );
-        
+
         let filename = format!("/tmp/wezterm_blur_{}x{}_r{}.ppm", width, height, radius);
-        
+
         if let Ok(mut file) = File::create(&filename) {
             // PPM header
             writeln!(file, "P6").ok();
             writeln!(file, "{} {}", width, height).ok();
             writeln!(file, "255").ok();
-            
+
             // Write RGB data (convert from RGBA)
             let data = unsafe {
                 std::slice::from_raw_parts(image.pixel_data(), (width * height * 4) as usize)
             };
-            
+
             for y in 0..height {
                 for x in 0..width {
                     let idx = ((y * width + x) * 4) as usize;
-                    file.write_all(&[data[idx], data[idx + 1], data[idx + 2]]).ok();
+                    file.write_all(&[data[idx], data[idx + 1], data[idx + 2]])
+                        .ok();
                 }
             }
-            
+
             log::info!("Saved debug blur texture to: {}", filename);
         }
     }
