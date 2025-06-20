@@ -346,7 +346,7 @@ impl NeonRenderer for TermWindow {
                                         // This means the icon is 4 pixels narrower and 2 pixels shorter
                                         // Since the icon is left-aligned, we need to adjust the center calculation
                                         let element_width_reduction = 8.0; // 40 - 32 = 8
-                                        let element_height_reduction = 2.0; // 40 - 38 = 2
+                                        let element_height_reduction = -2.0; // fix vertical offset
 
                                         // Adjust the content center to account for the actual rendered position
                                         let content_center_x = content_bounds.min_x()

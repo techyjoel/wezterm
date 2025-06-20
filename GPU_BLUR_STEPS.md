@@ -213,6 +213,8 @@ This plan leverages existing WezTerm infrastructure rather than building from sc
    - Modified positioning to center on content bounds instead of using font bearings
    - Added `render_neon_text` for arbitrary text with auto-sizing
    - Fixed positioning by accounting for Element system layout reductions
+   - Corrected inverted glow rendering by removing Y-flip in glow_composite.wgsl
+   - Refined vertical positioning with adjusted height reduction
 
 2. **Debugging Findings**
    - Font bearings extracted: gear has bearing_x=0, AI icon has bearing_x=2

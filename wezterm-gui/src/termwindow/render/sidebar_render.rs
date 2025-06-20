@@ -93,6 +93,7 @@ impl crate::TermWindow {
         let button_size = 40.0;
         let button_margin = 10.0;
         let border = self.get_os_border();
+        let icon_padding_left = 4.0; // Padding for icon position
 
         // Common Y position calculation
         let button_y = if self.show_tab_bar {
@@ -155,7 +156,7 @@ impl crate::TermWindow {
 
             // Render gear icon with neon effect
             let icon_font = self.fonts.sidebar_icon_font()?;
-            let icon_position = euclid::point2(left_button_x, button_y);
+            let icon_position = euclid::point2(left_button_x + icon_padding_left, button_y);
 
             self.render_neon_glyph(
                 layers,
@@ -220,7 +221,7 @@ impl crate::TermWindow {
 
         // Render AI assistant icon with neon effect
         let icon_font = self.fonts.sidebar_icon_font()?;
-        let icon_position = euclid::point2(right_button_x, button_y);
+        let icon_position = euclid::point2(right_button_x + icon_padding_left, button_y);
 
         self.render_neon_glyph(
             layers,

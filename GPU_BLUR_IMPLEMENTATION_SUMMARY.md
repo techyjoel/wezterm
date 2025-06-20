@@ -58,6 +58,8 @@ The GPU blur system is now **fully implemented and working** with the following 
 - ✅ `GlowEffect.window_position` specifies absolute window coordinates
 - ✅ Added fine-tuning offset (4px left, 3px up) to align with Element system
 - ✅ System now works for any content type (icons, text, lines, boxes)
+- ✅ Fixed inverted glow rendering by correcting Y-coordinate handling in shaders
+- ✅ Refined vertical positioning with adjusted height reduction for pixel-perfect alignment
 
 ## Remaining Issues
 

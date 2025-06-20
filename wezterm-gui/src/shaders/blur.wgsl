@@ -42,9 +42,8 @@ fn vs_blur(
     let y = f32(vertex_idx & 2u);
     
     out.clip_position = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
-    // Flip Y coordinate for texture sampling to match the coordinate system
-    // where Y=0 is at the top (texture space) vs bottom (NDC space)
-    out.tex_coords = vec2<f32>(x, 1.0 - y);
+    // Don't flip Y - both source texture and render target use same coordinate system
+    out.tex_coords = vec2<f32>(x, y);
     
     return out;
 }
