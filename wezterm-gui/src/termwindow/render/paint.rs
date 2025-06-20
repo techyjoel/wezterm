@@ -24,7 +24,9 @@ impl crate::TermWindow {
 
         // Clear effects from previous frame
         if let Some(ref mut overlay) = self.effects_overlay.borrow_mut().as_mut() {
+            let prev_count = overlay.effect_count();
             overlay.clear_effects();
+            log::debug!("Cleared {} effects from previous frame", prev_count);
         }
 
         let start = Instant::now();
@@ -109,6 +111,12 @@ impl crate::TermWindow {
             }
         }
         log::debug!("paint_impl before call_draw elapsed={:?}", start.elapsed());
+        
+        // Log how many effects we have before draw
+        if let Some(ref overlay) = self.effects_overlay.borrow().as_ref() {
+            log::debug!("Before call_draw: effects_overlay has {} effects", 
+                overlay.effect_count());
+        }
 
         self.call_draw(frame).ok();
         self.last_frame_duration = start.elapsed();

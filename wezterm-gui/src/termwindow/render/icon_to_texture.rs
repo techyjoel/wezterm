@@ -16,13 +16,14 @@ impl TermWindow {
         icon_size: u32,
         padding: u32,
     ) -> Result<Rc<dyn Texture2d>> {
-        log::debug!(
-            "create_icon_texture called for '{}', icon_size={}, padding={}, color={:?}",
-            text,
-            icon_size,
-            padding,
-            color
-        );
+        // Debug logging commented out for performance
+        // log::debug!(
+        //     "create_icon_texture called for '{}', icon_size={}, padding={}, color={:?}",
+        //     text,
+        //     icon_size,
+        //     padding,
+        //     color
+        // );
         // Get render state
         let render_state = self
             .render_state
@@ -46,15 +47,16 @@ impl TermWindow {
 
         // Rasterize the glyph
         let info = &infos[0];
-        log::debug!(
-            "Shaping info: glyph_pos={}, font_idx={}, x_advance={:?}, y_advance={:?}, x_offset={:?}, y_offset={:?}",
-            info.glyph_pos,
-            info.font_idx,
-            info.x_advance,
-            info.y_advance,
-            info.x_offset,
-            info.y_offset
-        );
+        // Debug logging commented out for performance
+        // log::debug!(
+        //     "Shaping info: glyph_pos={}, font_idx={}, x_advance={:?}, y_advance={:?}, x_offset={:?}, y_offset={:?}",
+        //     info.glyph_pos,
+        //     info.font_idx,
+        //     info.x_advance,
+        //     info.y_advance,
+        //     info.x_offset,
+        //     info.y_offset
+        // );
 
         let glyph = font.rasterize_glyph(info.glyph_pos, info.font_idx)?;
 

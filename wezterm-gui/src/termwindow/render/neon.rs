@@ -223,13 +223,14 @@ impl NeonRenderer for TermWindow {
         font: &Rc<LoadedFont>,
         style: &NeonStyle,
     ) -> Result<()> {
-        log::debug!(
-            "render_neon_glyph_with_bounds called for '{}' at {:?}, is_active={}, glow_intensity={}",
-            text,
-            content_bounds,
-            style.is_active,
-            style.glow_intensity
-        );
+        // Debug logging commented out for performance
+        // log::debug!(
+        //     "render_neon_glyph_with_bounds called for '{}' at {:?}, is_active={}, glow_intensity={}",
+        //     text,
+        //     content_bounds,
+        //     style.is_active,
+        //     style.glow_intensity
+        // );
 
         // Enable debug visualization with environment variable
         let debug_viz = std::env::var("WEZTERM_DEBUG_GLOW_POS").is_ok();
@@ -288,16 +289,25 @@ impl NeonRenderer for TermWindow {
         // Render glow effect first (behind the icon) when active
         if style.is_active && style.glow_intensity > 0.0 {
             // Check if we can use GPU blur via overlay system
+            // Both WebGPU and OpenGL backends support GPU blur
             let can_use_gpu = self
                 .render_state
                 .as_ref()
-                .map(|rs| matches!(&rs.context, RenderContext::WebGpu(_)))
+                .map(|rs| matches!(&rs.context, RenderContext::WebGpu(_) | RenderContext::Glium(_)))
                 .unwrap_or(false);
 
+            // Debug logging commented out for performance
+            // log::debug!("can_use_gpu={}, effects_overlay={}, blur_renderer={}", 
+            //     can_use_gpu,
+            //     self.effects_overlay.borrow().is_some(),
+            //     self.blur_renderer.borrow().is_some()
+            // );
+            
             if can_use_gpu
                 && self.effects_overlay.borrow().is_some()
                 && self.blur_renderer.borrow().is_some()
             {
+                log::debug!("Using GPU blur for neon glow effect");
                 // Use GPU-accelerated blur via effects overlay
                 match self.create_icon_texture(
                     text,
@@ -325,10 +335,14 @@ impl NeonRenderer for TermWindow {
                             match blur_renderer.apply_blur(
                                 &*icon_texture,
                                 style.glow_radius,
-                                Some(cache_key),
+                                Some(cache_key.clone()),
                                 &render_context,
                             ) {
                                 Ok(blurred_texture) => {
+                                    // Debug logging commented out for performance
+                                    // log::debug!("Blur succeeded, got texture {}x{}", 
+                                    //     blurred_texture.width(), blurred_texture.height());
+                                    
                                     // Add glow effect to overlay with pre-blurred texture
                                     if let Some(ref mut overlay) =
                                         self.effects_overlay.borrow_mut().as_mut()

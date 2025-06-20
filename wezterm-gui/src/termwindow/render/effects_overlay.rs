@@ -1,19 +1,33 @@
-use crate::renderstate::RenderContext;
+use crate::renderstate::{OpenGLRenderTexture, RenderContext};
 use crate::termwindow::render::blur::{BlurCacheKey, BlurRenderer};
 use crate::termwindow::webgpu::{WebGpuState, WebGpuTexture};
+use crate::uniforms::UniformBuilder;
 use anyhow::Result;
 use std::rc::Rc;
 use wgpu::util::DeviceExt;
 use window::color::LinearRgba;
+use window::glium::backend::Context as GliumContext;
+use window::glium::{implement_vertex, texture, uniform, Surface};
 use window::{Point, Rect, RectF};
+
+/// Vertex format for OpenGL glow compositing
+#[derive(Copy, Clone)]
+struct GlowVertex {
+    position: [f32; 2],
+}
+
+implement_vertex!(GlowVertex, position);
 
 /// Simple effects overlay system for rendering glows and other effects
 pub struct EffectsOverlay {
     blur_renderer: BlurRenderer,
     active_effects: Vec<GlowEffect>,
-    // Composite shader pipeline (to be implemented)
+    // WebGPU pipeline
     composite_pipeline: Option<wgpu::RenderPipeline>,
     uniform_bind_group_layout: Option<wgpu::BindGroupLayout>,
+    // OpenGL resources
+    opengl_program: Option<window::glium::Program>,
+    opengl_vertex_buffer: Option<window::glium::VertexBuffer<GlowVertex>>,
 }
 
 #[derive(Clone)]
@@ -31,6 +45,8 @@ impl EffectsOverlay {
             active_effects: Vec::new(),
             composite_pipeline: None,
             uniform_bind_group_layout: None,
+            opengl_program: None,
+            opengl_vertex_buffer: None,
         }
     }
 
@@ -130,19 +146,50 @@ impl EffectsOverlay {
 
     /// Add a glow effect to be rendered this frame
     pub fn add_glow(&mut self, effect: GlowEffect) {
-        log::trace!(
-            "Adding glow effect at window position {:?}, intensity: {}, texture size: {}x{}",
-            effect.window_position,
-            effect.intensity,
-            effect.texture.width(),
-            effect.texture.height()
-        );
+        // Check if we already have an effect at this position
+        // This can happen in OpenGL when the sidebar is rendered twice in the same frame
+        if let Some(existing) = self.active_effects.iter_mut().find(|e| 
+            e.window_position == effect.window_position
+        ) {
+            log::debug!(
+                "Replacing duplicate glow effect at window position {:?} (intensity: {} -> {})",
+                effect.window_position,
+                existing.intensity,
+                effect.intensity
+            );
+            // Replace the existing effect with the new one
+            *existing = effect;
+            return;
+        }
+        
+        // Debug logging commented out for performance
+        // log::debug!(
+        //     "Adding glow effect #{} at window position {:?}, intensity: {}, texture size: {}x{}",
+        //     self.active_effects.len() + 1,
+        //     effect.window_position,
+        //     effect.intensity,
+        //     effect.texture.width(),
+        //     effect.texture.height()
+        // );
         self.active_effects.push(effect);
+    }
+
+    /// Get a reference to the blur renderer
+    pub fn blur_renderer(&mut self) -> &mut BlurRenderer {
+        &mut self.blur_renderer
+    }
+    
+    /// Get the number of active effects
+    pub fn effect_count(&self) -> usize {
+        self.active_effects.len()
     }
 
     /// Clear effects for next frame
     pub fn clear_effects(&mut self) {
-        self.active_effects.clear();
+        if !self.active_effects.is_empty() {
+            log::debug!("Clearing {} effects", self.active_effects.len());
+            self.active_effects.clear();
+        }
     }
 
     /// Render all active effects
@@ -324,5 +371,144 @@ impl EffectsOverlay {
             1.0,
         )
         .to_arrays_transposed()
+    }
+
+    /// Initialize OpenGL resources
+    pub fn init_opengl(&mut self, context: &Rc<GliumContext>) -> Result<()> {
+        // Compile glow composite shaders
+        let program = crate::renderstate::RenderState::compile_prog(
+            context,
+            |version| {
+                (
+                    format!("#version {}\n{}", version, include_str!("../../glow-composite-vertex.glsl")),
+                    format!("#version {}\n{}", version, include_str!("../../glow-composite-frag.glsl")),
+                )
+            },
+        )?;
+
+        // Create vertex buffer for quads (we'll generate vertices per draw)
+        let vertex_buffer = window::glium::VertexBuffer::new(
+            context,
+            &[
+                GlowVertex { position: [0.0, 0.0] },
+                GlowVertex { position: [1.0, 0.0] },
+                GlowVertex { position: [0.0, 1.0] },
+                GlowVertex { position: [0.0, 1.0] },
+                GlowVertex { position: [1.0, 0.0] },
+                GlowVertex { position: [1.0, 1.0] },
+            ],
+        )?;
+
+        self.opengl_program = Some(program);
+        self.opengl_vertex_buffer = Some(vertex_buffer);
+        
+        // Initialize blur renderer for OpenGL
+        self.blur_renderer.init_opengl(context)?;
+
+        Ok(())
+    }
+
+    /// Render effects using OpenGL
+    pub fn render_opengl(
+        &mut self,
+        frame: &mut window::glium::Frame,
+        context: &Rc<GliumContext>,
+        dimensions: &window::Dimensions,
+    ) -> Result<()> {
+        if self.active_effects.is_empty() {
+            return Ok(());
+        }
+        
+        // Debug logging kept at debug level for troubleshooting
+        log::debug!("render_opengl called with {} effects", self.active_effects.len());
+
+        // Initialize if needed
+        if self.opengl_program.is_none() {
+            self.init_opengl(context)?;
+        }
+
+        let program = self.opengl_program.as_ref().unwrap();
+        let vertex_buffer = self.opengl_vertex_buffer.as_ref().unwrap();
+
+        // Process each glow effect
+        for effect in &self.active_effects {
+            if let Err(e) = self.composite_glow_opengl(
+                frame,
+                context,
+                &effect.texture,
+                effect,
+                dimensions,
+                program,
+                vertex_buffer,
+            ) {
+                log::warn!("Failed to composite OpenGL glow: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Composite a single glow effect using OpenGL
+    fn composite_glow_opengl(
+        &self,
+        frame: &mut window::glium::Frame,
+        _context: &Rc<GliumContext>,
+        glow_texture: &Rc<dyn window::bitmaps::Texture2d>,
+        effect: &GlowEffect,
+        dimensions: &window::Dimensions,
+        program: &window::glium::Program,
+        vertex_buffer: &window::glium::VertexBuffer<GlowVertex>,
+    ) -> Result<()> {
+        // Get the OpenGL texture
+        let gl_texture = if let Some(render_tex) = glow_texture.downcast_ref::<OpenGLRenderTexture>() {
+            &*render_tex.texture
+        } else {
+            anyhow::bail!("Glow texture is not OpenGL compatible");
+        };
+
+        // Calculate glow position
+        let glow_x = effect.window_position.x as f32;
+        let glow_y = effect.window_position.y as f32;
+        let glow_width = glow_texture.width() as f32;
+        let glow_height = glow_texture.height() as f32;
+
+        // Create uniforms
+        let uniforms = uniform! {
+            intensity: effect.intensity,
+            glow_x: glow_x,
+            glow_y: glow_y,
+            glow_width: glow_width,
+            glow_height: glow_height,
+            screen_width: dimensions.pixel_width as f32,
+            screen_height: dimensions.pixel_height as f32,
+            projection: self.create_projection_matrix(dimensions),
+            glow_texture: gl_texture,
+        };
+
+        // Draw with additive blending for premultiplied alpha textures
+        let draw_params = window::glium::DrawParameters {
+            blend: window::glium::Blend {
+                color: window::glium::BlendingFunction::Addition {
+                    source: window::glium::LinearBlendingFactor::One, // Premultiplied alpha
+                    destination: window::glium::LinearBlendingFactor::One, // Additive
+                },
+                alpha: window::glium::BlendingFunction::Addition {
+                    source: window::glium::LinearBlendingFactor::Zero, // Don't modify dest alpha
+                    destination: window::glium::LinearBlendingFactor::One, // Keep dest alpha
+                },
+                constant_value: (0.0, 0.0, 0.0, 0.0),
+            },
+            ..Default::default()
+        };
+
+        frame.draw(
+            vertex_buffer,
+            window::glium::index::NoIndices(window::glium::index::PrimitiveType::TrianglesList),
+            program,
+            &uniforms,
+            &draw_params,
+        )?;
+
+        Ok(())
     }
 }

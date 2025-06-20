@@ -47,6 +47,9 @@ ci/build-docs.sh serve
 cargo build
 gdb ./target/debug/wezterm
 # In gdb: break rust_panic, run, bt
+
+# Run the built binary wtih debug logging
+WEZTERM_LOG=debug ./target/release/wezterm
 ```
 
 ### Development process

@@ -3,7 +3,7 @@ use super::quad::*;
 use super::utilsprites::{RenderMetrics, UtilSprites};
 use crate::termwindow::webgpu::{adapter_info_to_gpu_info, WebGpuState, WebGpuTexture};
 use ::window::bitmaps::atlas::OutOfTextureSpace;
-use ::window::bitmaps::Texture2d;
+use ::window::bitmaps::{BitmapImage, Texture2d};
 use ::window::glium::backend::Context as GliumContext;
 use ::window::glium::buffer::{BufferMutSlice, Mapping};
 use ::window::glium::{
@@ -18,6 +18,62 @@ use wezterm_font::FontConfiguration;
 use wgpu::util::DeviceExt;
 
 const INDICES_PER_CELL: usize = 6;
+
+/// OpenGL render target texture wrapper that implements Texture2d
+pub struct OpenGLRenderTexture {
+    pub texture: Rc<glium::texture::Texture2d>,
+}
+
+impl Texture2d for OpenGLRenderTexture {
+    fn write(&self, rect: Rect, im: &dyn BitmapImage) {
+        let (im_width, im_height) = im.image_dimensions();
+
+        let source = glium::texture::RawImage2d {
+            data: std::borrow::Cow::Borrowed(im.pixels()),
+            width: im_width as u32,
+            height: im_height as u32,
+            format: glium::texture::ClientFormat::U8U8U8U8,
+        };
+
+        self.texture.write(
+            glium::Rect {
+                left: rect.min_x() as u32,
+                bottom: rect.min_y() as u32,
+                width: rect.size.width as u32,
+                height: rect.size.height as u32,
+            },
+            source,
+        )
+    }
+
+    fn read(&self, rect: Rect, im: &mut dyn BitmapImage) {
+        // For now, just fill with dummy data to avoid crash
+        // A proper implementation would read back from the OpenGL texture
+        let (im_width, im_height) = im.image_dimensions();
+        let pixels = im.pixels_mut();
+        
+        // Fill with transparent black for now
+        for y in 0..im_height {
+            for x in 0..im_width {
+                let idx = (y * im_width + x) * 4;
+                pixels[idx] = 0;     // R
+                pixels[idx + 1] = 0; // G
+                pixels[idx + 2] = 0; // B  
+                pixels[idx + 3] = 0; // A
+            }
+        }
+        
+        log::warn!("OpenGLRenderTexture::read not fully implemented - returning blank texture");
+    }
+
+    fn width(&self) -> usize {
+        self.texture.width() as usize
+    }
+
+    fn height(&self) -> usize {
+        self.texture.height() as usize
+    }
+}
 
 #[derive(Clone)]
 pub enum RenderContext {
@@ -127,8 +183,20 @@ impl RenderContext {
                         caps.max_texture_size
                     );
                 }
-                // For now, return error for Glium backend as framebuffer support needs implementation
-                anyhow::bail!("Render target support not yet implemented for OpenGL backend")
+                // Create a render target texture for OpenGL
+                // Use Texture2d (not SrgbTexture2d) for linear color space matching WebGPU
+                let texture = glium::texture::Texture2d::empty_with_format(
+                    context,
+                    glium::texture::UncompressedFloatFormat::U8U8U8U8,
+                    glium::texture::MipmapsOption::NoMipmap,
+                    width as u32,
+                    height as u32,
+                )?;
+                
+                // Wrap in our OpenGLRenderTexture type that implements Texture2d
+                Ok(Rc::new(OpenGLRenderTexture {
+                    texture: Rc::new(texture),
+                }))
             }
             Self::WebGpu(state) => {
                 let texture: Rc<dyn Texture2d> = Rc::new(WebGpuTexture::new_render_target(
@@ -702,7 +770,7 @@ impl RenderState {
         Ok(allocated)
     }
 
-    fn compile_prog(
+    pub fn compile_prog(
         context: &Rc<GliumContext>,
         fragment_shader: fn(&str) -> (String, String),
     ) -> anyhow::Result<glium::Program> {

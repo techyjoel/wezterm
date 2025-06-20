@@ -1,27 +1,57 @@
-use crate::renderstate::RenderContext;
+use crate::renderstate::{OpenGLRenderTexture, RenderContext};
 use crate::termwindow::webgpu::{WebGpuState, WebGpuTexture};
+use crate::uniforms::UniformBuilder;
 use anyhow::Result;
 use config::Dimension;
-use std::any::Any;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Instant;
 use wgpu::util::DeviceExt;
 use window::bitmaps::Texture2d;
+use window::glium::backend::Context as GliumContext;
+use window::glium::{framebuffer, implement_vertex, texture, uniform};
+
+/// Backend-specific blur state
+enum BlurBackend {
+    WebGpu {
+        render_targets: Vec<BlurRenderTarget>,
+    },
+    OpenGl {
+        blur_program: window::glium::Program,
+        render_targets: Vec<OpenGLRenderTarget>,
+        vertex_buffer: window::glium::VertexBuffer<BlurVertex>,
+    },
+}
+
+/// OpenGL render target
+struct OpenGLRenderTarget {
+    texture: Rc<texture::Texture2d>,
+    width: u32,
+    height: u32,
+    in_use: bool,
+}
+
+/// Vertex format for OpenGL blur
+#[derive(Copy, Clone)]
+struct BlurVertex {
+    position: [f32; 2],
+}
+
+implement_vertex!(BlurVertex, position);
 
 /// Manages GPU-accelerated blur effects for UI elements
 pub struct BlurRenderer {
     /// Cached blur results for static content
     cache: HashMap<BlurCacheKey, CachedBlur>,
-    /// Pool of render targets for blur operations
-    render_targets: Vec<BlurRenderTarget>,
+    /// Backend-specific state
+    backend: Option<BlurBackend>,
     /// Maximum cache size in bytes
     max_cache_size: usize,
     /// Current cache size in bytes
     current_cache_size: usize,
 }
 
-#[derive(Hash, Eq, PartialEq, Clone)]
+#[derive(Hash, Eq, PartialEq, Clone, Debug)]
 pub struct BlurCacheKey {
     /// Hash of the source content
     pub content_hash: u64,
@@ -60,7 +90,7 @@ impl BlurRenderer {
     pub fn new(max_cache_mb: usize) -> Self {
         Self {
             cache: HashMap::new(),
-            render_targets: Vec::new(),
+            backend: None,
             max_cache_size: max_cache_mb * 1024 * 1024,
             current_cache_size: 0,
         }
@@ -199,6 +229,41 @@ impl BlurRenderer {
         Ok(())
     }
 
+    /// Initialize OpenGL blur renderer
+    pub fn init_opengl(&mut self, context: &Rc<GliumContext>) -> Result<()> {
+        log::debug!("Initializing OpenGL blur renderer...");
+
+        // Compile blur shaders
+        let blur_program = crate::renderstate::RenderState::compile_prog(
+            context,
+            |version| {
+                (
+                    format!("#version {}\n{}", version, include_str!("../../blur-vertex.glsl")),
+                    format!("#version {}\n{}", version, include_str!("../../blur-frag.glsl")),
+                )
+            },
+        )?;
+
+        // Create vertex buffer for full-screen triangle
+        let vertex_buffer = window::glium::VertexBuffer::new(
+            context,
+            &[
+                BlurVertex { position: [-3.0, -1.0] },
+                BlurVertex { position: [1.0, -1.0] },
+                BlurVertex { position: [1.0, 3.0] },
+            ],
+        )?;
+
+        self.backend = Some(BlurBackend::OpenGl {
+            blur_program,
+            render_targets: Vec::new(),
+            vertex_buffer,
+        });
+
+        log::debug!("✓ OpenGL blur renderer initialized successfully");
+        Ok(())
+    }
+
     /// Get or create a render target of the specified size
     fn get_render_target(
         &mut self,
@@ -206,8 +271,14 @@ impl BlurRenderer {
         height: u32,
         state: &WebGpuState,
     ) -> Result<Rc<WebGpuTexture>> {
+        // Get render targets from backend
+        let render_targets = match &mut self.backend {
+            Some(BlurBackend::WebGpu { render_targets }) => render_targets,
+            _ => anyhow::bail!("WebGPU backend not initialized"),
+        };
+
         // Try to find an unused render target of the right size
-        for target in &mut self.render_targets {
+        for target in &mut *render_targets {
             if !target.in_use && target.width == width && target.height == height {
                 target.in_use = true;
                 return Ok(target.texture.clone());
@@ -216,7 +287,7 @@ impl BlurRenderer {
 
         // Create a new render target
         let texture = Rc::new(WebGpuTexture::new_render_target(width, height, state)?);
-        self.render_targets.push(BlurRenderTarget {
+        render_targets.push(BlurRenderTarget {
             texture: texture.clone(),
             width,
             height,
@@ -228,7 +299,12 @@ impl BlurRenderer {
 
     /// Release a render target back to the pool
     fn release_render_target(&mut self, texture: &Rc<WebGpuTexture>) {
-        for target in &mut self.render_targets {
+        let render_targets = match &mut self.backend {
+            Some(BlurBackend::WebGpu { render_targets }) => render_targets,
+            _ => return,
+        };
+
+        for target in render_targets {
             if Rc::ptr_eq(&target.texture, texture) {
                 target.in_use = false;
                 break;
@@ -249,6 +325,13 @@ impl BlurRenderer {
         // Check if pipelines are initialized
         if state.blur_horizontal_pipeline.is_none() {
             anyhow::bail!("Blur pipelines not initialized");
+        }
+
+        // Ensure WebGPU backend is initialized
+        if self.backend.is_none() {
+            self.backend = Some(BlurBackend::WebGpu {
+                render_targets: Vec::new(),
+            });
         }
 
         // Create a small test texture
@@ -335,15 +418,34 @@ impl BlurRenderer {
         if let Some(key) = &cache_key {
             if let Some(cached) = self.cache.get_mut(key) {
                 cached.last_accessed = Instant::now();
+                log::debug!("Cache hit for blur key {:?}", key);
                 return Ok(cached.texture.clone());
+            } else {
+                log::debug!("Cache miss for blur key {:?}", key);
             }
         }
 
-        // Get WebGPU state
-        let state = match context {
-            RenderContext::WebGpu(state) => state,
-            _ => anyhow::bail!("Blur effects only supported with WebGPU backend"),
-        };
+        // Route to appropriate backend implementation
+        match context {
+            RenderContext::WebGpu(state) => self.apply_blur_webgpu(source, radius, cache_key, state),
+            RenderContext::Glium(context) => self.apply_blur_opengl(source, radius, cache_key, context),
+        }
+    }
+
+    /// Apply blur using WebGPU backend
+    fn apply_blur_webgpu(
+        &mut self,
+        source: &dyn Texture2d,
+        radius: f32,
+        cache_key: Option<BlurCacheKey>,
+        state: &WebGpuState,
+    ) -> Result<Rc<dyn Texture2d>> {
+        // Ensure WebGPU backend is initialized
+        if self.backend.is_none() {
+            self.backend = Some(BlurBackend::WebGpu {
+                render_targets: Vec::new(),
+            });
+        }
 
         let width = source.width() as u32;
         let height = source.height() as u32;
@@ -558,6 +660,240 @@ impl BlurRenderer {
         self.current_cache_size += size_bytes;
     }
 
+    /// Apply blur using OpenGL backend
+    fn apply_blur_opengl(
+        &mut self,
+        source: &dyn Texture2d,
+        radius: f32,
+        cache_key: Option<BlurCacheKey>,
+        context: &Rc<GliumContext>,
+    ) -> Result<Rc<dyn Texture2d>> {
+        let width = source.width() as u32;
+        let height = source.height() as u32;
+        
+        log::debug!("apply_blur_opengl called with radius={}, source size={}x{}", radius, width, height);
+        
+        // Debug: Check if source texture has any content
+        if std::env::var("WEZTERM_DEBUG_BLUR").is_ok() {
+            self.save_blur_debug_texture(source, width, height, 0.0);
+        }
+        
+        // Ensure OpenGL backend is initialized
+        if self.backend.is_none() {
+            self.init_opengl(context)?;
+        }
+
+        // Calculate blur parameters (same as WebGPU)
+        let effective_radius = radius.abs() + 1.0;
+        let sigma = effective_radius / 2.0;
+        let kernel_radius = (sigma * 3.0).ceil() as u32;
+        let mut kernel_size = kernel_radius * 2 + 1;
+        
+        const MAX_KERNEL_SIZE: u32 = 63;
+        if kernel_size > MAX_KERNEL_SIZE {
+            kernel_size = MAX_KERNEL_SIZE;
+        }
+
+        // Get OpenGL resources
+        let (blur_program, vertex_buffer, render_targets) = match &mut self.backend {
+            Some(BlurBackend::OpenGl { blur_program, vertex_buffer, render_targets }) => {
+                (blur_program, vertex_buffer, render_targets)
+            }
+            _ => unreachable!("Backend should be OpenGL"),
+        };
+
+        // Get or create render targets
+        let intermediate = Self::get_opengl_render_target(width, height, context, render_targets)?;
+        let final_target = Self::get_opengl_render_target(width, height, context, render_targets)?;
+
+        // Get source texture - need to handle different texture types
+        let source_texture = if let Some(opengl_tex) = source.downcast_ref::<OpenGLRenderTexture>() {
+            log::debug!("Source is OpenGLRenderTexture, texture dimensions: {}x{}", 
+                opengl_tex.texture.width(), opengl_tex.texture.height());
+            opengl_tex.texture.clone()
+        } else if let Some(srgb_tex) = source.downcast_ref::<window::glium::texture::SrgbTexture2d>() {
+            log::debug!("Source is SrgbTexture2d, need to copy to linear texture");
+            // Convert sRGB texture to linear for blur processing
+            let linear_texture = texture::Texture2d::empty(
+                context,
+                width,
+                height,
+            )?;
+            
+            // For now, we'll use the sRGB texture directly and let the shader handle it
+            // This isn't ideal but works for our use case
+            log::warn!("Using sRGB texture directly for blur - may have color space issues");
+            
+            // Create a dummy texture that we can't actually use
+            // This indicates we need to handle texture creation differently
+            anyhow::bail!("SrgbTexture2d blur not yet implemented - icon textures should be created as linear Texture2d")
+        } else {
+            // Try to get type name for debugging
+            let type_name = source.type_id();
+            log::debug!("Unsupported texture type: {:?}", type_name);
+            // Let's also check what type name we get from the trait object
+            log::debug!("Source texture size: {}x{}", source.width(), source.height());
+            // The icon texture should be created as OpenGLRenderTexture by allocate_render_target
+            // If we get here, something is wrong with the texture creation
+            anyhow::bail!("Unsupported texture type for OpenGL blur - expected OpenGLRenderTexture");
+        };
+
+        // Perform two-pass blur
+        Self::blur_pass_opengl(
+            &source_texture,
+            &intermediate.0,
+            true,
+            sigma,
+            kernel_size as i32,
+            [width as f32, height as f32],
+            radius,
+            blur_program,
+            vertex_buffer,
+            context,
+        )?;
+
+        Self::blur_pass_opengl(
+            &intermediate.0,
+            &final_target.0,
+            false,
+            sigma,
+            kernel_size as i32,
+            [width as f32, height as f32],
+            radius,
+            blur_program,
+            vertex_buffer,
+            context,
+        )?;
+
+        // Debug: Save the blurred result 
+        // NOTE: Disabled for now as OpenGLRenderTexture::read is not fully implemented
+        // if std::env::var("WEZTERM_DEBUG_BLUR").is_ok() {
+        //     // Create a wrapper to save the final blurred texture
+        //     let final_wrapper = OpenGLRenderTexture {
+        //         texture: final_target.0.clone(),
+        //     };
+        //     Self::save_blur_debug_texture_static(&final_wrapper, width, height, radius);
+        //     log::debug!("Saved blurred texture for debugging");
+        // }
+
+        // Release intermediate target
+        Self::release_opengl_render_target(intermediate, render_targets);
+
+        // Create result texture wrapper
+        let result = Rc::new(OpenGLRenderTexture {
+            texture: final_target.0.clone(),
+        });
+
+        // Cache result if requested
+        if let Some(key) = cache_key {
+            let size_bytes = (width * height * 4) as usize;
+            log::debug!("Caching blur result for key {:?}", key);
+            self.add_to_cache(key, result.clone(), size_bytes);
+        }
+
+        Ok(result)
+    }
+
+    /// Perform a single OpenGL blur pass
+    fn blur_pass_opengl(
+        source: &texture::Texture2d,
+        target: &texture::Texture2d,
+        horizontal: bool,
+        sigma: f32,
+        kernel_size: i32,
+        texture_size: [f32; 2],
+        radius: f32,
+        program: &window::glium::Program,
+        vertex_buffer: &window::glium::VertexBuffer<BlurVertex>,
+        context: &Rc<GliumContext>,
+    ) -> Result<()> {
+        use window::glium::Surface;
+        
+        // Debug logging commented out for performance
+        // log::debug!("blur_pass_opengl: horizontal={}, sigma={}, kernel_size={}, texture_size={:?}, radius={}", 
+        //     horizontal, sigma, kernel_size, texture_size, radius);
+        
+        // Create framebuffer for target
+        let mut target_fb = framebuffer::SimpleFrameBuffer::new(context, target)?;
+
+        // Clear target to transparent black
+        target_fb.clear_color(0.0, 0.0, 0.0, 0.0);
+
+        // Set up uniforms
+        let uniforms = uniform! {
+            source_texture: source,
+            direction: if horizontal { [1.0f32, 0.0] } else { [0.0, 1.0] },
+            sigma: sigma,
+            kernel_size: kernel_size,
+            texture_size: texture_size,
+            radius: radius,
+        };
+
+        // Draw full-screen triangle
+        target_fb.draw(
+            vertex_buffer,
+            window::glium::index::NoIndices(window::glium::index::PrimitiveType::TrianglesList),
+            program,
+            &uniforms,
+            &window::glium::DrawParameters {
+                // Don't blend - we want to replace the target completely
+                blend: window::glium::Blend {
+                    color: window::glium::BlendingFunction::AlwaysReplace,
+                    alpha: window::glium::BlendingFunction::AlwaysReplace,
+                    constant_value: (0.0, 0.0, 0.0, 0.0),
+                },
+                ..Default::default()
+            },
+        )?;
+
+        Ok(())
+    }
+
+    /// Get or create an OpenGL render target
+    fn get_opengl_render_target(
+        width: u32,
+        height: u32,
+        context: &Rc<GliumContext>,
+        targets: &mut Vec<OpenGLRenderTarget>,
+    ) -> Result<(Rc<texture::Texture2d>, usize)> {
+        // Try to find an unused render target
+        for (idx, target) in targets.iter_mut().enumerate() {
+            if !target.in_use && target.width == width && target.height == height {
+                target.in_use = true;
+                return Ok((target.texture.clone(), idx));
+            }
+        }
+
+        // Create new render target with explicit RGBA format
+        let texture = Rc::new(texture::Texture2d::empty_with_format(
+            context,
+            texture::UncompressedFloatFormat::U8U8U8U8,
+            texture::MipmapsOption::NoMipmap,
+            width,
+            height,
+        )?);
+        
+        let idx = targets.len();
+        targets.push(OpenGLRenderTarget {
+            texture: texture.clone(),
+            width,
+            height,
+            in_use: true,
+        });
+
+        Ok((texture, idx))
+    }
+
+    /// Release an OpenGL render target
+    fn release_opengl_render_target(
+        target: (Rc<texture::Texture2d>, usize),
+        targets: &mut Vec<OpenGLRenderTarget>,
+    ) {
+        if let Some(t) = targets.get_mut(target.1) {
+            t.in_use = false;
+        }
+    }
+
     /// Clear the cache
     pub fn clear_cache(&mut self) {
         self.cache.clear();
@@ -574,6 +910,51 @@ impl BlurRenderer {
         hasher.finish()
     }
 
+    /// Save debug image of blurred texture (static version)
+    fn save_blur_debug_texture_static(
+        texture: &dyn Texture2d,
+        width: u32,
+        height: u32,
+        radius: f32,
+    ) {
+        use std::fs::File;
+        use std::io::Write;
+        use window::bitmaps::{BitmapImage, Image};
+
+        let mut image = Image::new(width as usize, height as usize);
+        texture.read(
+            window::Rect::new(
+                window::Point::new(0, 0),
+                window::Size::new(width as isize, height as isize),
+            ),
+            &mut image,
+        );
+
+        let filename = format!("/tmp/wezterm_blur_{}x{}_r{}.ppm", width, height, radius);
+
+        if let Ok(mut file) = File::create(&filename) {
+            // PPM header
+            writeln!(file, "P6").ok();
+            writeln!(file, "{} {}", width, height).ok();
+            writeln!(file, "255").ok();
+
+            // Write RGB data (convert from RGBA)
+            let data = unsafe {
+                std::slice::from_raw_parts(image.pixel_data(), (width * height * 4) as usize)
+            };
+
+            for y in 0..height {
+                for x in 0..width {
+                    let idx = ((y * width + x) * 4) as usize;
+                    file.write_all(&[data[idx], data[idx + 1], data[idx + 2]])
+                        .ok();
+                }
+            }
+
+            log::debug!("Saved debug blur texture to: {}", filename);
+        }
+    }
+    
     /// Save debug image of blurred texture
     fn save_blur_debug_texture(
         &self,

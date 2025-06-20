@@ -77,9 +77,11 @@ The GPU blur system is now **fully implemented and working** with the following 
 - **Fix**: Increased array size to 63 and added kernel_size clamping
 - **Result**: Supports glow_radius up to ~15-16 without issues
 
-### 2. Platform Support
-- Currently WebGPU only
-- No OpenGL version implemented (but Wezterm supports both with the front_end config option)
+### 2. Platform Support ✅
+- **WebGPU**: Fully implemented and working
+- **OpenGL**: Fully implemented and working
+- Both backends provide identical visual results
+- Automatic backend selection based on `config.front_end`
 
 ## Architecture Details
 
@@ -140,3 +142,52 @@ struct GlowUniforms {
 - `glowcache_simple.rs` (299 lines)
 - Multi-pass CPU blur logic
 - `glow_layers` configuration
+
+## OpenGL Implementation (COMPLETED) ✅
+
+### Implementation Approach
+- Direct ports of WGSL shaders to GLSL
+- Same blur algorithm and uniforms  
+- Parallel architecture in BlurRenderer and EffectsOverlay
+- No Atlas usage - direct texture allocation
+- Same caching and pooling strategies
+
+### Files Created:
+1. `wezterm-gui/src/blur-vertex.glsl` / `blur-frag.glsl` - Gaussian blur shaders
+2. `wezterm-gui/src/glow-composite-vertex.glsl` / `glow-composite-frag.glsl` - Glow compositing
+
+### Key Implementation Details:
+1. **Render Targets**: `OpenGLRenderTexture` wrapper implements Texture2d trait
+2. **BlurRenderer**: `BlurBackend` enum supports both WebGPU and OpenGL
+3. **EffectsOverlay**: Separate `render_opengl()` method with Glium integration
+4. **Initialization**: Automatic on first use (no explicit init required)
+5. **Integration**: Connected to `call_draw_glium()` render loop
+
+### Technical Considerations:
+- Used static methods to avoid Rust borrow checker issues
+- Properly handled Glium's `Rc<Context>` requirements
+- Shader compilation uses existing `RenderState::compile_prog()`
+- Texture format: Linear `Texture2d` (not sRGB) to match WebGPU
+- **Fixed vertex shader**: Changed from using `gl_VertexID` to explicit vertex positions
+- **Blend modes**: Blur uses `AlwaysReplace`, glow composite uses additive (One + One)
+
+### Critical Fix - Double Rendering Issue:
+- **Problem**: OpenGL was rendering sidebar buttons twice in initial frames
+- **Symptom**: Glow effects appeared double-bright initially, then normalized
+- **Root Cause**: Race condition causing duplicate render calls for right sidebar
+- **Solution**: Added deduplication logic in `EffectsOverlay::add_glow()`
+- **Implementation**: Effects at the same position are replaced rather than duplicated
+- **Result**: Consistent glow brightness from first frame
+
+## Testing Both Backends
+
+To test the OpenGL implementation:
+```bash
+# Force OpenGL backend (default on macOS)
+wezterm --config front_end=OpenGL
+
+# Force WebGPU backend  
+wezterm --config front_end=WebGpu
+```
+
+Both backends should produce identical visual results with the same performance characteristics (2 GPU passes vs 240 CPU passes).
