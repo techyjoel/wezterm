@@ -1,6 +1,6 @@
 use crate::quad::{QuadTrait, TripleLayerQuadAllocator, TripleLayerQuadAllocatorTrait};
 use crate::termwindow::box_model::{
-    BoxDimension, Element, ElementColors, ElementContent, VerticalAlign,
+    BoxDimension, Element, ElementColors, ElementContent, LayoutContext, VerticalAlign,
 };
 use crate::termwindow::render::neon::{NeonRenderer, NeonStyle};
 use crate::termwindow::{UIItem, UIItemType};
@@ -331,8 +331,41 @@ impl crate::TermWindow {
         // Render the actual AI sidebar content
         if let Some(sidebar) = sidebar {
             let mut sidebar_locked = sidebar.lock().unwrap();
-            sidebar_locked.render();
-            // TODO: Convert the rendered content to quads
+            let font = self.fonts.title_font()?;
+            let element = sidebar_locked.render(&font);
+
+            // Compute the element layout
+            let computed = self.compute_element(
+                &LayoutContext {
+                    width: DimensionContext {
+                        dpi: self.dimensions.dpi as f32,
+                        pixel_cell: self.render_metrics.cell_size.width as f32,
+                        pixel_max: visible_width,
+                    },
+                    height: DimensionContext {
+                        dpi: self.dimensions.dpi as f32,
+                        pixel_cell: self.render_metrics.cell_size.height as f32,
+                        pixel_max: self.dimensions.pixel_height as f32,
+                    },
+                    bounds: euclid::rect(
+                        sidebar_x,
+                        0.0,
+                        visible_width,
+                        self.dimensions.pixel_height as f32,
+                    ),
+                    metrics: &self.render_metrics,
+                    gl_state: self.render_state.as_ref().unwrap(),
+                    zindex: 10,
+                },
+                &element,
+            )?;
+
+            // Render the computed element to quads
+            let gl_state = self.render_state.as_ref().unwrap();
+            self.render_element(&computed, gl_state, None)?;
+
+            // Extract UI items for mouse handling
+            self.ui_items.extend(computed.ui_items());
         }
 
         Ok(())

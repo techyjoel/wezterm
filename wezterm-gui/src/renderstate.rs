@@ -51,18 +51,18 @@ impl Texture2d for OpenGLRenderTexture {
         // A proper implementation would read back from the OpenGL texture
         let (im_width, im_height) = im.image_dimensions();
         let pixels = im.pixels_mut();
-        
+
         // Fill with transparent black for now
         for y in 0..im_height {
             for x in 0..im_width {
                 let idx = (y * im_width + x) * 4;
-                pixels[idx] = 0;     // R
+                pixels[idx] = 0; // R
                 pixels[idx + 1] = 0; // G
-                pixels[idx + 2] = 0; // B  
+                pixels[idx + 2] = 0; // B
                 pixels[idx + 3] = 0; // A
             }
         }
-        
+
         log::warn!("OpenGLRenderTexture::read not fully implemented - returning blank texture");
     }
 
@@ -192,7 +192,7 @@ impl RenderContext {
                     width as u32,
                     height as u32,
                 )?;
-                
+
                 // Wrap in our OpenGLRenderTexture type that implements Texture2d
                 Ok(Rc::new(OpenGLRenderTexture {
                     texture: Rc::new(texture),

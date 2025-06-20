@@ -111,11 +111,13 @@ impl crate::TermWindow {
             }
         }
         log::debug!("paint_impl before call_draw elapsed={:?}", start.elapsed());
-        
+
         // Log how many effects we have before draw
         if let Some(ref overlay) = self.effects_overlay.borrow().as_ref() {
-            log::debug!("Before call_draw: effects_overlay has {} effects", 
-                overlay.effect_count());
+            log::debug!(
+                "Before call_draw: effects_overlay has {} effects",
+                overlay.effect_count()
+            );
         }
 
         self.call_draw(frame).ok();

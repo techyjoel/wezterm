@@ -1,4 +1,7 @@
-use super::components::{Card, CardState, Chip, ChipSize, ChipStyle, ScrollableContainer};
+use super::components::{
+    Card, CardState, Chip, ChipSize, ChipStyle, MarkdownRenderer, MultilineTextInput,
+    ScrollableContainer,
+};
 use super::{Sidebar, SidebarConfig, SidebarPosition};
 use crate::termwindow::box_model::{
     BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent,
@@ -9,8 +12,9 @@ use anyhow::Result;
 use config::Dimension;
 use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime};
-use termwiz::input::{KeyCode, MouseEvent};
+use termwiz::input::KeyCode;
 use wezterm_font::LoadedFont;
+use window::{MouseEvent, MouseEventKind as WMEK, MousePress};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentMode {
@@ -100,8 +104,7 @@ pub struct AiSidebar {
     activity_log: Vec<ActivityItem>,
 
     // UI Components
-    chat_input: String,
-    chat_input_cursor: usize,
+    chat_input: MultilineTextInput,
     scroll_position: usize,
 }
 
@@ -118,8 +121,7 @@ impl AiSidebar {
             current_goal: None,
             current_suggestion: None,
             activity_log: Vec::new(),
-            chat_input: String::new(),
-            chat_input_cursor: 0,
+            chat_input: MultilineTextInput::new(3).with_placeholder("Type a message..."),
             scroll_position: 0,
         }
     }
@@ -160,6 +162,48 @@ impl AiSidebar {
             message: "Sounds good, please run that.".to_string(),
             is_user: true,
             timestamp: now - Duration::from_secs(30),
+        });
+
+        // Add AI response with markdown
+        self.activity_log.push(ActivityItem::Chat {
+            id: "chat2".to_string(),
+            message: r#"I see you're getting an **OpenSSL error**. This is a common issue when building projects. Here's how to fix it:
+
+## Solution
+
+1. First, check if OpenSSL is installed:
+   ```bash
+   brew list openssl
+   ```
+
+2. If not installed, run:
+   ```bash
+   brew install openssl
+   ```
+
+3. Then set the environment variables:
+   ```bash
+   export OPENSSL_DIR=$(brew --prefix openssl)
+   export PKG_CONFIG_PATH="$OPENSSL_DIR/lib/pkgconfig"
+   ```
+
+4. Try running `make` again.
+
+### Alternative Solution
+If the above doesn't work, you might need to install `pkg-config`:
+```bash
+brew install pkg-config
+```"#.to_string(),
+            is_user: false,
+            timestamp: now - Duration::from_secs(20),
+        });
+
+        self.activity_log.push(ActivityItem::Chat {
+            id: "chat3".to_string(),
+            message: "Great! That worked. Now I'm seeing some warnings about deprecated functions."
+                .to_string(),
+            is_user: true,
+            timestamp: now - Duration::from_secs(10),
         });
 
         self.agent_mode = AgentMode::Thinking;
@@ -436,9 +480,21 @@ impl AiSidebar {
                     LinearRgba::with_components(0.15, 0.15, 0.17, 1.0)
                 };
 
-                Element::new(font, ElementContent::Text(message.clone()))
+                // Render message content with markdown if it's from AI
+                let content = if *is_user {
+                    Element::new(font, ElementContent::Text(message.clone())).colors(
+                        ElementColors {
+                            text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
+                            ..Default::default()
+                        },
+                    )
+                } else {
+                    // AI messages use markdown rendering
+                    MarkdownRenderer::render(message, font)
+                };
+
+                Element::new(font, ElementContent::Children(vec![content]))
                     .colors(ElementColors {
-                        text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
                         bg: bg_color.into(),
                         ..Default::default()
                     })
@@ -460,8 +516,8 @@ impl AiSidebar {
                     .border(BoxDimension::new(Dimension::Pixels(1.0)))
                     .colors(ElementColors {
                         border: BorderColor::new(LinearRgba::with_components(0.3, 0.3, 0.35, 0.5)),
-                        text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
                         bg: bg_color.into(),
+                        ..Default::default()
                     })
             }
             ActivityItem::Suggestion { title, content, .. } => Card::new()
@@ -519,36 +575,7 @@ impl AiSidebar {
     }
 
     fn render_chat_input(&self, font: &Rc<LoadedFont>) -> Element {
-        let input_text = if self.chat_input.is_empty() {
-            "Type a message...".to_string()
-        } else {
-            format!("{}_", &self.chat_input)
-        };
-
-        let text_color = if self.chat_input.is_empty() {
-            LinearRgba::with_components(0.5, 0.5, 0.5, 1.0)
-        } else {
-            LinearRgba::with_components(0.9, 0.9, 0.9, 1.0)
-        };
-
-        let input_field = Element::new(font, ElementContent::Text(input_text))
-            .colors(ElementColors {
-                text: text_color.into(),
-                bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),
-                ..Default::default()
-            })
-            .padding(BoxDimension::new(Dimension::Pixels(12.0)))
-            .border(BoxDimension::new(Dimension::Pixels(1.0)))
-            .colors(ElementColors {
-                border: BorderColor::new(LinearRgba::with_components(0.3, 0.3, 0.35, 0.5)),
-                text: text_color.into(),
-                bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),
-            })
-            .margin(BoxDimension {
-                right: Dimension::Pixels(8.0),
-                ..Default::default()
-            })
-            .min_height(Some(Dimension::Pixels(40.0)));
+        let input_field = self.chat_input.render(font);
 
         let send_button = Chip::new("Send".to_string())
             .with_style(ChipStyle::Primary)
@@ -646,28 +673,26 @@ impl AiSidebar {
     }
 
     pub fn handle_chat_input(&mut self, c: char) {
-        self.chat_input.insert(self.chat_input_cursor, c);
-        self.chat_input_cursor += 1;
+        self.chat_input.insert_char(c);
     }
 
     pub fn handle_chat_send(&mut self) {
-        if !self.chat_input.is_empty() {
-            let message = self.chat_input.clone();
+        let text = self.chat_input.get_text();
+        if !text.trim().is_empty() {
             self.activity_log.push(ActivityItem::Chat {
                 id: format!("chat_{}", self.activity_log.len()),
-                message,
+                message: text,
                 is_user: true,
                 timestamp: SystemTime::now(),
             });
             self.chat_input.clear();
-            self.chat_input_cursor = 0;
         }
     }
 }
 
 impl Sidebar for AiSidebar {
-    fn render(&mut self) {
-        // Rendering is handled by render_content() method
+    fn render(&mut self, font: &Rc<LoadedFont>) -> Element {
+        self.render_content(font)
     }
 
     fn get_width(&self) -> u16 {
@@ -690,26 +715,75 @@ impl Sidebar for AiSidebar {
         self.width = width;
     }
 
-    fn handle_mouse_event(&mut self, _event: &MouseEvent) -> Result<bool> {
-        // TODO: Implement mouse event handling
-        Ok(false)
+    fn handle_mouse_event(&mut self, event: &MouseEvent) -> Result<bool> {
+        // For now, just handle basic clicks on the sidebar
+        // In the future, we'll need to map mouse coordinates to specific elements
+        match event.kind {
+            WMEK::Press(MousePress::Left) => {
+                // Log the click position for debugging
+                log::info!(
+                    "Sidebar clicked at: ({}, {})",
+                    event.coords.x,
+                    event.coords.y
+                );
+
+                // TODO: Map coordinates to specific elements like filter chips, buttons, etc.
+                // For now, just toggle the filter as a test
+                self.activity_filter = match self.activity_filter {
+                    ActivityFilter::All => ActivityFilter::Commands,
+                    ActivityFilter::Commands => ActivityFilter::Chat,
+                    ActivityFilter::Chat => ActivityFilter::Suggestions,
+                    ActivityFilter::Suggestions => ActivityFilter::All,
+                };
+
+                Ok(true) // Indicate we handled the event
+            }
+            _ => Ok(false),
+        }
     }
 
     fn handle_key_event(&mut self, key: &KeyCode) -> Result<bool> {
+        // Focus the chat input for now (in future, handle focus states)
+        self.chat_input.focused = true;
+
         match key {
+            KeyCode::Char('\n') | KeyCode::Char('\r') => {
+                // Newline characters - insert newline
+                self.chat_input.insert_newline();
+                Ok(true)
+            }
             KeyCode::Char(c) => {
-                self.handle_chat_input(*c);
+                // All other characters
+                self.chat_input.insert_char(*c);
                 Ok(true)
             }
             KeyCode::Enter => {
+                // Enter to send
                 self.handle_chat_send();
                 Ok(true)
             }
             KeyCode::Backspace => {
-                if self.chat_input_cursor > 0 {
-                    self.chat_input.remove(self.chat_input_cursor - 1);
-                    self.chat_input_cursor -= 1;
-                }
+                self.chat_input.backspace();
+                Ok(true)
+            }
+            KeyCode::Delete => {
+                self.chat_input.delete();
+                Ok(true)
+            }
+            KeyCode::UpArrow => {
+                self.chat_input.move_up();
+                Ok(true)
+            }
+            KeyCode::DownArrow => {
+                self.chat_input.move_down();
+                Ok(true)
+            }
+            KeyCode::LeftArrow => {
+                self.chat_input.move_left();
+                Ok(true)
+            }
+            KeyCode::RightArrow => {
+                self.chat_input.move_right();
                 Ok(true)
             }
             _ => Ok(false),

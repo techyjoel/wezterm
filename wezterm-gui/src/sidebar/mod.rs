@@ -1,7 +1,11 @@
+use crate::termwindow::box_model::Element;
 use anyhow::Result;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use termwiz::input::{KeyCode, MouseEvent};
+use termwiz::input::KeyCode;
+use wezterm_font::LoadedFont;
+use window::MouseEvent;
 // Widget traits will be implemented differently without termwiz widgets
 
 pub mod ai_sidebar;
@@ -142,8 +146,7 @@ impl Default for SidebarConfig {
 
 pub trait Sidebar: Send + Sync {
     // Return the rendered content for this sidebar
-    // This should return whatever content type the sidebar wants to render
-    fn render(&mut self);
+    fn render(&mut self, font: &Rc<LoadedFont>) -> Element;
 
     fn get_width(&self) -> u16;
 

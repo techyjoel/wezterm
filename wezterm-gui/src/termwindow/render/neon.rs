@@ -293,16 +293,21 @@ impl NeonRenderer for TermWindow {
             let can_use_gpu = self
                 .render_state
                 .as_ref()
-                .map(|rs| matches!(&rs.context, RenderContext::WebGpu(_) | RenderContext::Glium(_)))
+                .map(|rs| {
+                    matches!(
+                        &rs.context,
+                        RenderContext::WebGpu(_) | RenderContext::Glium(_)
+                    )
+                })
                 .unwrap_or(false);
 
             // Debug logging commented out for performance
-            // log::debug!("can_use_gpu={}, effects_overlay={}, blur_renderer={}", 
+            // log::debug!("can_use_gpu={}, effects_overlay={}, blur_renderer={}",
             //     can_use_gpu,
             //     self.effects_overlay.borrow().is_some(),
             //     self.blur_renderer.borrow().is_some()
             // );
-            
+
             if can_use_gpu
                 && self.effects_overlay.borrow().is_some()
                 && self.blur_renderer.borrow().is_some()
@@ -340,9 +345,9 @@ impl NeonRenderer for TermWindow {
                             ) {
                                 Ok(blurred_texture) => {
                                     // Debug logging commented out for performance
-                                    // log::debug!("Blur succeeded, got texture {}x{}", 
+                                    // log::debug!("Blur succeeded, got texture {}x{}",
                                     //     blurred_texture.width(), blurred_texture.height());
-                                    
+
                                     // Add glow effect to overlay with pre-blurred texture
                                     if let Some(ref mut overlay) =
                                         self.effects_overlay.borrow_mut().as_mut()

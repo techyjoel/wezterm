@@ -70,7 +70,9 @@ ordered-float.workspace = true
 parking_lot.workspace = true
 portable-pty = { workspace=true, features = ["serde_support"]}
 promise.workspace = true
+pulldown-cmark = "0.9"
 rangeset.workspace = true
+syntect = "5.0"
 ratelim.workspace = true
 rayon.workspace = true
 regex.workspace = true

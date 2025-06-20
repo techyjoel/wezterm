@@ -389,8 +389,8 @@ impl super::TermWindow {
             UIItemType::SidebarButton(position) => {
                 self.mouse_event_sidebar_button(position, event, context);
             }
-            UIItemType::Sidebar(_position) => {
-                // TODO: Handle mouse events on the sidebar itself
+            UIItemType::Sidebar(position) => {
+                self.mouse_event_sidebar(position, event, context);
             }
         }
     }
@@ -470,6 +470,32 @@ impl super::TermWindow {
                 }
             }
             _ => {}
+        }
+    }
+
+    pub fn mouse_event_sidebar(
+        &mut self,
+        position: crate::sidebar::SidebarPosition,
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        // Set cursor to arrow for sidebar
+        context.set_cursor(Some(MouseCursor::Arrow));
+
+        // Forward mouse events to the sidebar
+        let mut sidebar_manager = self.sidebar_manager.borrow_mut();
+        let sidebar = match position {
+            crate::sidebar::SidebarPosition::Left => sidebar_manager.get_left_sidebar(),
+            crate::sidebar::SidebarPosition::Right => sidebar_manager.get_right_sidebar(),
+        };
+
+        if let Some(sidebar) = sidebar {
+            let mut sidebar_locked = sidebar.lock().unwrap();
+            if let Ok(handled) = sidebar_locked.handle_mouse_event(&event) {
+                if handled {
+                    context.invalidate();
+                }
+            }
         }
     }
 

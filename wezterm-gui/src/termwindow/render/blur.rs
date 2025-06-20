@@ -234,23 +234,34 @@ impl BlurRenderer {
         log::debug!("Initializing OpenGL blur renderer...");
 
         // Compile blur shaders
-        let blur_program = crate::renderstate::RenderState::compile_prog(
-            context,
-            |version| {
-                (
-                    format!("#version {}\n{}", version, include_str!("../../blur-vertex.glsl")),
-                    format!("#version {}\n{}", version, include_str!("../../blur-frag.glsl")),
-                )
-            },
-        )?;
+        let blur_program = crate::renderstate::RenderState::compile_prog(context, |version| {
+            (
+                format!(
+                    "#version {}\n{}",
+                    version,
+                    include_str!("../../blur-vertex.glsl")
+                ),
+                format!(
+                    "#version {}\n{}",
+                    version,
+                    include_str!("../../blur-frag.glsl")
+                ),
+            )
+        })?;
 
         // Create vertex buffer for full-screen triangle
         let vertex_buffer = window::glium::VertexBuffer::new(
             context,
             &[
-                BlurVertex { position: [-3.0, -1.0] },
-                BlurVertex { position: [1.0, -1.0] },
-                BlurVertex { position: [1.0, 3.0] },
+                BlurVertex {
+                    position: [-3.0, -1.0],
+                },
+                BlurVertex {
+                    position: [1.0, -1.0],
+                },
+                BlurVertex {
+                    position: [1.0, 3.0],
+                },
             ],
         )?;
 
@@ -427,8 +438,12 @@ impl BlurRenderer {
 
         // Route to appropriate backend implementation
         match context {
-            RenderContext::WebGpu(state) => self.apply_blur_webgpu(source, radius, cache_key, state),
-            RenderContext::Glium(context) => self.apply_blur_opengl(source, radius, cache_key, context),
+            RenderContext::WebGpu(state) => {
+                self.apply_blur_webgpu(source, radius, cache_key, state)
+            }
+            RenderContext::Glium(context) => {
+                self.apply_blur_opengl(source, radius, cache_key, context)
+            }
         }
     }
 
@@ -458,30 +473,35 @@ impl BlurRenderer {
         // To approximate this with convolution, we need a larger sigma.
         let effective_radius = radius.abs() + 1.0;
         let sigma = effective_radius / 2.0; // Larger sigma for more spread
-        
+
         log::debug!(
             "Blur calculation: radius={}, effective_radius={}, sigma={}",
-            radius, effective_radius, sigma
+            radius,
+            effective_radius,
+            sigma
         );
 
         // For proper blur spread, we need a kernel that extends beyond the nominal radius
         // to capture the gaussian tail. Use 3*sigma as a good approximation.
         let kernel_radius = (sigma * 3.0).ceil() as u32;
         let mut kernel_size = kernel_radius * 2 + 1; // Make it odd
-        
+
         // Clamp kernel_size to our shader's maximum supported size
         const MAX_KERNEL_SIZE: u32 = 63;
         if kernel_size > MAX_KERNEL_SIZE {
             log::warn!(
                 "Blur radius {} requires kernel_size {} which exceeds maximum {}, clamping",
-                radius, kernel_size, MAX_KERNEL_SIZE
+                radius,
+                kernel_size,
+                MAX_KERNEL_SIZE
             );
             kernel_size = MAX_KERNEL_SIZE;
         }
-        
+
         log::debug!(
             "Final blur parameters: kernel_radius={}, kernel_size={}",
-            kernel_radius, kernel_size
+            kernel_radius,
+            kernel_size
         );
 
         // Get render targets for ping-pong
@@ -670,14 +690,19 @@ impl BlurRenderer {
     ) -> Result<Rc<dyn Texture2d>> {
         let width = source.width() as u32;
         let height = source.height() as u32;
-        
-        log::debug!("apply_blur_opengl called with radius={}, source size={}x{}", radius, width, height);
-        
+
+        log::debug!(
+            "apply_blur_opengl called with radius={}, source size={}x{}",
+            radius,
+            width,
+            height
+        );
+
         // Debug: Check if source texture has any content
         if std::env::var("WEZTERM_DEBUG_BLUR").is_ok() {
             self.save_blur_debug_texture(source, width, height, 0.0);
         }
-        
+
         // Ensure OpenGL backend is initialized
         if self.backend.is_none() {
             self.init_opengl(context)?;
@@ -688,7 +713,7 @@ impl BlurRenderer {
         let sigma = effective_radius / 2.0;
         let kernel_radius = (sigma * 3.0).ceil() as u32;
         let mut kernel_size = kernel_radius * 2 + 1;
-        
+
         const MAX_KERNEL_SIZE: u32 = 63;
         if kernel_size > MAX_KERNEL_SIZE {
             kernel_size = MAX_KERNEL_SIZE;
@@ -696,9 +721,11 @@ impl BlurRenderer {
 
         // Get OpenGL resources
         let (blur_program, vertex_buffer, render_targets) = match &mut self.backend {
-            Some(BlurBackend::OpenGl { blur_program, vertex_buffer, render_targets }) => {
-                (blur_program, vertex_buffer, render_targets)
-            }
+            Some(BlurBackend::OpenGl {
+                blur_program,
+                vertex_buffer,
+                render_targets,
+            }) => (blur_program, vertex_buffer, render_targets),
             _ => unreachable!("Backend should be OpenGL"),
         };
 
@@ -707,23 +734,25 @@ impl BlurRenderer {
         let final_target = Self::get_opengl_render_target(width, height, context, render_targets)?;
 
         // Get source texture - need to handle different texture types
-        let source_texture = if let Some(opengl_tex) = source.downcast_ref::<OpenGLRenderTexture>() {
-            log::debug!("Source is OpenGLRenderTexture, texture dimensions: {}x{}", 
-                opengl_tex.texture.width(), opengl_tex.texture.height());
+        let source_texture = if let Some(opengl_tex) = source.downcast_ref::<OpenGLRenderTexture>()
+        {
+            log::debug!(
+                "Source is OpenGLRenderTexture, texture dimensions: {}x{}",
+                opengl_tex.texture.width(),
+                opengl_tex.texture.height()
+            );
             opengl_tex.texture.clone()
-        } else if let Some(srgb_tex) = source.downcast_ref::<window::glium::texture::SrgbTexture2d>() {
+        } else if let Some(srgb_tex) =
+            source.downcast_ref::<window::glium::texture::SrgbTexture2d>()
+        {
             log::debug!("Source is SrgbTexture2d, need to copy to linear texture");
             // Convert sRGB texture to linear for blur processing
-            let linear_texture = texture::Texture2d::empty(
-                context,
-                width,
-                height,
-            )?;
-            
+            let linear_texture = texture::Texture2d::empty(context, width, height)?;
+
             // For now, we'll use the sRGB texture directly and let the shader handle it
             // This isn't ideal but works for our use case
             log::warn!("Using sRGB texture directly for blur - may have color space issues");
-            
+
             // Create a dummy texture that we can't actually use
             // This indicates we need to handle texture creation differently
             anyhow::bail!("SrgbTexture2d blur not yet implemented - icon textures should be created as linear Texture2d")
@@ -732,10 +761,16 @@ impl BlurRenderer {
             let type_name = source.type_id();
             log::debug!("Unsupported texture type: {:?}", type_name);
             // Let's also check what type name we get from the trait object
-            log::debug!("Source texture size: {}x{}", source.width(), source.height());
+            log::debug!(
+                "Source texture size: {}x{}",
+                source.width(),
+                source.height()
+            );
             // The icon texture should be created as OpenGLRenderTexture by allocate_render_target
             // If we get here, something is wrong with the texture creation
-            anyhow::bail!("Unsupported texture type for OpenGL blur - expected OpenGLRenderTexture");
+            anyhow::bail!(
+                "Unsupported texture type for OpenGL blur - expected OpenGLRenderTexture"
+            );
         };
 
         // Perform two-pass blur
@@ -765,7 +800,7 @@ impl BlurRenderer {
             context,
         )?;
 
-        // Debug: Save the blurred result 
+        // Debug: Save the blurred result
         // NOTE: Disabled for now as OpenGLRenderTexture::read is not fully implemented
         // if std::env::var("WEZTERM_DEBUG_BLUR").is_ok() {
         //     // Create a wrapper to save the final blurred texture
@@ -808,11 +843,11 @@ impl BlurRenderer {
         context: &Rc<GliumContext>,
     ) -> Result<()> {
         use window::glium::Surface;
-        
+
         // Debug logging commented out for performance
-        // log::debug!("blur_pass_opengl: horizontal={}, sigma={}, kernel_size={}, texture_size={:?}, radius={}", 
+        // log::debug!("blur_pass_opengl: horizontal={}, sigma={}, kernel_size={}, texture_size={:?}, radius={}",
         //     horizontal, sigma, kernel_size, texture_size, radius);
-        
+
         // Create framebuffer for target
         let mut target_fb = framebuffer::SimpleFrameBuffer::new(context, target)?;
 
@@ -872,7 +907,7 @@ impl BlurRenderer {
             width,
             height,
         )?);
-        
+
         let idx = targets.len();
         targets.push(OpenGLRenderTarget {
             texture: texture.clone(),
@@ -954,7 +989,7 @@ impl BlurRenderer {
             log::debug!("Saved debug blur texture to: {}", filename);
         }
     }
-    
+
     /// Save debug image of blurred texture
     fn save_blur_debug_texture(
         &self,

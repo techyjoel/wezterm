@@ -148,9 +148,11 @@ impl EffectsOverlay {
     pub fn add_glow(&mut self, effect: GlowEffect) {
         // Check if we already have an effect at this position
         // This can happen in OpenGL when the sidebar is rendered twice in the same frame
-        if let Some(existing) = self.active_effects.iter_mut().find(|e| 
-            e.window_position == effect.window_position
-        ) {
+        if let Some(existing) = self
+            .active_effects
+            .iter_mut()
+            .find(|e| e.window_position == effect.window_position)
+        {
             log::debug!(
                 "Replacing duplicate glow effect at window position {:?} (intensity: {} -> {})",
                 effect.window_position,
@@ -161,7 +163,7 @@ impl EffectsOverlay {
             *existing = effect;
             return;
         }
-        
+
         // Debug logging commented out for performance
         // log::debug!(
         //     "Adding glow effect #{} at window position {:?}, intensity: {}, texture size: {}x{}",
@@ -178,7 +180,7 @@ impl EffectsOverlay {
     pub fn blur_renderer(&mut self) -> &mut BlurRenderer {
         &mut self.blur_renderer
     }
-    
+
     /// Get the number of active effects
     pub fn effect_count(&self) -> usize {
         self.active_effects.len()
@@ -376,32 +378,49 @@ impl EffectsOverlay {
     /// Initialize OpenGL resources
     pub fn init_opengl(&mut self, context: &Rc<GliumContext>) -> Result<()> {
         // Compile glow composite shaders
-        let program = crate::renderstate::RenderState::compile_prog(
-            context,
-            |version| {
-                (
-                    format!("#version {}\n{}", version, include_str!("../../glow-composite-vertex.glsl")),
-                    format!("#version {}\n{}", version, include_str!("../../glow-composite-frag.glsl")),
-                )
-            },
-        )?;
+        let program = crate::renderstate::RenderState::compile_prog(context, |version| {
+            (
+                format!(
+                    "#version {}\n{}",
+                    version,
+                    include_str!("../../glow-composite-vertex.glsl")
+                ),
+                format!(
+                    "#version {}\n{}",
+                    version,
+                    include_str!("../../glow-composite-frag.glsl")
+                ),
+            )
+        })?;
 
         // Create vertex buffer for quads (we'll generate vertices per draw)
         let vertex_buffer = window::glium::VertexBuffer::new(
             context,
             &[
-                GlowVertex { position: [0.0, 0.0] },
-                GlowVertex { position: [1.0, 0.0] },
-                GlowVertex { position: [0.0, 1.0] },
-                GlowVertex { position: [0.0, 1.0] },
-                GlowVertex { position: [1.0, 0.0] },
-                GlowVertex { position: [1.0, 1.0] },
+                GlowVertex {
+                    position: [0.0, 0.0],
+                },
+                GlowVertex {
+                    position: [1.0, 0.0],
+                },
+                GlowVertex {
+                    position: [0.0, 1.0],
+                },
+                GlowVertex {
+                    position: [0.0, 1.0],
+                },
+                GlowVertex {
+                    position: [1.0, 0.0],
+                },
+                GlowVertex {
+                    position: [1.0, 1.0],
+                },
             ],
         )?;
 
         self.opengl_program = Some(program);
         self.opengl_vertex_buffer = Some(vertex_buffer);
-        
+
         // Initialize blur renderer for OpenGL
         self.blur_renderer.init_opengl(context)?;
 
@@ -418,9 +437,12 @@ impl EffectsOverlay {
         if self.active_effects.is_empty() {
             return Ok(());
         }
-        
+
         // Debug logging kept at debug level for troubleshooting
-        log::debug!("render_opengl called with {} effects", self.active_effects.len());
+        log::debug!(
+            "render_opengl called with {} effects",
+            self.active_effects.len()
+        );
 
         // Initialize if needed
         if self.opengl_program.is_none() {
@@ -460,11 +482,12 @@ impl EffectsOverlay {
         vertex_buffer: &window::glium::VertexBuffer<GlowVertex>,
     ) -> Result<()> {
         // Get the OpenGL texture
-        let gl_texture = if let Some(render_tex) = glow_texture.downcast_ref::<OpenGLRenderTexture>() {
-            &*render_tex.texture
-        } else {
-            anyhow::bail!("Glow texture is not OpenGL compatible");
-        };
+        let gl_texture =
+            if let Some(render_tex) = glow_texture.downcast_ref::<OpenGLRenderTexture>() {
+                &*render_tex.texture
+            } else {
+                anyhow::bail!("Glow texture is not OpenGL compatible");
+            };
 
         // Calculate glow position
         let glow_x = effect.window_position.x as f32;

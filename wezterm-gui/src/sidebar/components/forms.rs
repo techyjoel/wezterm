@@ -242,6 +242,295 @@ impl TextInput {
     }
 }
 
+/// Multi-line text input component for forms (e.g., chat)
+#[derive(Debug, Clone)]
+pub struct MultilineTextInput {
+    /// Lines of text
+    pub lines: Vec<String>,
+    /// Placeholder text when empty
+    pub placeholder: String,
+    /// Whether the input is focused
+    pub focused: bool,
+    /// Cursor line position
+    pub cursor_line: usize,
+    /// Cursor column position  
+    pub cursor_col: usize,
+    /// Selection start (line, col) if any
+    pub selection_start: Option<(usize, usize)>,
+    /// Maximum number of lines (None for unlimited)
+    pub max_lines: Option<usize>,
+    /// Whether the input is disabled
+    pub disabled: bool,
+    /// Height in lines to display
+    pub display_lines: usize,
+    /// Scroll offset (first visible line)
+    pub scroll_offset: usize,
+}
+
+impl MultilineTextInput {
+    pub fn new(display_lines: usize) -> Self {
+        Self {
+            lines: vec![String::new()],
+            placeholder: String::new(),
+            focused: false,
+            cursor_line: 0,
+            cursor_col: 0,
+            selection_start: None,
+            max_lines: None,
+            disabled: false,
+            display_lines,
+            scroll_offset: 0,
+        }
+    }
+
+    pub fn with_placeholder(mut self, placeholder: impl Into<String>) -> Self {
+        self.placeholder = placeholder.into();
+        self
+    }
+
+    pub fn with_max_lines(mut self, max_lines: usize) -> Self {
+        self.max_lines = Some(max_lines);
+        self
+    }
+
+    /// Get the full text content
+    pub fn get_text(&self) -> String {
+        self.lines.join("\n")
+    }
+
+    /// Set text content
+    pub fn set_text(&mut self, text: &str) {
+        self.lines = if text.is_empty() {
+            vec![String::new()]
+        } else {
+            text.lines().map(|s| s.to_string()).collect()
+        };
+        self.cursor_line = self.lines.len().saturating_sub(1);
+        self.cursor_col = self.lines.last().map(|l| l.len()).unwrap_or(0);
+        self.update_scroll();
+    }
+
+    /// Handle character input
+    pub fn insert_char(&mut self, c: char) {
+        if self.disabled {
+            return;
+        }
+
+        if c == '\n' {
+            self.insert_newline();
+        } else {
+            let line = &mut self.lines[self.cursor_line];
+            line.insert(self.cursor_col, c);
+            self.cursor_col += 1;
+        }
+    }
+
+    /// Insert a newline at cursor position
+    pub fn insert_newline(&mut self) {
+        if let Some(max) = self.max_lines {
+            if self.lines.len() >= max {
+                return;
+            }
+        }
+
+        let current_line = &self.lines[self.cursor_line];
+        let (before, after) = current_line.split_at(self.cursor_col);
+        let new_line = after.to_string();
+        self.lines[self.cursor_line] = before.to_string();
+        self.lines.insert(self.cursor_line + 1, new_line);
+        self.cursor_line += 1;
+        self.cursor_col = 0;
+        self.update_scroll();
+    }
+
+    /// Handle backspace
+    pub fn backspace(&mut self) {
+        if self.disabled {
+            return;
+        }
+
+        if self.cursor_col > 0 {
+            let line = &mut self.lines[self.cursor_line];
+            line.remove(self.cursor_col - 1);
+            self.cursor_col -= 1;
+        } else if self.cursor_line > 0 {
+            // Merge with previous line
+            let current_line = self.lines.remove(self.cursor_line);
+            self.cursor_line -= 1;
+            self.cursor_col = self.lines[self.cursor_line].len();
+            self.lines[self.cursor_line].push_str(&current_line);
+            self.update_scroll();
+        }
+    }
+
+    /// Handle delete key
+    pub fn delete(&mut self) {
+        if self.disabled {
+            return;
+        }
+
+        let line = &self.lines[self.cursor_line];
+        if self.cursor_col < line.len() {
+            let line = &mut self.lines[self.cursor_line];
+            line.remove(self.cursor_col);
+        } else if self.cursor_line < self.lines.len() - 1 {
+            // Merge with next line
+            let next_line = self.lines.remove(self.cursor_line + 1);
+            self.lines[self.cursor_line].push_str(&next_line);
+        }
+    }
+
+    /// Move cursor up
+    pub fn move_up(&mut self) {
+        if self.cursor_line > 0 {
+            self.cursor_line -= 1;
+            let line_len = self.lines[self.cursor_line].len();
+            self.cursor_col = self.cursor_col.min(line_len);
+            self.update_scroll();
+        }
+    }
+
+    /// Move cursor down
+    pub fn move_down(&mut self) {
+        if self.cursor_line < self.lines.len() - 1 {
+            self.cursor_line += 1;
+            let line_len = self.lines[self.cursor_line].len();
+            self.cursor_col = self.cursor_col.min(line_len);
+            self.update_scroll();
+        }
+    }
+
+    /// Move cursor left
+    pub fn move_left(&mut self) {
+        if self.cursor_col > 0 {
+            self.cursor_col -= 1;
+        } else if self.cursor_line > 0 {
+            self.cursor_line -= 1;
+            self.cursor_col = self.lines[self.cursor_line].len();
+            self.update_scroll();
+        }
+    }
+
+    /// Move cursor right
+    pub fn move_right(&mut self) {
+        let line_len = self.lines[self.cursor_line].len();
+        if self.cursor_col < line_len {
+            self.cursor_col += 1;
+        } else if self.cursor_line < self.lines.len() - 1 {
+            self.cursor_line += 1;
+            self.cursor_col = 0;
+            self.update_scroll();
+        }
+    }
+
+    /// Update scroll offset to keep cursor visible
+    fn update_scroll(&mut self) {
+        if self.cursor_line < self.scroll_offset {
+            self.scroll_offset = self.cursor_line;
+        } else if self.cursor_line >= self.scroll_offset + self.display_lines {
+            self.scroll_offset = self.cursor_line - self.display_lines + 1;
+        }
+    }
+
+    /// Clear all text
+    pub fn clear(&mut self) {
+        self.lines = vec![String::new()];
+        self.cursor_line = 0;
+        self.cursor_col = 0;
+        self.scroll_offset = 0;
+        self.selection_start = None;
+    }
+
+    /// Render the multi-line text input
+    pub fn render(&self, font: &Rc<LoadedFont>) -> Element {
+        let visible_lines = self
+            .lines
+            .iter()
+            .skip(self.scroll_offset)
+            .take(self.display_lines)
+            .enumerate();
+
+        let mut line_elements = Vec::new();
+
+        for (idx, line) in visible_lines {
+            let actual_line = self.scroll_offset + idx;
+            let is_cursor_line = actual_line == self.cursor_line;
+
+            // Build line text with cursor
+            let display_text = if is_cursor_line && self.focused {
+                let mut text = line.clone();
+                if self.cursor_col <= text.len() {
+                    text.insert(self.cursor_col, '\u{2502}'); // Cursor character
+                } else {
+                    text.push('\u{2502}');
+                }
+                text
+            } else if line.is_empty() && actual_line == 0 && self.lines.len() == 1 && !self.focused
+            {
+                // Show placeholder on first line if empty and not focused
+                self.placeholder.clone()
+            } else {
+                line.clone()
+            };
+
+            let text_color =
+                if line.is_empty() && actual_line == 0 && self.lines.len() == 1 && !self.focused {
+                    LinearRgba::with_components(0.5, 0.5, 0.5, 1.0)
+                } else {
+                    LinearRgba::with_components(0.9, 0.9, 0.9, 1.0)
+                };
+
+            let line_element = Element::new(font, ElementContent::Text(display_text))
+                .colors(ElementColors {
+                    text: text_color.into(),
+                    ..Default::default()
+                })
+                .padding(BoxDimension {
+                    left: Dimension::Pixels(4.0),
+                    right: Dimension::Pixels(4.0),
+                    top: Dimension::Pixels(2.0),
+                    bottom: Dimension::Pixels(2.0),
+                });
+
+            line_elements.push(line_element);
+        }
+
+        // Add empty lines if needed to fill display area
+        while line_elements.len() < self.display_lines {
+            line_elements.push(
+                Element::new(font, ElementContent::Text(" ".to_string())).padding(BoxDimension {
+                    left: Dimension::Pixels(4.0),
+                    right: Dimension::Pixels(4.0),
+                    top: Dimension::Pixels(2.0),
+                    bottom: Dimension::Pixels(2.0),
+                }),
+            );
+        }
+
+        // Container with border
+        Element::new(font, ElementContent::Children(line_elements))
+            .display(DisplayType::Block)
+            .colors(ElementColors {
+                bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),
+                border: BorderColor::new(if self.focused {
+                    LinearRgba::with_components(0.4, 0.6, 0.9, 0.7)
+                } else if self.disabled {
+                    LinearRgba::with_components(0.2, 0.2, 0.25, 0.3)
+                } else {
+                    LinearRgba::with_components(0.3, 0.3, 0.35, 0.5)
+                }),
+                ..Default::default()
+            })
+            .border(BoxDimension::new(Dimension::Pixels(1.0)))
+            .padding(BoxDimension {
+                left: Dimension::Pixels(8.0),
+                right: Dimension::Pixels(8.0),
+                top: Dimension::Pixels(6.0),
+                bottom: Dimension::Pixels(6.0),
+            })
+    }
+}
+
 /// Button component
 #[derive(Debug, Clone)]
 pub struct Button {

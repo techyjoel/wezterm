@@ -1,8 +1,8 @@
 use crate::colorease::ColorEaseUniform;
+use crate::renderstate::RenderContext;
 use crate::termwindow::webgpu::ShaderUniform;
 use crate::termwindow::RenderFrame;
 use crate::uniforms::UniformBuilder;
-use crate::renderstate::RenderContext;
 use ::window::glium;
 use ::window::glium::uniforms::{
     MagnifySamplerFilter, MinifySamplerFilter, Sampler, SamplerWrapFunction,
@@ -281,10 +281,16 @@ impl crate::TermWindow {
 
         // Render effects overlay after main content
         if let Some(ref mut overlay) = self.effects_overlay.borrow_mut().as_mut() {
-            log::debug!("Checking OpenGL effects overlay render, has {} effects", overlay.effect_count());
+            log::debug!(
+                "Checking OpenGL effects overlay render, has {} effects",
+                overlay.effect_count()
+            );
             match &gl_state.context {
                 RenderContext::Glium(context) => {
-                    log::debug!("Calling overlay.render_opengl with {} effects", overlay.effect_count());
+                    log::debug!(
+                        "Calling overlay.render_opengl with {} effects",
+                        overlay.effect_count()
+                    );
                     if let Err(e) = overlay.render_opengl(frame, context, &self.dimensions) {
                         log::warn!("OpenGL effects overlay render failed: {}", e);
                     }
