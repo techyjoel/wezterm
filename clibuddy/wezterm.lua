@@ -434,7 +434,7 @@ config.clibuddy = {
                 color = '#00FFFF',      -- Cyan neon
                 base_color = '#0F0F0F', -- Dark grey
                 glow_intensity = 0.9,   -- 90% glow intensity
-                glow_radius = 10.0,      -- 8 pixel blur radius
+                glow_radius = 15.0,      -- 8 pixel blur radius
             }
         },
         
@@ -444,7 +444,7 @@ config.clibuddy = {
                 color = '#FF1493',      -- Deep pink neon
                 base_color = '#0F0F0F', -- Dark grey
                 glow_intensity = 0.9,   -- 90% glow intensity
-                glow_radius = 10.0,      -- 8 pixel blur radius
+                glow_radius = 15.0,      -- 8 pixel blur radius
             }
         }
     }

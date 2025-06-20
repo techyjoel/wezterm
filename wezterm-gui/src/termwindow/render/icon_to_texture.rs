@@ -16,7 +16,7 @@ impl TermWindow {
         icon_size: u32,
         padding: u32,
     ) -> Result<Rc<dyn Texture2d>> {
-        log::info!(
+        log::debug!(
             "create_icon_texture called for '{}', icon_size={}, padding={}, color={:?}",
             text,
             icon_size,
@@ -46,7 +46,7 @@ impl TermWindow {
 
         // Rasterize the glyph
         let info = &infos[0];
-        log::info!(
+        log::debug!(
             "Shaping info: glyph_pos={}, font_idx={}, x_advance={:?}, y_advance={:?}, x_offset={:?}, y_offset={:?}",
             info.glyph_pos,
             info.font_idx,
@@ -68,7 +68,7 @@ impl TermWindow {
             metrics.underline_position
         );
 
-        log::info!(
+        log::debug!(
             "Rasterized glyph dimensions: width={}, height={}, bearing_x={:?}, bearing_y={:?}, has_color={}, data_len={}",
             glyph.width,
             glyph.height,
@@ -93,7 +93,7 @@ impl TermWindow {
                                     // Add blur_padding on each side
         let texture_size = min_size.max(icon_size) + (blur_padding * 2);
 
-        log::info!(
+        log::debug!(
             "Texture sizing: glyph {}x{}, icon_size {}, padding {}, blur_padding {}, final texture {}",
             glyph_width, glyph_height, icon_size, padding, blur_padding, texture_size
         );
@@ -211,7 +211,7 @@ impl TermWindow {
 
         // Log actual pixel bounds written
         if pixels_written > 0 {
-            log::info!(
+            log::debug!(
                 "Pixels written: count={}, bounds=({}, {}) to ({}, {}), size={}x{}",
                 pixels_written,
                 min_x,
@@ -229,7 +229,7 @@ impl TermWindow {
         let pixel_center_x = (min_x + max_x) / 2;
         let pixel_center_y = (min_y + max_y) / 2;
         let texture_center = texture_size as isize / 2;
-        log::info!(
+        log::debug!(
             "Pixel centering check: pixel_center=({}, {}), texture_center={}, offset=({}, {})",
             pixel_center_x,
             pixel_center_y,
@@ -292,6 +292,6 @@ fn save_icon_debug_texture(image: &Image, size: u32, text: &str) {
             }
         }
 
-        log::info!("Saved debug icon texture to: {}", filename);
+        log::debug!("Saved debug icon texture to: {}", filename);
     }
 }

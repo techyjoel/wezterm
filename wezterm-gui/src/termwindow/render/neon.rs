@@ -366,7 +366,7 @@ impl NeonRenderer for TermWindow {
                                             + offset_correction;
 
                                         log::trace!(
-                                            "Glow position: content_bounds={:?}, adjusted center ({:.1}, {:.1}), texture {}x{}, final glow at ({}, {})",
+                                            "Glow position: content_bounds={:?}, center ({:.1}, {:.1}), texture {}x{}, glow at ({}, {})",
                                             content_bounds,
                                             content_center_x, content_center_y,
                                             texture_width, texture_height,

@@ -18,7 +18,7 @@ const MIN_SIDEBAR_WIDTH: f32 = 25.0;
 
 impl crate::TermWindow {
     pub fn paint_sidebars(&mut self, layers: &mut TripleLayerQuadAllocator) -> Result<()> {
-        log::info!("paint_sidebars called");
+        log::debug!("paint_sidebars called");
 
         // Update sidebar animations and check if we need to redraw
         let needs_redraw = self.sidebar_manager.borrow_mut().update_animations();
@@ -86,7 +86,7 @@ impl crate::TermWindow {
         &mut self,
         layers: &mut TripleLayerQuadAllocator,
     ) -> Result<()> {
-        log::info!("paint_sidebar_toggle_buttons called");
+        log::debug!("paint_sidebar_toggle_buttons called");
         let config = self.config.clone();
 
         // Common button configuration

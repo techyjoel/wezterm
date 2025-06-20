@@ -164,14 +164,14 @@ impl crate::TermWindow {
     }
 
     pub fn paint_pass(&mut self) -> anyhow::Result<()> {
-        log::info!("paint_pass called");
+        log::debug!("paint_pass called");
         {
             let gl_state = self.render_state.as_ref().unwrap();
             for layer in gl_state.layers.borrow().iter() {
                 layer.clear_quad_allocation();
             }
         }
-        log::info!("paint_pass: cleared quad allocation");
+        log::debug!("paint_pass: cleared quad allocation");
 
         // Clear out UI item positions; we'll rebuild these as we render
         self.ui_items.clear();
@@ -265,7 +265,7 @@ impl crate::TermWindow {
             }
             self.paint_pane(&pos, &mut layers).context("paint_pane")?;
         }
-        log::info!("paint_pass: finished painting panes");
+        log::debug!("paint_pass: finished painting panes");
 
         if let Some(pane) = self.get_active_pane_or_overlay() {
             let splits = self.get_splits();
@@ -280,16 +280,16 @@ impl crate::TermWindow {
         }
 
         // Paint sidebars (including buttons) after tab bar to ensure proper layering
-        log::info!("About to call paint_sidebars");
+        log::debug!("About to call paint_sidebars");
         self.paint_sidebars(&mut layers).context("paint_sidebars")?;
-        log::info!("paint_sidebars completed");
+        log::debug!("paint_sidebars completed");
 
         self.paint_window_borders(&mut layers)
             .context("paint_window_borders")?;
         drop(layers);
         self.paint_modal().context("paint_modal")?;
 
-        log::info!("paint_pass: completed successfully");
+        log::debug!("paint_pass: completed successfully");
         Ok(())
     }
 }

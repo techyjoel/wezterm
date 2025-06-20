@@ -248,8 +248,8 @@ impl EffectsOverlay {
         let glow_x = effect.window_position.x as f32;
         let glow_y = effect.window_position.y as f32;
 
-        log::error!(
-            "COMPOSITE DEBUG: Compositing glow: texture {}x{}, position ({}, {}), screen {}x{}",
+        log::trace!(
+            "Compositing glow: texture {}x{}, position ({}, {}), screen {}x{}",
             glow_width,
             glow_height,
             glow_x,

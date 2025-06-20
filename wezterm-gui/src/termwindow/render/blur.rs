@@ -68,7 +68,7 @@ impl BlurRenderer {
 
     /// Initialize blur pipelines on the GPU
     pub fn init_pipelines(state: &mut WebGpuState) -> Result<()> {
-        log::info!("Initializing GPU blur pipelines...");
+        log::debug!("Initializing GPU blur pipelines...");
 
         // Create blur uniform bind group layout
         let blur_uniform_layout =
@@ -195,7 +195,7 @@ impl BlurRenderer {
         state.blur_vertical_pipeline = Some(vertical_pipeline);
         state.blur_uniform_bind_group_layout = Some(blur_uniform_layout);
 
-        log::info!("✓ GPU blur pipelines initialized successfully");
+        log::debug!("✓ GPU blur pipelines initialized successfully");
         Ok(())
     }
 
@@ -238,7 +238,7 @@ impl BlurRenderer {
 
     /// Test the blur pipeline with a simple colored square
     pub fn test_blur_pipeline(&mut self, context: &RenderContext) -> Result<()> {
-        log::info!("Testing GPU blur pipeline...");
+        log::debug!("Testing GPU blur pipeline...");
 
         // Get WebGPU state
         let state = match context {
@@ -263,12 +263,12 @@ impl BlurRenderer {
         // Test horizontal blur pass
         match self.blur_pass(&*test_texture, &*blurred, true, 5.0, 5.0 / 3.33, 15, state) {
             Ok(_) => {
-                log::info!("✓ Horizontal blur pass succeeded");
+                log::debug!("✓ Horizontal blur pass succeeded");
 
                 // Test vertical blur pass too
                 let final_blur = self.get_render_target(test_size, test_size, state)?;
                 match self.blur_pass(&*blurred, &*final_blur, false, 5.0, 5.0 / 3.33, 15, state) {
-                    Ok(_) => log::info!("✓ Vertical blur pass succeeded"),
+                    Ok(_) => log::debug!("✓ Vertical blur pass succeeded"),
                     Err(e) => log::error!("✗ Vertical blur pass failed: {}", e),
                 }
                 self.release_render_target(&final_blur);
@@ -280,7 +280,7 @@ impl BlurRenderer {
         self.release_render_target(&test_texture);
         self.release_render_target(&blurred);
 
-        log::info!("GPU blur pipeline test completed successfully!");
+        log::debug!("GPU blur pipeline test completed successfully!");
         Ok(())
     }
 
@@ -616,7 +616,7 @@ impl BlurRenderer {
                 }
             }
 
-            log::info!("Saved debug blur texture to: {}", filename);
+            log::debug!("Saved debug blur texture to: {}", filename);
         }
     }
 }
