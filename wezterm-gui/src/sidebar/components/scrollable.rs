@@ -1,5 +1,5 @@
 use crate::termwindow::box_model::{
-    BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent,
+    BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent, Float,
 };
 use ::window::color::LinearRgba;
 use config::Dimension;
@@ -146,9 +146,8 @@ impl ScrollableContainer {
     }
 
     pub fn render(&self, font: &Rc<LoadedFont>) -> Element {
-        let mut children = Vec::new();
-
-        // Render visible content items
+        // Create content area
+        let mut content_children = Vec::new();
         for (_idx, item) in self
             .content
             .iter()
@@ -156,70 +155,46 @@ impl ScrollableContainer {
             .take(self.max_visible_items)
             .enumerate()
         {
-            children.push(item.clone());
+            content_children.push(item.clone());
         }
 
-        // Create content wrapper
-        let content_wrapper = Element::new(font, ElementContent::Children(children))
-            .display(DisplayType::Block)
-            .padding(BoxDimension {
-                right: if self.should_show_scrollbar() {
-                    Dimension::Pixels(self.scrollbar_width + 4.0)
-                } else {
-                    Dimension::Pixels(0.0)
-                },
-                ..Default::default()
-            });
+        let content_area = Element::new(font, ElementContent::Children(content_children))
+            .display(DisplayType::Block);
 
-        let mut container_children = vec![content_wrapper];
-
-        // Add scrollbar if needed
-        if self.should_show_scrollbar() {
-            let (thumb_top, thumb_height) = self.get_scrollbar_thumb_info();
-
-            // Scrollbar track
-            let track = Element::new(font, ElementContent::Text("".to_string()))
-                .display(DisplayType::Block)
-                .min_width(Some(Dimension::Pixels(self.scrollbar_width)))
-                .min_height(Some(Dimension::Pixels(self.viewport_height as f32)))
-                .colors(ElementColors {
-                    bg: LinearRgba::with_components(0.1, 0.1, 0.12, 0.5).into(),
-                    ..Default::default()
-                });
-
-            // Scrollbar thumb
-            let mut thumb_color = LinearRgba::with_components(0.4, 0.4, 0.45, 0.7);
-            if self.hovering_scrollbar {
-                thumb_color = LinearRgba::with_components(0.5, 0.5, 0.55, 0.9);
-            }
-            if self.dragging_scrollbar {
-                thumb_color = LinearRgba::with_components(0.6, 0.6, 0.65, 1.0);
-            }
-
-            let thumb = Element::new(font, ElementContent::Text("".to_string()))
-                .display(DisplayType::Block)
-                .min_width(Some(Dimension::Pixels(self.scrollbar_width)))
-                .min_height(Some(Dimension::Pixels(thumb_height)))
-                .margin(BoxDimension {
-                    top: Dimension::Pixels(thumb_top),
-                    ..Default::default()
-                })
-                .colors(ElementColors {
-                    bg: thumb_color.into(),
-                    ..Default::default()
-                })
-                .border(BoxDimension::new(Dimension::Pixels(1.0)))
-                .colors(ElementColors {
-                    border: BorderColor::new(LinearRgba::with_components(0.2, 0.2, 0.25, 0.5)),
-                    bg: thumb_color.into(),
-                    ..Default::default()
-                });
-
-            container_children.push(track);
-            container_children.push(thumb);
+        // If no scrollbar needed, just return content
+        if !self.should_show_scrollbar() {
+            return content_area;
         }
 
-        Element::new(font, ElementContent::Children(container_children)).display(DisplayType::Block)
+        // Create scrollbar visual elements
+        let (thumb_top, thumb_height) = self.get_scrollbar_thumb_info();
+        
+        // For now, add a visual indicator of scroll position
+        let scroll_indicator = Element::new(
+            font,
+            ElementContent::Text(format!(
+                "▐ {}/{}",
+                self.top_row + self.max_visible_items.min(self.content.len() - self.top_row),
+                self.content.len()
+            ))
+        )
+        .colors(ElementColors {
+            text: LinearRgba::with_components(0.4, 0.4, 0.45, 0.7).into(),
+            ..Default::default()
+        })
+        .padding(BoxDimension {
+            top: Dimension::Pixels(4.0),
+            left: Dimension::Pixels(8.0),
+            bottom: Dimension::Pixels(4.0),
+            ..Default::default()
+        });
+
+        // Return content with scroll indicator
+        Element::new(
+            font,
+            ElementContent::Children(vec![content_area, scroll_indicator])
+        )
+        .display(DisplayType::Block)
     }
 
     fn should_show_scrollbar(&self) -> bool {

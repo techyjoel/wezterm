@@ -22,7 +22,7 @@ impl SettingsSidebar {
 }
 
 impl Sidebar for SettingsSidebar {
-    fn render(&mut self, font: &Rc<LoadedFont>) -> Element {
+    fn render(&mut self, font: &Rc<LoadedFont>, _window_height: f32) -> Element {
         // Placeholder for settings sidebar
         Element::new(
             font,

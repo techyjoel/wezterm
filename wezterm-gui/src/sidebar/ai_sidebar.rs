@@ -206,6 +206,28 @@ brew install pkg-config
             timestamp: now - Duration::from_secs(10),
         });
 
+        // Add more mock items to test scrolling
+        for i in 0..20 {
+            if i % 3 == 0 {
+                self.activity_log.push(ActivityItem::Command {
+                    id: format!("cmd{}", i + 10),
+                    command: format!("test command {}", i),
+                    output: Some(format!("Output for command {}", i)),
+                    pane_id: Some("pane1".to_string()),
+                    status: if i % 2 == 0 { CommandStatus::Success } else { CommandStatus::Failed(1) },
+                    timestamp: now - Duration::from_secs(300 + i * 60),
+                    expanded: false,
+                });
+            } else {
+                self.activity_log.push(ActivityItem::Chat {
+                    id: format!("chat{}", i + 10),
+                    message: format!("Test message {} from {}", i, if i % 2 == 0 { "user" } else { "AI" }),
+                    is_user: i % 2 == 0,
+                    timestamp: now - Duration::from_secs(300 + i * 60),
+                });
+            }
+        }
+
         self.agent_mode = AgentMode::Thinking;
     }
 
@@ -542,7 +564,7 @@ brew install pkg-config
         }
     }
 
-    fn render_activity_log(&self, font: &Rc<LoadedFont>) -> Element {
+    fn render_activity_log(&self, font: &Rc<LoadedFont>, available_height: f32) -> Element {
         let filtered_items: Vec<&ActivityItem> = self
             .activity_log
             .iter()
@@ -559,8 +581,22 @@ brew install pkg-config
             .map(|item| self.render_activity_item(item, font))
             .collect();
 
-        let scrollable = ScrollableContainer::new(20) // Approx viewport height
+        // Calculate viewport size based on available height
+        // Each item is approximately 40px (including margins)
+        let padding = 16.0; // top + bottom padding
+        let item_height = 40.0;
+        let viewport_items = ((available_height - padding) / item_height) as usize;
+        
+        log::debug!(
+            "Activity log: available_height={}, viewport_items={}, total_items={}",
+            available_height,
+            viewport_items,
+            rendered_items.len()
+        );
+        
+        let scrollable = ScrollableContainer::new(viewport_items.max(1))
             .with_content(rendered_items)
+            .with_auto_hide_scrollbar(false) // Always show scrollbar when needed
             .render(font);
 
         Element::new(font, ElementContent::Children(vec![scrollable]))
@@ -571,7 +607,7 @@ brew install pkg-config
                 top: Dimension::Pixels(8.0),
                 bottom: Dimension::Pixels(8.0),
             })
-            .min_height(Some(Dimension::Pixels(200.0)))
+            .min_height(Some(Dimension::Pixels(available_height)))
     }
 
     fn render_chat_input(&self, font: &Rc<LoadedFont>) -> Element {
@@ -596,32 +632,48 @@ brew install pkg-config
         })
     }
 
-    pub fn render_content(&self, font: &Rc<LoadedFont>) -> Element {
+    pub fn render_content(&self, font: &Rc<LoadedFont>, window_height: f32) -> Element {
         let mut children = vec![];
 
+        // Fixed height elements at top
         // Header
         children.push(self.render_header(font));
-
-        // Filter chips
-        children.push(self.render_filter_chips(font));
 
         // Status chip
         children.push(self.render_status_chip(font));
 
-        // Current goal card
+        // Filter chips
+        children.push(self.render_filter_chips(font));
+
+        // Current goal card (optional)
         if let Some(goal_element) = self.render_current_goal(font) {
             children.push(goal_element);
         }
 
-        // Current suggestion card
+        // Current suggestion card (optional)
         if let Some(suggestion_element) = self.render_current_suggestion(font) {
             children.push(suggestion_element);
         }
 
-        // Activity log
-        children.push(self.render_activity_log(font));
+        // Calculate fixed heights more precisely:
+        // Header: 50px (text + padding)
+        // Status chip: 40px (chip + padding)
+        // Filter chips: 50px (chips + padding)
+        // Chat input: 120px (3 lines + button + padding)
+        // Total margins: 20px
+        let fixed_height = 280.0;
+        
+        // Add optional card heights
+        let goal_height = if self.current_goal.is_some() { 140.0 } else { 0.0 };
+        let suggestion_height = if self.current_suggestion.is_some() { 160.0 } else { 0.0 };
+        
+        let total_fixed = fixed_height + goal_height + suggestion_height;
+        let available_for_log = (window_height - total_fixed).max(50.0);
 
-        // Chat input
+        // Activity log with dynamic height
+        children.push(self.render_activity_log(font, available_for_log));
+
+        // Fixed height chat input at bottom
         children.push(self.render_chat_input(font));
 
         // Container
@@ -632,7 +684,7 @@ brew install pkg-config
                 ..Default::default()
             })
             .min_width(Some(Dimension::Pixels(self.width as f32)))
-            .min_height(Some(Dimension::Pixels(800.0))) // Full height
+            .min_height(Some(Dimension::Pixels(window_height)))
     }
 
     pub fn handle_filter_click(&mut self, filter: ActivityFilter) {
@@ -691,8 +743,8 @@ brew install pkg-config
 }
 
 impl Sidebar for AiSidebar {
-    fn render(&mut self, font: &Rc<LoadedFont>) -> Element {
-        self.render_content(font)
+    fn render(&mut self, font: &Rc<LoadedFont>, window_height: f32) -> Element {
+        self.render_content(font, window_height)
     }
 
     fn get_width(&self) -> u16 {

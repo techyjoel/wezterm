@@ -309,6 +309,31 @@ The implementation is divided into 7 phases:
   - **Development status**: Completed (part of activity log scrolling)
   - Auto-scroll to bottom on new messages
   - Maintain scroll position when reviewing history
+- [x] **2.4.4** Fix sidebar rendering positioning and layout issues
+  - **Development status**: Partially complete
+  - Fixed fundamental positioning issue using translate pattern from fancy_tab_bar
+  - Implemented proper Element to Quad conversion with compute_element starting at (0,0) then translating
+  - Fixed layout to have fixed-height top elements, flexible middle activity log, fixed bottom chat input
+  - Added window_height parameter to Sidebar trait for dynamic height calculations
+  - Improved resize handle exclusion zone (30px) for better mouse cursor behavior
+  - Added 20+ mock items to test scrolling functionality
+  - **Still needed**:
+    - Implement proper visual scrollbar (currently shows text indicator)
+    - Refine positioning and appearance of all elements
+    - Add mouse interaction for scrollbar dragging
+    - Fine-tune spacing and margins
+  - **Implementation notes**:
+    - Scrollbar needs absolute positioning or float layout support
+    - Activity log dynamically calculates viewport based on available height
+    - Fixed heights: header 50px, status 40px, filters 50px, chat 120px
+    
+- [ ] **2.4.5** Performance optimization - Caching for markdown and syntax highlighting
+  - **Development status**: Pending
+  - Cache rendered markdown elements to avoid re-parsing on every frame
+  - Cache syntax highlighted code blocks
+  - Implement dirty tracking to only re-render changed content
+  - Consider using a render cache keyed by content hash
+  - **Rationale**: Currently the sidebar re-renders all markdown on every frame causing performance issues
 
 ### 2.5 Config System Integration
 - [ ] **2.5.1** Integrate our components into the Wezterm config system

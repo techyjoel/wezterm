@@ -146,7 +146,7 @@ impl Default for SidebarConfig {
 
 pub trait Sidebar: Send + Sync {
     // Return the rendered content for this sidebar
-    fn render(&mut self, font: &Rc<LoadedFont>) -> Element;
+    fn render(&mut self, font: &Rc<LoadedFont>, window_height: f32) -> Element;
 
     fn get_width(&self) -> u16;
 

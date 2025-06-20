@@ -316,13 +316,29 @@ impl crate::TermWindow {
         self.filled_rectangle(layers, 2, sidebar_rect, sidebar_bg_color)?;
 
         // Add UI item for the sidebar area to capture mouse events
-        self.ui_items.push(UIItem {
-            x: sidebar_x as usize,
-            y: 0,
-            width: visible_width as usize,
-            height: self.dimensions.pixel_height,
-            item_type: UIItemType::Sidebar(crate::sidebar::SidebarPosition::Right),
-        });
+        // Exclude bottom-right corner for window resize handle
+        let resize_exclusion = 30; // Larger exclusion zone for resize handle
+        if visible_width > resize_exclusion as f32 {
+            // Main sidebar area (excluding bottom portion)
+            self.ui_items.push(UIItem {
+                x: sidebar_x as usize,
+                y: 0,
+                width: visible_width as usize,
+                height: self.dimensions.pixel_height.saturating_sub(resize_exclusion),
+                item_type: UIItemType::Sidebar(crate::sidebar::SidebarPosition::Right),
+            });
+            
+            // Left portion of bottom area (excluding resize corner)
+            if visible_width > (resize_exclusion * 2) as f32 {
+                self.ui_items.push(UIItem {
+                    x: sidebar_x as usize,
+                    y: self.dimensions.pixel_height.saturating_sub(resize_exclusion),
+                    width: (visible_width as usize).saturating_sub(resize_exclusion),
+                    height: resize_exclusion,
+                    item_type: UIItemType::Sidebar(crate::sidebar::SidebarPosition::Right),
+                });
+            }
+        }
 
         // We need to clone and drop the manager before using the sidebar
         let sidebar = sidebar_manager.get_right_sidebar();
@@ -332,10 +348,10 @@ impl crate::TermWindow {
         if let Some(sidebar) = sidebar {
             let mut sidebar_locked = sidebar.lock().unwrap();
             let font = self.fonts.title_font()?;
-            let element = sidebar_locked.render(&font);
+            let element = sidebar_locked.render(&font, self.dimensions.pixel_height as f32);
 
-            // Compute the element layout
-            let computed = self.compute_element(
+            // Compute the element layout with bounds starting at (0,0)
+            let mut computed = self.compute_element(
                 &LayoutContext {
                     width: DimensionContext {
                         dpi: self.dimensions.dpi as f32,
@@ -348,7 +364,7 @@ impl crate::TermWindow {
                         pixel_max: self.dimensions.pixel_height as f32,
                     },
                     bounds: euclid::rect(
-                        sidebar_x,
+                        0.0,
                         0.0,
                         visible_width,
                         self.dimensions.pixel_height as f32,
@@ -359,6 +375,9 @@ impl crate::TermWindow {
                 },
                 &element,
             )?;
+
+            // Translate the computed element to the sidebar position
+            computed.translate(euclid::vec2(sidebar_x, 0.0));
 
             // Render the computed element to quads
             let gl_state = self.render_state.as_ref().unwrap();
