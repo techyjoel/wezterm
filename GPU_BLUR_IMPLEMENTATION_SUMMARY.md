@@ -40,10 +40,10 @@ The GPU blur system is now **fully implemented and working** with the following 
 - **Target**: 120fps with multiple active glows achieved
 
 ### Key Parameters
-- **Glow radius**: 8px (configurable)
+- **Glow radius**: Configurable (default 8px)
 - **Intensity**: 80% × style.glow_intensity
 - **Icon size**: 40×40px
-- **Texture size**: 56×56px (icon + 2×radius padding)
+- **Texture size**: Dynamic based on blur kernel size
 - **Blend mode**: Additive for glow effect
 
 ## Recent Fixes ✅
@@ -61,9 +61,21 @@ The GPU blur system is now **fully implemented and working** with the following 
 - ✅ Fixed inverted glow rendering by correcting Y-coordinate handling in shaders
 - ✅ Refined vertical positioning with adjusted height reduction for pixel-perfect alignment
 
+### 3. Gaussian Blur Spread (Fixed)
+- ✅ Matched GIMP's blur behavior by adjusting sigma calculation
+- ✅ Added 1.0 to radius before calculating sigma (matching GIMP)
+- ✅ Changed sigma formula from `radius/3.33` to `(radius+1)/2.0` for better spread
+- ✅ Extended kernel size to `3*sigma` to capture more of the gaussian tail
+- ✅ Blur now properly spreads to the full specified radius
+
 ## Remaining Issues
 
-### 1. Platform Support
+### 1. Glow Position Offset at Large Radii
+- When `glow_radius` > ~10 pixels, the glow shifts down and right from center
+- Offset appears proportional to blur radius
+- Likely related to texture size or positioning calculations not accounting for larger kernels
+
+### 2. Platform Support
 - Currently WebGPU only
 - No OpenGL version implemented (but Wezterm supports both with the front_end config option)
 
@@ -72,8 +84,15 @@ The GPU blur system is now **fully implemented and working** with the following 
 ### Shader Pipeline
 1. **Icon Creation**: Rasterize glyph with neon color
 2. **Blur Pass 1**: Horizontal Gaussian blur
-3. **Blur Pass 2**: Vertical Gaussian blur
+3. **Blur Pass 2**: Vertical Gaussian blur  
 4. **Composite**: Additive blend at icon position
+
+### Blur Algorithm Details
+- **Sigma Calculation**: `sigma = (radius + 1.0) / 2.0`
+- **Kernel Size**: `kernel_radius = ceil(sigma * 3.0)` for 3-sigma coverage
+- **Sampling**: Full convolution kernel with gaussian weights
+- **Normalization**: Weights normalized to sum to 1.0
+- **Edge Handling**: Clamp-to-edge texture sampling
 
 ### Uniform Structure (glow_composite.wgsl)
 ```rust

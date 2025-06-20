@@ -349,14 +349,17 @@ impl BlurRenderer {
         let height = source.height() as u32;
 
         // Calculate blur parameters using GIMP's formula
-        // GIMP uses: std_dev = sqrt(-(radius * radius) / (2 * log(1.0 / 255.0)))
+        // GIMP adds 1.0 to radius: radius = fabs(radius) + 1.0
+        // Then: std_dev = sqrt(-(radius * radius) / (2 * log(1.0 / 255.0)))
         // This simplifies to: sigma = radius / sqrt(2 * ln(255)) ≈ radius / 3.33
-        let sigma = radius / 3.33;
+        // However, GIMP uses IIR filter which spreads further than convolution.
+        // To approximate this with convolution, we need a larger sigma.
+        let effective_radius = radius.abs() + 1.0;
+        let sigma = effective_radius / 2.0; // Larger sigma for more spread
 
-        // Kernel size calculation based on GIMP's approach
-        // GIMP ensures kernel captures values down to 1/255 intensity
-        // kernel_radius = ceil(sqrt(-sigma² * log(1/255)))
-        let kernel_radius = (sigma * (2.0 * 255.0_f32.ln()).sqrt()).ceil() as u32;
+        // For proper blur spread, we need a kernel that extends beyond the nominal radius
+        // to capture the gaussian tail. Use 3*sigma as a good approximation.
+        let kernel_radius = (sigma * 3.0).ceil() as u32;
         let kernel_size = kernel_radius * 2 + 1; // Make it odd
 
         // Get render targets for ping-pong

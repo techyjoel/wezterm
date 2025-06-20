@@ -308,6 +308,51 @@ This properly centers the glow on the actual icon position rather than the butto
    - Test on Linux (various drivers)
    - Test on Windows (ANGLE)
 
+### Blur Algorithm Improvements (COMPLETED)
+
+#### Gaussian Blur Spread Issue ✅
+**Problem**: The gaussian blur was too concentrated and didn't spread as far as GIMP's implementation.
+
+**Root Cause**: 
+- GIMP uses an IIR (Infinite Impulse Response) filter which has a longer tail than truncated convolution
+- GIMP adds 1.0 to the radius before calculating sigma
+- Our implementation was using a simple convolution with limited kernel size
+
+**Solution Implemented**:
+1. **Modified sigma calculation** (`blur.rs`):
+   ```rust
+   let effective_radius = radius.abs() + 1.0;  // Match GIMP's radius adjustment
+   let sigma = effective_radius / 2.0;         // Larger sigma for more spread (was /3.33)
+   ```
+
+2. **Extended kernel size** to capture more of the gaussian tail:
+   ```rust
+   let kernel_radius = (sigma * 3.0).ceil() as u32;  // 3-sigma rule for 99.7% coverage
+   ```
+
+This approximates GIMP's IIR filter behavior with our convolution approach, resulting in proper blur spread.
+
+### Known Issues - To Be Fixed
+
+#### 1. Glow Position Offset with Large Radius
+**Problem**: When `glow_radius` is increased beyond ~10 pixels, the neon glow effect shifts down and to the right, moving away from center.
+
+**Symptoms**:
+- Glow appears correctly centered at small radii (5-10)
+- As radius increases, glow progressively moves off-center
+- Offset appears proportional to the blur radius
+
+**Possible Causes**:
+- Texture size calculation not accounting for larger blur extent
+- Glow positioning calculation not adjusting for increased texture dimensions
+- Coordinate transformation issue in the shader or overlay system
+
+**Next Steps**:
+1. Debug texture dimensions at various blur radii
+2. Check glow position calculation in `render_neon_glyph_with_bounds`
+3. Verify shader coordinate calculations in `glow_composite.wgsl`
+4. Test if the offset is related to the kernel size changes
+
 ### Debug Helpers (optional as needed)
 1. **Visual Debug Mode**
    - Draw glow bounds as colored rectangles

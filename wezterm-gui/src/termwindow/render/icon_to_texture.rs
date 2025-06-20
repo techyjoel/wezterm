@@ -90,8 +90,8 @@ impl TermWindow {
         // We need extra padding to ensure the blur doesn't get clipped
         let min_size = glyph_width.max(glyph_height) as u32;
         let blur_padding = padding; // This is the blur radius
-                                    // Add blur_padding on each side, plus some extra for safety
-        let texture_size = min_size.max(icon_size) + (blur_padding * 2) * 2;
+                                    // Add blur_padding on each side
+        let texture_size = min_size.max(icon_size) + (blur_padding * 2);
 
         log::info!(
             "Texture sizing: glyph {}x{}, icon_size {}, padding {}, blur_padding {}, final texture {}",

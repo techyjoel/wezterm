@@ -85,9 +85,8 @@ fn fs_blur(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     
     // Perform blur in specified direction
-    // The step size should be based on sigma for proper Gaussian sampling
-    // This ensures we sample the Gaussian distribution properly, not at fixed pixel intervals
-    let step_size = 1.0; // Sample at every pixel within the kernel
+    // Sample at every pixel within the blur radius
+    let step_size = 1.0;
     
     for (var i = -half_kernel; i <= half_kernel; i++) {
         // Calculate offset in pixels
