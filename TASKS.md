@@ -309,8 +309,8 @@ The implementation is divided into 7 phases:
   - **Development status**: Completed (part of activity log scrolling)
   - Auto-scroll to bottom on new messages
   - Maintain scroll position when reviewing history
-- [x] **2.4.4** Fix sidebar rendering positioning and layout issues
-  - **Development status**: Completed
+- [ ] **2.4.4** Fix sidebar rendering positioning and layout issues
+  - **Development status**: Partially complete
   - **Completed**:
     - Fixed fundamental positioning issue using translate pattern from fancy_tab_bar
     - Implemented proper Element to Quad conversion with compute_element starting at (0,0) then translating
@@ -322,19 +322,48 @@ The implementation is divided into 7 phases:
     - Fixed activity log items displaying side-by-side by adding DisplayType::Block
     - Fixed activity log overflowing past window bottom with proper height calculations
     - Fixed multi-line markdown content height calculation with recursive algorithm
-    - **Scrollbar Implementation**: Successfully integrated scrollbar into Element system
+    - **Scrollbar Visibility**: Scrollbar now renders as an Element (visible but non-functional)
       - Root cause: `render_element()` invalidates the layers allocator, preventing direct rendering after
-      - Solution: Scrollbar is now an Element child of the viewport container
+      - Current approach: Scrollbar is an Element child of the viewport container
       - Uses negative margins and Float::Right for positioning
       - Sets zindex(2) to render on topmost layer
       - See detailed architecture notes in scrollable.rs
+  - **Current issues**:
+    - **Mouse interaction broken**: Clicking anywhere in sidebar cycles through filter options
+      - UI items not properly registered for scrollbar
+      - Mouse events being captured by wrong elements
+      - Need proper hit testing for scrollbar components
+    - **Scrollbar overlaps content**: Scrollbar slightly covers activity log items
+      - Need to adjust margins/padding to prevent overlap
+      - Consider reserving space for scrollbar in layout
+    - **Not reusable**: Current implementation tied to ScrollableContainer
+      - Need to extract scrollbar into standalone component
+      - Should work with any scrollable content (suggestions, overlays, etc.)
+    - **Limited z-ordering**: Only 3 layers available (0, 1, 2)
+      - Will need more layers for modal overlays
+      - "More" button in suggestions needs to show overlay above other content
+      - May require architectural changes to support 10+ layers
   - **Remaining tasks**:
-    1. Implement scrollbar mouse interaction:
+    1. Fix mouse interaction:
+       - Debug why all clicks go to filter chips
+       - Implement proper UIItem registration for scrollbar
        - Add UIItemType variants for sidebar scrollbar components
-       - Handle mouse wheel events in ScrollableContainer
+       - Handle mouse wheel events properly in ScrollableContainer
        - Implement drag scrolling logic
        - Add click-to-page functionality
-    2. Polish and refinement:
+    2. Fix scrollbar overlap:
+       - Adjust content area to account for scrollbar width
+       - Or use overlay approach with proper spacing
+    3. Make scrollbar reusable:
+       - Extract scrollbar rendering into separate component
+       - Create generic ScrollbarRenderer that can be used anywhere
+       - Support both vertical and horizontal scrollbars
+    4. Implement modal overlay system:
+       - Research expanding layer system from 3 to 10+ layers
+       - Or implement alternative overlay mechanism
+       - Support for suggestion expansion ("more" button)
+       - Support for other modal dialogs in sidebar
+    5. Polish and refinement:
        - Fine-tune spacing and margins
        - Add hover states for scrollbar
        - Smooth scrolling animation
@@ -343,8 +372,8 @@ The implementation is divided into 7 phases:
     - WezTerm has a fixed 3-layer rendering system (hardcoded throughout)
     - Cannot render with filled_rectangle after render_element is called
     - Scrollbar must be part of the Element tree, not rendered separately
-    - Activity log viewport dynamically sized based on window height
-    - Fixed heights: header 50px, status 40px, filters 50px, chat 120px
+    - Need to investigate proper mouse event handling in Element system
+    - May need to propose architectural change for more layers
 
 - [ ] **2.4.5** Performance optimization - Caching for markdown and syntax highlighting
   - **Development status**: Pending
@@ -360,17 +389,78 @@ The implementation is divided into 7 phases:
   - Set up the ./clibuddy/wezterm.lua file with relevant new config items, and remove the global export
   - Integrate with the wezterm config processing system
 
-**Phase 2 Summary**: Core AI sidebar UI is complete. The sidebar renders with all major components (header, status, goals, suggestions, activity log, chat). All chat features implemented including multi-line input, markdown rendering, and syntax highlighting. The sidebar is fully functional and can be toggled via the button. Only remaining item is config system integration (Phase 2.5).
+**Phase 2 Summary**: Core AI sidebar UI is mostly complete. The sidebar renders with all major components (header, status, goals, suggestions, activity log, chat). All chat features implemented including multi-line input, markdown rendering, and syntax highlighting. The sidebar can be toggled via the button. 
+
+**Remaining Phase 2 work**:
+- **2.4.4**: Fix scrollbar functionality and mouse interaction issues
+- **2.4.5**: Performance optimization for markdown/syntax caching  
+- **2.5**: Config system integration
+- **2.6**: Architectural improvements (more layers, reusable scrollbar, modal overlays)
+
+**Known Issues**:
+- Scrollbar is visible but non-functional (clicking cycles filter options)
+- Scrollbar overlaps content slightly
+- Mouse events not properly routed to scrollbar elements
+- Limited to 3 rendering layers (need 10+ for complex UI)
 
 **Implementation Details**:
 - Foundation fixes implemented first:
   - Element to Quad conversion using `compute_element()` and `render_element()`
-  - Mouse event handling with UIItem system integration
+  - Mouse event handling with UIItem system integration (needs more work)
   - Fixed sidebar trait to use `window::MouseEvent` instead of termwiz
 - Total implementation: ~4,500 lines of code across sidebar modules
 - Build tested and compiles successfully in release mode
 - Code formatted with `cargo +nightly fmt`
 - Added comprehensive mock data demonstrating markdown and code highlighting
+
+---
+
+### 2.6 Architectural Improvements Needed
+
+- [ ] **2.6.1** Expand layer system for complex UI
+  - **Current limitation**: Only 3 layers (0, 1, 2) available
+  - **Needed**: 10+ layers for proper z-ordering of:
+    - Base content (layer 0)
+    - Activity log items (layer 1)
+    - Scrollbars (layer 2-3)
+    - Modal overlays (layer 4-5)
+    - Tooltips (layer 6-7)
+    - Dropdown menus (layer 8-9)
+  - **Implementation approach**:
+    - Replace fixed arrays with Vec-based layer system
+    - Update TripleLayerQuadAllocator to MultiLayerQuadAllocator
+    - Performance impact assessment needed
+    - See research notes in scrollable.rs comments
+
+- [ ] **2.6.2** Create reusable scrollbar system
+  - **Requirements**:
+    - Standalone ScrollbarRenderer component
+    - Support vertical and horizontal orientations
+    - Configurable styling (width, colors, border radius)
+    - Mouse interaction support (wheel, drag, click)
+    - Smooth scrolling animations
+    - Auto-hide with fade animations
+  - **Usage contexts**:
+    - Activity log (current)
+    - Long suggestion cards
+    - Chat history
+    - Settings panels
+    - SSH host lists
+    - Any future scrollable content
+
+- [ ] **2.6.3** Implement modal overlay framework
+  - **Requirements**:
+    - Show content above other sidebar elements
+    - Background dimming/blur
+    - Click-outside-to-close
+    - Keyboard navigation (Escape to close)
+    - Animation support (fade in/out, slide)
+  - **Use cases**:
+    - Suggestion "more" expansion
+    - Confirmation dialogs
+    - Error messages
+    - Settings sub-panels
+    - File pickers
 
 ---
 
