@@ -303,7 +303,7 @@ impl HarfbuzzShaper {
                     }
 
                     if presentation.is_some() {
-                        log::debug!(
+                        log::trace!(
                             "Ran out of fallback options, retry shape with no presentation"
                         );
                         // Ran out of fallbacks and we have an explicit presentation.
@@ -381,7 +381,7 @@ impl HarfbuzzShaper {
         };
 
         cluster_resolver.build(hb_infos, s, &range);
-        log::debug!("cluster_resolver: {cluster_resolver:#?}");
+        log::trace!("cluster_resolver: {cluster_resolver:#?}");
 
         let info_iter = hb_infos.iter().zip(positions.iter()).peekable();
         for (info, pos) in info_iter {
@@ -407,7 +407,7 @@ impl HarfbuzzShaper {
                 x_offset: pos.x_offset,
                 y_offset: pos.y_offset,
             };
-            log::debug!("hb info.cluster {} -> {info:?}", info.cluster);
+            log::trace!("hb info.cluster {} -> {info:?}", info.cluster);
 
             if info.codepoint == 0 && !no_more_fallbacks {
                 cluster_info.incomplete = true;
@@ -456,7 +456,7 @@ impl HarfbuzzShaper {
             info_clusters.push(vec![info]);
         }
         //  log::error!("do_shape: font_idx={} {:?} {:#?}", font_idx, &s[range.clone()], info_clusters);
-        log::debug!("font_idx={font_idx} info_clusters: {:#?}", info_clusters);
+        log::trace!("font_idx={font_idx} info_clusters: {:#?}", info_clusters);
 
         let mut direct_clusters = 0;
 

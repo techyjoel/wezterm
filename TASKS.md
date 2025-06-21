@@ -310,23 +310,42 @@ The implementation is divided into 7 phases:
   - Auto-scroll to bottom on new messages
   - Maintain scroll position when reviewing history
 - [x] **2.4.4** Fix sidebar rendering positioning and layout issues
-  - **Development status**: Partially complete
-  - Fixed fundamental positioning issue using translate pattern from fancy_tab_bar
-  - Implemented proper Element to Quad conversion with compute_element starting at (0,0) then translating
-  - Fixed layout to have fixed-height top elements, flexible middle activity log, fixed bottom chat input
-  - Added window_height parameter to Sidebar trait for dynamic height calculations
-  - Improved resize handle exclusion zone (30px) for better mouse cursor behavior
-  - Added 20+ mock items to test scrolling functionality
-  - **Still needed**:
-    - Implement proper visual scrollbar (currently shows text indicator)
-    - Refine positioning and appearance of all elements
-    - Add mouse interaction for scrollbar dragging
-    - Fine-tune spacing and margins
+  - **Development status**: Completed
+  - **Completed**:
+    - Fixed fundamental positioning issue using translate pattern from fancy_tab_bar
+    - Implemented proper Element to Quad conversion with compute_element starting at (0,0) then translating
+    - Fixed layout to have fixed-height top elements, flexible middle activity log, fixed bottom chat input
+    - Added window_height parameter to Sidebar trait for dynamic height calculations
+    - Improved resize handle exclusion zone (20px) for better mouse cursor behavior
+    - Added 20+ mock items to test scrolling functionality
+    - Implemented scrollbar infrastructure with ScrollbarInfo struct
+    - Fixed activity log items displaying side-by-side by adding DisplayType::Block
+    - Fixed activity log overflowing past window bottom with proper height calculations
+    - Fixed multi-line markdown content height calculation with recursive algorithm
+    - **Scrollbar Implementation**: Successfully integrated scrollbar into Element system
+      - Root cause: `render_element()` invalidates the layers allocator, preventing direct rendering after
+      - Solution: Scrollbar is now an Element child of the viewport container
+      - Uses negative margins and Float::Right for positioning
+      - Sets zindex(2) to render on topmost layer
+      - See detailed architecture notes in scrollable.rs
+  - **Remaining tasks**:
+    1. Implement scrollbar mouse interaction:
+       - Add UIItemType variants for sidebar scrollbar components
+       - Handle mouse wheel events in ScrollableContainer
+       - Implement drag scrolling logic
+       - Add click-to-page functionality
+    2. Polish and refinement:
+       - Fine-tune spacing and margins
+       - Add hover states for scrollbar
+       - Smooth scrolling animation
+       - Configuration options
   - **Implementation notes**:
-    - Scrollbar needs absolute positioning or float layout support
-    - Activity log dynamically calculates viewport based on available height
+    - WezTerm has a fixed 3-layer rendering system (hardcoded throughout)
+    - Cannot render with filled_rectangle after render_element is called
+    - Scrollbar must be part of the Element tree, not rendered separately
+    - Activity log viewport dynamically sized based on window height
     - Fixed heights: header 50px, status 40px, filters 50px, chat 120px
-    
+
 - [ ] **2.4.5** Performance optimization - Caching for markdown and syntax highlighting
   - **Development status**: Pending
   - Cache rendered markdown elements to avoid re-parsing on every frame

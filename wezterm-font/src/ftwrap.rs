@@ -461,7 +461,7 @@ impl Face {
         }
 
         let pixel_height = point_size * dpi as f64 / 72.0;
-        log::debug!(
+        log::trace!(
             "set_char_size computing {} dpi={} (pixel height={})",
             point_size,
             dpi,

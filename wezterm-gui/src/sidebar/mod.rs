@@ -15,7 +15,15 @@ pub mod settings_sidebar;
 
 pub use ai_sidebar::AiSidebar;
 pub use animation::{SidebarAnimation, SidebarPositionAnimation};
+pub use components::ScrollbarInfo;
 pub use settings_sidebar::SettingsSidebar;
+
+/// Information about scrollbars in a sidebar that need external rendering
+#[derive(Default)]
+pub struct SidebarScrollbars {
+    pub activity_log: Option<ScrollbarInfo>,
+    // Future: Add more scrollbar info for other scrollable areas
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarPosition {
@@ -147,6 +155,11 @@ impl Default for SidebarConfig {
 pub trait Sidebar: Send + Sync {
     // Return the rendered content for this sidebar
     fn render(&mut self, font: &Rc<LoadedFont>, window_height: f32) -> Element;
+    
+    // Get scrollbar information for external rendering
+    fn get_scrollbars(&self) -> SidebarScrollbars {
+        SidebarScrollbars::default()
+    }
 
     fn get_width(&self) -> u16;
 
@@ -165,6 +178,10 @@ pub trait Sidebar: Send + Sync {
     fn handle_key_event(&mut self, _key: &KeyCode) -> Result<bool> {
         Ok(false)
     }
+    
+    // Allow downcasting for specialized rendering
+    fn as_any(&self) -> &dyn std::any::Any;
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 
 pub struct SidebarManager {
@@ -172,7 +189,7 @@ pub struct SidebarManager {
     right_sidebar: Option<Arc<Mutex<dyn Sidebar>>>,
     left_state: SidebarState,
     right_state: SidebarState,
-    config: SidebarConfig,
+    pub config: SidebarConfig,
 }
 
 impl SidebarManager {
@@ -182,6 +199,7 @@ impl SidebarManager {
         left_config.position = SidebarPosition::Left;
         left_config.mode = SidebarMode::Overlay;
         left_config.width = 350; // Slightly wider for settings
+        left_config.show_on_startup = false; // Left sidebar always starts collapsed
 
         let mut right_config = config;
         right_config.position = SidebarPosition::Right;

@@ -95,7 +95,7 @@ impl TermWindow {
                                     // Add blur_padding on each side
         let texture_size = min_size.max(icon_size) + (blur_padding * 2);
 
-        log::debug!(
+        log::trace!(
             "Texture sizing: glyph {}x{}, icon_size {}, padding {}, blur_padding {}, final texture {}",
             glyph_width, glyph_height, icon_size, padding, blur_padding, texture_size
         );

@@ -1,6 +1,6 @@
 use super::components::{
     Card, CardState, Chip, ChipSize, ChipStyle, MarkdownRenderer, MultilineTextInput,
-    ScrollableContainer,
+    ScrollableContainer, ScrollbarInfo,
 };
 use super::{Sidebar, SidebarConfig, SidebarPosition};
 use crate::termwindow::box_model::{
@@ -99,13 +99,15 @@ pub struct AiSidebar {
     activity_filter: ActivityFilter,
 
     // Data
-    current_goal: Option<CurrentGoal>,
-    current_suggestion: Option<CurrentSuggestion>,
+    pub current_goal: Option<CurrentGoal>,
+    pub current_suggestion: Option<CurrentSuggestion>,
     activity_log: Vec<ActivityItem>,
 
     // UI Components
     chat_input: MultilineTextInput,
-    scroll_position: usize,
+    
+    // Scrollbar info for external rendering
+    activity_log_scrollbar: Option<ScrollbarInfo>,
 }
 
 impl AiSidebar {
@@ -122,7 +124,7 @@ impl AiSidebar {
             current_suggestion: None,
             activity_log: Vec::new(),
             chat_input: MultilineTextInput::new(3).with_placeholder("Type a message..."),
-            scroll_position: 0,
+            activity_log_scrollbar: None,
         }
     }
 
@@ -446,7 +448,8 @@ brew install pkg-config
         )
     }
 
-    fn render_activity_item(&self, item: &ActivityItem, font: &Rc<LoadedFont>) -> Element {
+
+    pub fn render_activity_item(&self, item: &ActivityItem, font: &Rc<LoadedFont>) -> Element {
         match item {
             ActivityItem::Command {
                 command,
@@ -484,7 +487,7 @@ brew install pkg-config
                                 ..Default::default()
                             })
                             .padding(BoxDimension {
-                                left: Dimension::Pixels(24.0),
+                                left: Dimension::Pixels(4.0),
                                 top: Dimension::Pixels(4.0),
                                 ..Default::default()
                             }),
@@ -516,6 +519,7 @@ brew install pkg-config
                 };
 
                 Element::new(font, ElementContent::Children(vec![content]))
+                    .display(DisplayType::Block)
                     .colors(ElementColors {
                         bg: bg_color.into(),
                         ..Default::default()
@@ -523,14 +527,14 @@ brew install pkg-config
                     .padding(BoxDimension::new(Dimension::Pixels(12.0)))
                     .margin(BoxDimension {
                         left: if *is_user {
-                            Dimension::Pixels(40.0)
+                            Dimension::Pixels(20.0)
                         } else {
                             Dimension::Pixels(0.0)
                         },
                         right: if *is_user {
                             Dimension::Pixels(0.0)
                         } else {
-                            Dimension::Pixels(40.0)
+                            Dimension::Pixels(20.0)
                         },
                         bottom: Dimension::Pixels(8.0),
                         ..Default::default()
@@ -564,7 +568,8 @@ brew install pkg-config
         }
     }
 
-    fn render_activity_log(&self, font: &Rc<LoadedFont>, available_height: f32) -> Element {
+    /// Get filtered activity items based on current filter
+    fn render_activity_log(&mut self, font: &Rc<LoadedFont>, available_height: f32) -> Element {
         let filtered_items: Vec<&ActivityItem> = self
             .activity_log
             .iter()
@@ -578,28 +583,35 @@ brew install pkg-config
 
         let rendered_items: Vec<Element> = filtered_items
             .into_iter()
-            .map(|item| self.render_activity_item(item, font))
+            .map(|item| {
+                // Wrap each item in a block container to ensure vertical stacking
+                Element::new(font, ElementContent::Children(vec![
+                    self.render_activity_item(item, font)
+                ]))
+                .display(DisplayType::Block)
+            })
             .collect();
 
-        // Calculate viewport size based on available height
-        // Each item is approximately 40px (including margins)
-        let padding = 16.0; // top + bottom padding
-        let item_height = 40.0;
-        let viewport_items = ((available_height - padding) / item_height) as usize;
+        // Create scrollable container with pixel-based viewport height
+        let viewport_height = available_height - 32.0; // Account for padding (16px top + 16px bottom)
         
         log::debug!(
-            "Activity log: available_height={}, viewport_items={}, total_items={}",
+            "Activity log: available_height={}, viewport_height={}, total_items={}",
             available_height,
-            viewport_items,
+            viewport_height,
             rendered_items.len()
         );
         
-        let scrollable = ScrollableContainer::new(viewport_items.max(1))
+        // Use pixel-based height for scrollable container
+        let mut scrollable_container = ScrollableContainer::new_with_pixel_height(viewport_height);
+        scrollable_container = scrollable_container
             .with_content(rendered_items)
-            .with_auto_hide_scrollbar(false) // Always show scrollbar when needed
-            .render(font);
+            .with_auto_hide_scrollbar(false); // Always show scrollbar for debugging
+        
+        let scrollable = scrollable_container.render(font);
 
-        Element::new(font, ElementContent::Children(vec![scrollable]))
+        // Create the activity log with padding
+        let padded_scrollable = Element::new(font, ElementContent::Children(vec![scrollable]))
             .display(DisplayType::Block)
             .padding(BoxDimension {
                 left: Dimension::Pixels(16.0),
@@ -607,8 +619,11 @@ brew install pkg-config
                 top: Dimension::Pixels(8.0),
                 bottom: Dimension::Pixels(8.0),
             })
-            .min_height(Some(Dimension::Pixels(available_height)))
+            .min_height(Some(Dimension::Pixels(available_height)));
+
+        padded_scrollable
     }
+
 
     fn render_chat_input(&self, font: &Rc<LoadedFont>) -> Element {
         let input_field = self.chat_input.render(font);
@@ -632,7 +647,7 @@ brew install pkg-config
         })
     }
 
-    pub fn render_content(&self, font: &Rc<LoadedFont>, window_height: f32) -> Element {
+    pub fn render_content(&mut self, font: &Rc<LoadedFont>, window_height: f32) -> Element {
         let mut children = vec![];
 
         // Fixed height elements at top
@@ -645,30 +660,39 @@ brew install pkg-config
         // Filter chips
         children.push(self.render_filter_chips(font));
 
-        // Current goal card (optional)
+        // Current goal card
         if let Some(goal_element) = self.render_current_goal(font) {
             children.push(goal_element);
         }
 
-        // Current suggestion card (optional)
+        // Current suggestion card
         if let Some(suggestion_element) = self.render_current_suggestion(font) {
             children.push(suggestion_element);
         }
 
-        // Calculate fixed heights more precisely:
+        // Calculate fixed heights for elements ABOVE the activity log:
         // Header: 50px (text + padding)
         // Status chip: 40px (chip + padding)
         // Filter chips: 50px (chips + padding)
-        // Chat input: 120px (3 lines + button + padding)
-        // Total margins: 20px
-        let fixed_height = 280.0;
+        // Extra for testing: 350px
+        let top_fixed_height = 490.0;
         
         // Add optional card heights
         let goal_height = if self.current_goal.is_some() { 140.0 } else { 0.0 };
         let suggestion_height = if self.current_suggestion.is_some() { 160.0 } else { 0.0 };
         
-        let total_fixed = fixed_height + goal_height + suggestion_height;
+        // Fixed height for elements BELOW the activity log:
+        // Chat input: 120px (3 lines + button + padding)
+        let bottom_fixed_height = 120.0;
+        
+        // Calculate available height for activity log
+        let total_fixed = top_fixed_height + goal_height + suggestion_height + bottom_fixed_height;
         let available_for_log = (window_height - total_fixed).max(50.0);
+        
+        log::debug!(
+            "Sidebar height calculation: window_height={}, top_fixed={}, goal={}, suggestion={}, bottom_fixed={}, total_fixed={}, available_for_log={}",
+            window_height, top_fixed_height, goal_height, suggestion_height, bottom_fixed_height, total_fixed, available_for_log
+        );
 
         // Activity log with dynamic height
         children.push(self.render_activity_log(font, available_for_log));
@@ -745,6 +769,12 @@ brew install pkg-config
 impl Sidebar for AiSidebar {
     fn render(&mut self, font: &Rc<LoadedFont>, window_height: f32) -> Element {
         self.render_content(font, window_height)
+    }
+    
+    fn get_scrollbars(&self) -> super::SidebarScrollbars {
+        super::SidebarScrollbars {
+            activity_log: self.activity_log_scrollbar.clone(),
+        }
     }
 
     fn get_width(&self) -> u16 {
@@ -840,5 +870,13 @@ impl Sidebar for AiSidebar {
             }
             _ => Ok(false),
         }
+    }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }

@@ -622,7 +622,7 @@ impl ConfigInner {
                 if let Some(lua) = lua {
                     LUA_PIPE.sender.try_send(lua).ok();
                 }
-                log::debug!("Reloaded configuration! generation={}", self.generation);
+                log::trace!("Reloaded configuration! generation={}", self.generation);
             }
             Err(err) => {
                 let err = format!("{:#}", err);

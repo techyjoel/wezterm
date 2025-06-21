@@ -532,12 +532,20 @@ impl TermWindow {
     }
 
     fn setup_ai_sidebar(&mut self) {
-        use crate::sidebar::{AiSidebar, SidebarConfig};
+        use crate::sidebar::{AiSidebar, SidebarConfig, SidebarMode};
         use std::sync::{Arc, Mutex};
 
+        // Get configuration from config system
+        let config_mode = match self.config.clibuddy.right_sidebar.mode {
+            config::SidebarMode::Overlay => SidebarMode::Overlay,
+            config::SidebarMode::Expand => SidebarMode::Expand,
+        };
+
         let mut ai_config = SidebarConfig::default();
-        ai_config.width = 400;
-        ai_config.show_on_startup = true; // Show on startup for testing
+        ai_config.width = self.config.clibuddy.right_sidebar.width;
+        ai_config.show_on_startup = self.config.clibuddy.right_sidebar.show_on_startup;
+        ai_config.mode = config_mode;
+        
         let show_on_startup = ai_config.show_on_startup; // Save before move
         let sidebar_width = ai_config.width; // Save width before move
 
@@ -574,15 +582,11 @@ impl TermWindow {
         drop(sidebar_manager);
 
         if needs_resize {
-            if let Some(window) = self.window.as_ref() {
-                log::info!("Resizing window to accommodate sidebar on startup");
-                let window = window.clone();
-                self.set_inner_size(
-                    &window,
-                    self.dimensions.pixel_width,
-                    self.dimensions.pixel_height,
-                );
-            }
+            // Window should already be sized correctly when created with expansion
+            log::debug!(
+                "Sidebar shown on startup, window already sized: width={}",
+                self.dimensions.pixel_width
+            );
         }
 
         // Trigger a window invalidation to ensure the sidebar is rendered
@@ -803,6 +807,7 @@ impl TermWindow {
 
         dimensions.pixel_height += (border.top + border.bottom).get() as usize;
         dimensions.pixel_width += (border.left + border.right).get() as usize;
+        
 
         let window_background = load_background_image(&config, &dimensions, &render_metrics);
 
@@ -928,9 +933,16 @@ impl TermWindow {
             key_table_state: KeyTableState::default(),
             modal: RefCell::new(None),
             opengl_info: None,
-            sidebar_manager: RefCell::new(crate::sidebar::SidebarManager::new(
-                crate::sidebar::SidebarConfig::default(),
-            )),
+            sidebar_manager: RefCell::new({
+                let mut sidebar_config = crate::sidebar::SidebarConfig::default();
+                sidebar_config.mode = match config.clibuddy.right_sidebar.mode {
+                    config::SidebarMode::Overlay => crate::sidebar::SidebarMode::Overlay,
+                    config::SidebarMode::Expand => crate::sidebar::SidebarMode::Expand,
+                };
+                sidebar_config.width = config.clibuddy.right_sidebar.width;
+                sidebar_config.show_on_startup = config.clibuddy.right_sidebar.show_on_startup;
+                crate::sidebar::SidebarManager::new(sidebar_config)
+            }),
             blur_renderer: RefCell::new(None),
             effects_overlay: RefCell::new(None),
         };
@@ -1080,7 +1092,7 @@ impl TermWindow {
         event: WindowEvent,
         window: &Window,
     ) -> anyhow::Result<bool> {
-        log::debug!("{event:?}");
+        log::trace!("{event:?}");
         match event {
             WindowEvent::Destroyed => {
                 // Ensure that we cancel any overlays we had running, so

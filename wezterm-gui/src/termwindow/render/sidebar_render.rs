@@ -1,6 +1,6 @@
 use crate::quad::{QuadTrait, TripleLayerQuadAllocator, TripleLayerQuadAllocatorTrait};
 use crate::termwindow::box_model::{
-    BoxDimension, Element, ElementColors, ElementContent, LayoutContext, VerticalAlign,
+    Element, ElementColors, ElementContent, LayoutContext,
 };
 use crate::termwindow::render::neon::{NeonRenderer, NeonStyle};
 use crate::termwindow::{UIItem, UIItemType};
@@ -18,7 +18,7 @@ const MIN_SIDEBAR_WIDTH: f32 = 25.0;
 
 impl crate::TermWindow {
     pub fn paint_sidebars(&mut self, layers: &mut TripleLayerQuadAllocator) -> Result<()> {
-        log::debug!("paint_sidebars called");
+        log::trace!("paint_sidebars called");
 
         // Update sidebar animations and check if we need to redraw
         let needs_redraw = self.sidebar_manager.borrow_mut().update_animations();
@@ -86,7 +86,7 @@ impl crate::TermWindow {
         &mut self,
         layers: &mut TripleLayerQuadAllocator,
     ) -> Result<()> {
-        log::debug!("paint_sidebar_toggle_buttons called");
+        log::trace!("paint_sidebar_toggle_buttons called");
         let config = self.config.clone();
 
         // Common button configuration
@@ -179,7 +179,7 @@ impl crate::TermWindow {
         // Paint right sidebar button
         let padding = self.effective_right_padding(&self.config) as f32;
 
-        // Calculate right button position - align with left edge of scrollbar
+        // Calculate right button position - align with left edge of main scrollbar
         let right_button_x = if expansion > 0.0 {
             // Sidebar is visible/expanding - position relative to terminal content
             self.dimensions.pixel_width as f32 - expansion - padding - border.right.get() as f32
@@ -290,9 +290,19 @@ impl crate::TermWindow {
 
         // Determine visible width and position based on sidebar state
         let is_visible = sidebar_manager.is_right_visible();
+        
+        // Calculate sidebar position based on mode and state
+        let sidebar_mode = sidebar_manager.config.mode;
         let (visible_width, sidebar_x) = if is_visible {
             // Expanded state - show full width
-            (full_width, self.dimensions.pixel_width as f32 - expansion)
+            if sidebar_mode == crate::sidebar::SidebarMode::Expand {
+                // In expand mode, the window width already includes the sidebar
+                // Position the sidebar at window_width - sidebar_width
+                (full_width, self.dimensions.pixel_width as f32 - full_width)
+            } else {
+                // In overlay mode, sidebar overlays on top of terminal content
+                (full_width, self.dimensions.pixel_width as f32 - full_width)
+            }
         } else {
             // Collapsed state - show only MIN_SIDEBAR_WIDTH
             (
@@ -300,6 +310,24 @@ impl crate::TermWindow {
                 self.dimensions.pixel_width as f32 - MIN_SIDEBAR_WIDTH,
             )
         };
+        
+        // Debug: Check actual vs expected window width
+        let expected_window_width = if is_visible && sidebar_mode == crate::sidebar::SidebarMode::Expand {
+            self.dimensions.pixel_width - expansion as usize + full_width as usize
+        } else {
+            self.dimensions.pixel_width
+        };
+        
+        log::debug!(
+            "Right sidebar positioning: window_width={}, expected={}, full_width={}, expansion={}, sidebar_x={}, is_visible={}, mode={:?}",
+            self.dimensions.pixel_width,
+            expected_window_width,
+            full_width,
+            expansion,
+            sidebar_x,
+            is_visible,
+            sidebar_mode
+        );
 
         // Draw the sidebar background
         // Use layer 2 to render on top of terminal content and overlay
@@ -317,7 +345,7 @@ impl crate::TermWindow {
 
         // Add UI item for the sidebar area to capture mouse events
         // Exclude bottom-right corner for window resize handle
-        let resize_exclusion = 30; // Larger exclusion zone for resize handle
+        let resize_exclusion = 20;
         if visible_width > resize_exclusion as f32 {
             // Main sidebar area (excluding bottom portion)
             self.ui_items.push(UIItem {
@@ -347,9 +375,12 @@ impl crate::TermWindow {
         // Render the actual AI sidebar content
         if let Some(sidebar) = sidebar {
             let mut sidebar_locked = sidebar.lock().unwrap();
+            
             let font = self.fonts.title_font()?;
             let element = sidebar_locked.render(&font, self.dimensions.pixel_height as f32);
-
+            
+            drop(sidebar_locked);
+            
             // Compute the element layout with bounds starting at (0,0)
             let mut computed = self.compute_element(
                 &LayoutContext {
@@ -447,4 +478,6 @@ impl crate::TermWindow {
             }
         }
     }
+
+    
 }

@@ -11,4 +11,4 @@ pub use forms::{
     FormValidator, MultilineTextInput, Slider, TextInput, Toggle,
 };
 pub use markdown::MarkdownRenderer;
-pub use scrollable::ScrollableContainer;
+pub use scrollable::{ScrollableContainer, ScrollbarInfo};

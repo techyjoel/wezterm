@@ -26,7 +26,7 @@ impl crate::TermWindow {
         if let Some(ref mut overlay) = self.effects_overlay.borrow_mut().as_mut() {
             let prev_count = overlay.effect_count();
             overlay.clear_effects();
-            log::debug!("Cleared {} effects from previous frame", prev_count);
+            log::trace!("Cleared {} effects from previous frame", prev_count);
         }
 
         let start = Instant::now();
@@ -110,11 +110,11 @@ impl crate::TermWindow {
                 }
             }
         }
-        log::debug!("paint_impl before call_draw elapsed={:?}", start.elapsed());
+        log::trace!("paint_impl before call_draw elapsed={:?}", start.elapsed());
 
         // Log how many effects we have before draw
         if let Some(ref overlay) = self.effects_overlay.borrow().as_ref() {
-            log::debug!(
+            log::trace!(
                 "Before call_draw: effects_overlay has {} effects",
                 overlay.effect_count()
             );
@@ -122,7 +122,7 @@ impl crate::TermWindow {
 
         self.call_draw(frame).ok();
         self.last_frame_duration = start.elapsed();
-        log::debug!(
+        log::trace!(
             "paint_impl elapsed={:?}, fps={}",
             self.last_frame_duration,
             self.fps
@@ -174,14 +174,14 @@ impl crate::TermWindow {
     }
 
     pub fn paint_pass(&mut self) -> anyhow::Result<()> {
-        log::debug!("paint_pass called");
+        log::trace!("paint_pass called");
         {
             let gl_state = self.render_state.as_ref().unwrap();
             for layer in gl_state.layers.borrow().iter() {
                 layer.clear_quad_allocation();
             }
         }
-        log::debug!("paint_pass: cleared quad allocation");
+        log::trace!("paint_pass: cleared quad allocation");
 
         // Clear out UI item positions; we'll rebuild these as we render
         self.ui_items.clear();
@@ -275,7 +275,7 @@ impl crate::TermWindow {
             }
             self.paint_pane(&pos, &mut layers).context("paint_pane")?;
         }
-        log::debug!("paint_pass: finished painting panes");
+        log::trace!("paint_pass: finished painting panes");
 
         if let Some(pane) = self.get_active_pane_or_overlay() {
             let splits = self.get_splits();
@@ -290,16 +290,16 @@ impl crate::TermWindow {
         }
 
         // Paint sidebars (including buttons) after tab bar to ensure proper layering
-        log::debug!("About to call paint_sidebars");
+        log::trace!("About to call paint_sidebars");
         self.paint_sidebars(&mut layers).context("paint_sidebars")?;
-        log::debug!("paint_sidebars completed");
+        log::trace!("paint_sidebars completed");
 
         self.paint_window_borders(&mut layers)
             .context("paint_window_borders")?;
         drop(layers);
         self.paint_modal().context("paint_modal")?;
 
-        log::debug!("paint_pass: completed successfully");
+        log::trace!("paint_pass: completed successfully");
         Ok(())
     }
 }

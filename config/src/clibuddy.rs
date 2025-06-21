@@ -38,16 +38,45 @@ impl Default for LeftSidebarConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromDynamic, ToDynamic)]
+pub enum SidebarMode {
+    /// Sidebar overlays on top of terminal content
+    Overlay,
+    /// Sidebar expands the window, terminal content shifts
+    Expand,
+}
+
+impl Default for SidebarMode {
+    fn default() -> Self {
+        SidebarMode::Expand
+    }
+}
+
 #[derive(Debug, Clone, FromDynamic, ToDynamic, ConfigMeta)]
 pub struct RightSidebarConfig {
     #[dynamic(default = "default_right_sidebar_bg_color")]
     pub background_color: RgbaColor,
+    
+    /// Width of the sidebar in pixels
+    #[dynamic(default = "default_sidebar_width")]
+    pub width: u16,
+    
+    /// Whether the sidebar is shown on startup
+    #[dynamic(default = "default_show_on_startup")]
+    pub show_on_startup: bool,
+    
+    /// Sidebar mode (Overlay or Expand)
+    #[dynamic(default)]
+    pub mode: SidebarMode,
 }
 
 impl Default for RightSidebarConfig {
     fn default() -> Self {
         Self {
             background_color: default_right_sidebar_bg_color(),
+            width: default_sidebar_width(),
+            show_on_startup: default_show_on_startup(),
+            mode: SidebarMode::default(),
         }
     }
 }
@@ -139,6 +168,14 @@ impl Default for ButtonStyleOverride {
 fn default_right_sidebar_bg_color() -> RgbaColor {
     // rgba(5, 5, 6, 1.0)
     RgbaColor::from((5u8, 5u8, 6u8))
+}
+
+fn default_sidebar_width() -> u16 {
+    400
+}
+
+fn default_show_on_startup() -> bool {
+    true // Right sidebar should be expanded at startup
 }
 
 fn default_border_width() -> f32 {

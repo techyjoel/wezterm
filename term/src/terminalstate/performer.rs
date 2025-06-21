@@ -4,7 +4,7 @@ use crate::terminalstate::{
 };
 use crate::{ClipboardSelection, Position, TerminalState, VisibleRowIndex, DCS, ST};
 use finl_unicode::grapheme_clusters::Graphemes;
-use log::{debug, error};
+use log::{debug, error, trace};
 use num_traits::FromPrimitive;
 use ordered_float::NotNan;
 use std::fmt::Write;
@@ -250,7 +250,7 @@ impl<'a> Performer<'a> {
     }
 
     pub fn perform(&mut self, action: Action) {
-        debug!("perform {:?}", action);
+        trace!("perform {:?}", action);
         if self.suppress_initial_title_change {
             match &action {
                 Action::OperatingSystemCommand(osc) => match **osc {

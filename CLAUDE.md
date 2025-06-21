@@ -26,7 +26,7 @@ cargo check
 cargo build
 
 # Build in release mode
-cargo build --release
+cargo build --release | tail 50
 
 # Run in debug mode
 cargo run
