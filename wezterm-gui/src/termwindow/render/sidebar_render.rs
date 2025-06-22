@@ -443,6 +443,16 @@ impl crate::TermWindow {
 
             // Render scrollbars at z-index 12 after main content
             self.render_sidebar_scrollbars(&sidebar, sidebar_x, visible_width)?;
+            
+            // Update filter chip bounds with sidebar position
+            let mut sidebar_locked = sidebar.lock().unwrap();
+            if let Some(ai_sidebar) = sidebar_locked
+                .as_any_mut()
+                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+            {
+                ai_sidebar.update_filter_chip_bounds(sidebar_x);
+            }
+            drop(sidebar_locked);
         }
 
         Ok(())

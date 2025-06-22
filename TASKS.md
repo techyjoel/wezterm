@@ -309,8 +309,8 @@ The implementation is divided into 7 phases:
   - **Development status**: Completed (part of activity log scrolling)
   - Auto-scroll to bottom on new messages
   - Maintain scroll position when reviewing history
-- [x] **2.4.4** Fix sidebar rendering positioning and layout issues ✅
-  - **Development status**: Complete with scrollbar refactoring
+- [x] **2.4.4** Fix sidebar rendering positioning and layout issues ✅ (Partial)
+  - **Development status**: Scrollbar refactored but mouse interaction issue remains
   - **Completed**:
     - Fixed fundamental positioning issue using translate pattern from fancy_tab_bar
     - Implemented proper Element to Quad conversion with compute_element starting at (0,0) then translating
@@ -329,19 +329,20 @@ The implementation is divided into 7 phases:
       - Scrollbar renders independently of Element system
       - Full mouse interaction support (drag, click, wheel)
       - State tracked in AI sidebar for proper event handling
-  - **Fixed issues**:
-    - ✅ **Mouse interaction**: Scrollbar now properly handles mouse events
-      - UI items correctly registered at render time
-      - Scrollbar bounds tracked in sidebar for hit testing
-      - Full drag scrolling, page up/down, and wheel support
-    - ✅ **Reusable component**: ScrollbarRenderer is standalone
-      - Can be used by any component needing scrollbars
-      - Supports vertical/horizontal orientation
-      - Configurable min thumb size and appearance
+  - **Implemented features**:
+    - ✅ **Scrollbar refactoring complete**: Now uses direct rendering
+      - ScrollbarRenderer component created and integrated
+      - Renders at z-index 12 with proper UI items
+      - Full mouse support implemented in renderer
     - ✅ **Z-ordering solved**: Using z-index strategy instead of sub-layers
       - Each UI component gets its own z-index
       - Scrollbar renders at z-index 12
       - No more 3-layer limitation
+  - **Current issue**:
+    - **Mouse interactions intercepted**: Activity filter click handler catches ALL sidebar clicks
+      - Clicking anywhere in sidebar cycles through filters
+      - Scrollbar UI items are created but not receiving events
+      - Need to fix mouse event dispatch in handle_mouse_event()
       - Will need more layers for modal overlays
       - "More" button in suggestions needs to show overlay above other content
       - May require architectural changes to support 10+ layers

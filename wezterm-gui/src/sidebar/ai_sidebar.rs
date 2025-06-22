@@ -25,7 +25,7 @@ pub enum AgentMode {
     NeedsApproval,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ActivityFilter {
     All,
     Commands,
@@ -118,6 +118,9 @@ pub struct AiSidebar {
 
     // Scroll state
     activity_log_scroll_offset: f32,
+    
+    // UI element bounds for hit testing
+    filter_chip_bounds: Vec<(ActivityFilter, euclid::Rect<f32, window::PixelUnit>)>,
 }
 
 impl AiSidebar {
@@ -138,6 +141,7 @@ impl AiSidebar {
             activity_log_scrollbar_renderer: None,
             activity_log_scrollbar_bounds: None,
             activity_log_scroll_offset: 0.0,
+            filter_chip_bounds: Vec::new(),
         }
     }
 
@@ -284,13 +288,36 @@ brew install pkg-config
             })
     }
 
-    fn render_filter_chips(&self, font: &Rc<LoadedFont>) -> Element {
+    fn render_filter_chips(&mut self, font: &Rc<LoadedFont>) -> Element {
         let filters = vec![
             ("All", ActivityFilter::All),
             ("Commands", ActivityFilter::Commands),
             ("Chat", ActivityFilter::Chat),
             ("Suggestions", ActivityFilter::Suggestions),
         ];
+        
+        // Clear previous bounds
+        self.filter_chip_bounds.clear();
+        
+        // Calculate chip positions
+        // These are approximate based on the layout
+        let base_x = 16.0; // left padding
+        let base_y = 106.0; // Approximate Y position (header + status chip + padding)
+        let chip_height = 24.0; // Small chip height
+        let chip_spacing = 8.0;
+        let chip_widths = vec![35.0, 75.0, 40.0, 85.0]; // Approximate widths
+        
+        let mut current_x = base_x;
+        for ((_, filter), width) in filters.iter().zip(chip_widths.iter()) {
+            let bounds = euclid::rect(
+                current_x,
+                base_y,
+                *width,
+                chip_height
+            );
+            self.filter_chip_bounds.push((*filter, bounds));
+            current_x += width + chip_spacing;
+        }
 
         let chips: Vec<Element> = filters
             .into_iter()
@@ -838,6 +865,25 @@ brew install pkg-config
             false
         }
     }
+    
+    /// Update filter chip bounds with sidebar position offset
+    pub fn update_filter_chip_bounds(&mut self, sidebar_x: f32) {
+        // Update bounds with actual sidebar position
+        for (_, bounds) in &mut self.filter_chip_bounds {
+            bounds.origin.x += sidebar_x;
+        }
+    }
+    
+    /// Check which filter chip was clicked
+    fn get_clicked_filter(&self, event: &MouseEvent) -> Option<ActivityFilter> {
+        let point = euclid::point2(event.coords.x as f32, event.coords.y as f32);
+        for (filter, bounds) in &self.filter_chip_bounds {
+            if bounds.contains(point) {
+                return Some(*filter);
+            }
+        }
+        None
+    }
 }
 
 impl Sidebar for AiSidebar {
@@ -917,26 +963,24 @@ impl Sidebar for AiSidebar {
             }
         }
 
-        // Handle other sidebar clicks
+        // Check for filter chip clicks
         match event.kind {
             WMEK::Press(MousePress::Left) => {
-                // Log the click position for debugging
-                log::info!(
-                    "Sidebar clicked at: ({}, {})",
+                if let Some(filter) = self.get_clicked_filter(event) {
+                    log::debug!("Filter chip clicked: {:?}", filter);
+                    self.activity_filter = filter;
+                    return Ok(true);
+                }
+                
+                // Log unhandled clicks for debugging
+                log::debug!(
+                    "Unhandled sidebar click at: ({}, {})",
                     event.coords.x,
                     event.coords.y
                 );
-
-                // TODO: Map coordinates to specific elements like filter chips, buttons, etc.
-                // For now, just toggle the filter as a test
-                self.activity_filter = match self.activity_filter {
-                    ActivityFilter::All => ActivityFilter::Commands,
-                    ActivityFilter::Commands => ActivityFilter::Chat,
-                    ActivityFilter::Chat => ActivityFilter::Suggestions,
-                    ActivityFilter::Suggestions => ActivityFilter::All,
-                };
-
-                Ok(true) // Indicate we handled the event
+                
+                // Return false to indicate we didn't handle it
+                Ok(false)
             }
             _ => Ok(false),
         }
