@@ -202,14 +202,15 @@ This approach solves the current issues without the complexity of expanding the 
   - ScrollbarRenderer renders at z-index 12 successfully
   - UI items created for mouse interaction
 
-## Implementation Complete ✅
+## Implementation Status - Mouse Events Broken
 
-The scrollbar refactoring has been successfully implemented. The sidebar scrollbar now:
-- Renders at z-index 12 using direct rendering
-- Handles all mouse interactions (drag, click, wheel)
-- Maintains state in the AI sidebar
-- Updates scroll position dynamically
-- Is fully reusable for other components
+The scrollbar refactoring has been implemented but mouse interactions are not working:
+- Scrollbar renders at z-index 12 using direct rendering ✅
+- ScrollbarRenderer component created with mouse handling code ✅
+- UI items are being created ✅
+- **BROKEN**: Mouse events not reaching scrollbar
+- **BROKEN**: Filter chip hit detection unreliable
+- **BROKEN**: Coordinate systems may be misaligned
 
 ## Remaining Minor Tasks
 
@@ -219,14 +220,14 @@ The scrollbar refactoring has been successfully implemented. The sidebar scrollb
   - Extracted needed values before creating closure
   - Fixed ColorPalette import issue
 
-### 2. Complete Mouse Event Integration ✅ (Partial)
+### 2. Complete Mouse Event Integration (BROKEN)
 - [x] UIItemType variants already exist (AboveScrollThumb, ScrollThumb, BelowScrollThumb)
-- [x] Added scrollbar state to AI sidebar:
-  - ScrollbarRenderer stored in sidebar
-  - Scrollbar bounds tracked for hit testing
-  - Mouse events checked against scrollbar bounds
-- [ ] Need to propagate scroll updates back to ScrollableContainer
-- [ ] Implement scroll wheel support in scrollbar area
+- [x] Added scrollbar state to AI sidebar
+- [ ] **BROKEN**: Scrollbar UI items not receiving mouse events
+- [ ] **BROKEN**: Mouse event routing sending events to wrong handlers
+- [ ] **BROKEN**: Filter chip bounds calculation incorrect
+- [ ] **BROKEN**: Coordinate system mismatch between render and events
+- [ ] Need to debug why events aren't reaching the correct components
 
 ### 3. Fix Scrollbar Positioning (Nice to have)
 - [ ] Get actual activity log bounds from sidebar instead of hardcoded margins

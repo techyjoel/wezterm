@@ -309,8 +309,8 @@ The implementation is divided into 7 phases:
   - **Development status**: Completed (part of activity log scrolling)
   - Auto-scroll to bottom on new messages
   - Maintain scroll position when reviewing history
-- [x] **2.4.4** Fix sidebar rendering positioning and layout issues ✅ (Partial)
-  - **Development status**: Scrollbar refactored but mouse interaction issue remains
+- [ ] **2.4.4** Fix sidebar rendering positioning and layout issues (In Progress)
+  - **Development status**: Scrollbar visible but mouse interactions broken
   - **Completed**:
     - Fixed fundamental positioning issue using translate pattern from fancy_tab_bar
     - Implemented proper Element to Quad conversion with compute_element starting at (0,0) then translating
@@ -338,11 +338,13 @@ The implementation is divided into 7 phases:
       - Each UI component gets its own z-index
       - Scrollbar renders at z-index 12
       - No more 3-layer limitation
-  - **Current issue**:
-    - **Mouse interactions intercepted**: Activity filter click handler catches ALL sidebar clicks
-      - Clicking anywhere in sidebar cycles through filters
-      - Scrollbar UI items are created but not receiving events
-      - Need to fix mouse event dispatch in handle_mouse_event()
+  - **Current issues**:
+    - **Mouse interactions completely broken**:
+      - Filter chips sometimes respond but behavior is unreliable
+      - Filter chip hit zones don't match visual positions
+      - Scrollbar doesn't respond to any mouse events (clicks, drag, wheel)
+      - UI items may not be properly registered or coordinates are wrong
+      - Need to debug event routing and coordinate systems
       - Will need more layers for modal overlays
       - "More" button in suggestions needs to show overlay above other content
       - May require architectural changes to support 10+ layers
