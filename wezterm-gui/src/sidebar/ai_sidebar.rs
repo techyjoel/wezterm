@@ -6,6 +6,7 @@ use super::{Sidebar, SidebarConfig, SidebarPosition};
 use crate::termwindow::box_model::{
     BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent,
 };
+use crate::termwindow::render::scrollbar_renderer::{ScrollbarOrientation, ScrollbarRenderer};
 use crate::termwindow::UIItemType;
 use ::window::color::LinearRgba;
 use anyhow::Result;
@@ -14,7 +15,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime};
 use termwiz::input::KeyCode;
 use wezterm_font::LoadedFont;
-use window::{MouseEvent, MouseEventKind as WMEK, MousePress};
+use window::{MouseEvent, MouseEventKind as WMEK, MousePress, PixelUnit};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentMode {
@@ -105,9 +106,18 @@ pub struct AiSidebar {
 
     // UI Components
     chat_input: MultilineTextInput,
-    
+
     // Scrollbar info for external rendering
     activity_log_scrollbar: Option<ScrollbarInfo>,
+
+    // Scrollbar renderer for handling events
+    activity_log_scrollbar_renderer: Option<ScrollbarRenderer>,
+
+    // Scrollbar bounds for hit testing
+    activity_log_scrollbar_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
+
+    // Scroll state
+    activity_log_scroll_offset: f32,
 }
 
 impl AiSidebar {
@@ -125,6 +135,9 @@ impl AiSidebar {
             activity_log: Vec::new(),
             chat_input: MultilineTextInput::new(3).with_placeholder("Type a message..."),
             activity_log_scrollbar: None,
+            activity_log_scrollbar_renderer: None,
+            activity_log_scrollbar_bounds: None,
+            activity_log_scroll_offset: 0.0,
         }
     }
 
@@ -216,14 +229,22 @@ brew install pkg-config
                     command: format!("test command {}", i),
                     output: Some(format!("Output for command {}", i)),
                     pane_id: Some("pane1".to_string()),
-                    status: if i % 2 == 0 { CommandStatus::Success } else { CommandStatus::Failed(1) },
+                    status: if i % 2 == 0 {
+                        CommandStatus::Success
+                    } else {
+                        CommandStatus::Failed(1)
+                    },
                     timestamp: now - Duration::from_secs(300 + i * 60),
                     expanded: false,
                 });
             } else {
                 self.activity_log.push(ActivityItem::Chat {
                     id: format!("chat{}", i + 10),
-                    message: format!("Test message {} from {}", i, if i % 2 == 0 { "user" } else { "AI" }),
+                    message: format!(
+                        "Test message {} from {}",
+                        i,
+                        if i % 2 == 0 { "user" } else { "AI" }
+                    ),
                     is_user: i % 2 == 0,
                     timestamp: now - Duration::from_secs(300 + i * 60),
                 });
@@ -448,7 +469,6 @@ brew install pkg-config
         )
     }
 
-
     pub fn render_activity_item(&self, item: &ActivityItem, font: &Rc<LoadedFont>) -> Element {
         match item {
             ActivityItem::Command {
@@ -585,29 +605,61 @@ brew install pkg-config
             .into_iter()
             .map(|item| {
                 // Wrap each item in a block container to ensure vertical stacking
-                Element::new(font, ElementContent::Children(vec![
-                    self.render_activity_item(item, font)
-                ]))
+                Element::new(
+                    font,
+                    ElementContent::Children(vec![self.render_activity_item(item, font)]),
+                )
                 .display(DisplayType::Block)
             })
             .collect();
 
         // Create scrollable container with pixel-based viewport height
         let viewport_height = available_height - 32.0; // Account for padding (16px top + 16px bottom)
-        
+
         log::debug!(
             "Activity log: available_height={}, viewport_height={}, total_items={}",
             available_height,
             viewport_height,
             rendered_items.len()
         );
-        
+
         // Use pixel-based height for scrollable container
         let mut scrollable_container = ScrollableContainer::new_with_pixel_height(viewport_height);
+
+        // Set scroll position
+        scrollable_container.set_scroll_offset(self.activity_log_scroll_offset);
+
         scrollable_container = scrollable_container
             .with_content(rendered_items)
             .with_auto_hide_scrollbar(false); // Always show scrollbar for debugging
-        
+
+        // Store scrollbar info for external rendering
+        let scrollbar_info = scrollable_container.get_scrollbar_info();
+        self.activity_log_scrollbar = Some(scrollbar_info.clone());
+
+        // Create/update scrollbar renderer if needed
+        if scrollbar_info.should_show {
+            let total_size = scrollbar_info.total_items as f32 * 40.0; // Approximate item height
+            let viewport_size = scrollbar_info.viewport_items as f32 * 40.0;
+            let scroll_offset = scrollbar_info.scroll_offset as f32 * 40.0;
+
+            match &mut self.activity_log_scrollbar_renderer {
+                Some(renderer) => {
+                    renderer.update(total_size, viewport_size, scroll_offset);
+                }
+                None => {
+                    self.activity_log_scrollbar_renderer = Some(ScrollbarRenderer::new_vertical(
+                        total_size,
+                        viewport_size,
+                        scroll_offset,
+                        20.0, // min thumb size
+                    ));
+                }
+            }
+        } else {
+            self.activity_log_scrollbar_renderer = None;
+        }
+
         let scrollable = scrollable_container.render(font);
 
         // Create the activity log with padding
@@ -623,7 +675,6 @@ brew install pkg-config
 
         padded_scrollable
     }
-
 
     fn render_chat_input(&self, font: &Rc<LoadedFont>) -> Element {
         let input_field = self.chat_input.render(font);
@@ -676,19 +727,27 @@ brew install pkg-config
         // Filter chips: 50px (chips + padding)
         // Extra for testing: 350px
         let top_fixed_height = 490.0;
-        
+
         // Add optional card heights
-        let goal_height = if self.current_goal.is_some() { 140.0 } else { 0.0 };
-        let suggestion_height = if self.current_suggestion.is_some() { 160.0 } else { 0.0 };
-        
+        let goal_height = if self.current_goal.is_some() {
+            140.0
+        } else {
+            0.0
+        };
+        let suggestion_height = if self.current_suggestion.is_some() {
+            160.0
+        } else {
+            0.0
+        };
+
         // Fixed height for elements BELOW the activity log:
         // Chat input: 120px (3 lines + button + padding)
         let bottom_fixed_height = 120.0;
-        
+
         // Calculate available height for activity log
         let total_fixed = top_fixed_height + goal_height + suggestion_height + bottom_fixed_height;
         let available_for_log = (window_height - total_fixed).max(50.0);
-        
+
         log::debug!(
             "Sidebar height calculation: window_height={}, top_fixed={}, goal={}, suggestion={}, bottom_fixed={}, total_fixed={}, available_for_log={}",
             window_height, top_fixed_height, goal_height, suggestion_height, bottom_fixed_height, total_fixed, available_for_log
@@ -764,13 +823,28 @@ brew install pkg-config
             self.chat_input.clear();
         }
     }
+
+    /// Set the scrollbar bounds for hit testing
+    pub fn set_scrollbar_bounds(&mut self, bounds: euclid::Rect<f32, window::PixelUnit>) {
+        self.activity_log_scrollbar_bounds = Some(bounds);
+    }
+
+    /// Check if a mouse event is within the scrollbar bounds
+    fn is_scrollbar_event(&self, event: &MouseEvent) -> bool {
+        if let Some(bounds) = &self.activity_log_scrollbar_bounds {
+            let point = euclid::point2(event.coords.x as f32, event.coords.y as f32);
+            bounds.contains(point)
+        } else {
+            false
+        }
+    }
 }
 
 impl Sidebar for AiSidebar {
     fn render(&mut self, font: &Rc<LoadedFont>, window_height: f32) -> Element {
         self.render_content(font, window_height)
     }
-    
+
     fn get_scrollbars(&self) -> super::SidebarScrollbars {
         super::SidebarScrollbars {
             activity_log: self.activity_log_scrollbar.clone(),
@@ -798,8 +872,52 @@ impl Sidebar for AiSidebar {
     }
 
     fn handle_mouse_event(&mut self, event: &MouseEvent) -> Result<bool> {
-        // For now, just handle basic clicks on the sidebar
-        // In the future, we'll need to map mouse coordinates to specific elements
+        // Handle scroll wheel events
+        if let WMEK::VertWheel(amount) = &event.kind {
+            // Check if we have a scrollbar renderer to get scroll metrics
+            if let Some(_renderer) = &self.activity_log_scrollbar_renderer {
+                let scroll_speed = 40.0; // Pixels per scroll step
+                let scroll_amount = scroll_speed * (*amount as f32);
+
+                let new_offset = if *amount > 0 {
+                    // Scroll up
+                    (self.activity_log_scroll_offset - scroll_amount).max(0.0)
+                } else {
+                    // Scroll down
+                    self.activity_log_scroll_offset + scroll_amount
+                };
+
+                // Constrain to valid range
+                // TODO: Get actual content height from scrollbar info
+                self.activity_log_scroll_offset = new_offset;
+                log::debug!(
+                    "Scroll wheel updated offset to: {}",
+                    self.activity_log_scroll_offset
+                );
+                return Ok(true);
+            }
+        }
+
+        // Check if this is a scrollbar event
+        if self.is_scrollbar_event(event) {
+            if let Some(renderer) = &mut self.activity_log_scrollbar_renderer {
+                if let Some(bounds) = &self.activity_log_scrollbar_bounds {
+                    // Handle the mouse event with the scrollbar renderer
+                    if let Some(new_scroll_offset) = renderer.handle_mouse_event(event, *bounds) {
+                        // Update scroll position
+                        self.activity_log_scroll_offset = new_scroll_offset.max(0.0);
+                        log::debug!(
+                            "Scrollbar updated scroll offset to: {}",
+                            self.activity_log_scroll_offset
+                        );
+                        return Ok(true);
+                    }
+                    return Ok(renderer.state().is_dragging);
+                }
+            }
+        }
+
+        // Handle other sidebar clicks
         match event.kind {
             WMEK::Press(MousePress::Left) => {
                 // Log the click position for debugging
@@ -871,11 +989,11 @@ impl Sidebar for AiSidebar {
             _ => Ok(false),
         }
     }
-    
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    
+
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
     }

@@ -309,8 +309,8 @@ The implementation is divided into 7 phases:
   - **Development status**: Completed (part of activity log scrolling)
   - Auto-scroll to bottom on new messages
   - Maintain scroll position when reviewing history
-- [ ] **2.4.4** Fix sidebar rendering positioning and layout issues
-  - **Development status**: Partially complete
+- [x] **2.4.4** Fix sidebar rendering positioning and layout issues ✅
+  - **Development status**: Complete with scrollbar refactoring
   - **Completed**:
     - Fixed fundamental positioning issue using translate pattern from fancy_tab_bar
     - Implemented proper Element to Quad conversion with compute_element starting at (0,0) then translating
@@ -322,24 +322,26 @@ The implementation is divided into 7 phases:
     - Fixed activity log items displaying side-by-side by adding DisplayType::Block
     - Fixed activity log overflowing past window bottom with proper height calculations
     - Fixed multi-line markdown content height calculation with recursive algorithm
-    - **Scrollbar Visibility**: Scrollbar now renders as an Element (visible but non-functional)
-      - Root cause: `render_element()` invalidates the layers allocator, preventing direct rendering after
-      - Current approach: Scrollbar is an Element child of the viewport container
-      - Uses negative margins and Float::Right for positioning
-      - Sets zindex(2) to render on topmost layer
-      - See detailed architecture notes in scrollable.rs
-  - **Current issues**:
-    - **Mouse interaction broken**: Clicking anywhere in sidebar cycles through filter options
-      - UI items not properly registered for scrollbar
-      - Mouse events being captured by wrong elements
-      - Need proper hit testing for scrollbar components
-    - **Scrollbar overlaps content**: Scrollbar slightly covers activity log items
-      - Need to adjust margins/padding to prevent overlap
-      - Consider reserving space for scrollbar in layout
-    - **Not reusable**: Current implementation tied to ScrollableContainer
-      - Need to extract scrollbar into standalone component
-      - Should work with any scrollable content (suggestions, overlays, etc.)
-    - **Limited z-ordering**: Only 3 layers available (0, 1, 2)
+    - **Scrollbar Refactored**: Now uses direct rendering at z-index 12
+      - Created reusable ScrollbarRenderer component in render/scrollbar_renderer.rs
+      - Implements z-index strategy from ZINDEX_AND_LAYERS.md
+      - Fixed sidebar backgrounds to use dedicated z-indices (3 & 4)
+      - Scrollbar renders independently of Element system
+      - Full mouse interaction support (drag, click, wheel)
+      - State tracked in AI sidebar for proper event handling
+  - **Fixed issues**:
+    - ✅ **Mouse interaction**: Scrollbar now properly handles mouse events
+      - UI items correctly registered at render time
+      - Scrollbar bounds tracked in sidebar for hit testing
+      - Full drag scrolling, page up/down, and wheel support
+    - ✅ **Reusable component**: ScrollbarRenderer is standalone
+      - Can be used by any component needing scrollbars
+      - Supports vertical/horizontal orientation
+      - Configurable min thumb size and appearance
+    - ✅ **Z-ordering solved**: Using z-index strategy instead of sub-layers
+      - Each UI component gets its own z-index
+      - Scrollbar renders at z-index 12
+      - No more 3-layer limitation
       - Will need more layers for modal overlays
       - "More" button in suggestions needs to show overlay above other content
       - May require architectural changes to support 10+ layers

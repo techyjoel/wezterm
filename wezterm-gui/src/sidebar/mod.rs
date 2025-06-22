@@ -155,7 +155,7 @@ impl Default for SidebarConfig {
 pub trait Sidebar: Send + Sync {
     // Return the rendered content for this sidebar
     fn render(&mut self, font: &Rc<LoadedFont>, window_height: f32) -> Element;
-    
+
     // Get scrollbar information for external rendering
     fn get_scrollbars(&self) -> SidebarScrollbars {
         SidebarScrollbars::default()
@@ -178,7 +178,7 @@ pub trait Sidebar: Send + Sync {
     fn handle_key_event(&mut self, _key: &KeyCode) -> Result<bool> {
         Ok(false)
     }
-    
+
     // Allow downcasting for specialized rendering
     fn as_any(&self) -> &dyn std::any::Any;
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any;

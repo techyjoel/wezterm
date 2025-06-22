@@ -56,15 +56,15 @@ impl Default for SidebarMode {
 pub struct RightSidebarConfig {
     #[dynamic(default = "default_right_sidebar_bg_color")]
     pub background_color: RgbaColor,
-    
+
     /// Width of the sidebar in pixels
     #[dynamic(default = "default_sidebar_width")]
     pub width: u16,
-    
+
     /// Whether the sidebar is shown on startup
     #[dynamic(default = "default_show_on_startup")]
     pub show_on_startup: bool,
-    
+
     /// Sidebar mode (Overlay or Expand)
     #[dynamic(default)]
     pub mode: SidebarMode,

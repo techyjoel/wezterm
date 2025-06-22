@@ -545,7 +545,7 @@ impl TermWindow {
         ai_config.width = self.config.clibuddy.right_sidebar.width;
         ai_config.show_on_startup = self.config.clibuddy.right_sidebar.show_on_startup;
         ai_config.mode = config_mode;
-        
+
         let show_on_startup = ai_config.show_on_startup; // Save before move
         let sidebar_width = ai_config.width; // Save width before move
 
@@ -807,7 +807,6 @@ impl TermWindow {
 
         dimensions.pixel_height += (border.top + border.bottom).get() as usize;
         dimensions.pixel_width += (border.left + border.right).get() as usize;
-        
 
         let window_background = load_background_image(&config, &dimensions, &render_metrics);
 

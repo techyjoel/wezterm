@@ -33,11 +33,11 @@ use wezterm_font::LoadedFont;
 
 pub struct ScrollableContainer {
     content: Vec<Element>,
-    viewport_height: f32,  // Pixel height of viewport
-    content_height: f32,   // Total pixel height of all content
-    item_heights: Vec<f32>, // Actual height of each item
+    viewport_height: f32,     // Pixel height of viewport
+    content_height: f32,      // Total pixel height of all content
+    item_heights: Vec<f32>,   // Actual height of each item
     item_positions: Vec<f32>, // Y position of each item
-    scroll_offset: f32,    // Pixel scroll offset
+    scroll_offset: f32,       // Pixel scroll offset
     show_scrollbar: bool,
     scrollbar_width: f32,
     auto_hide_scrollbar: bool,
@@ -87,14 +87,14 @@ impl ScrollableContainer {
             scrollbar_width: 8.0,
             auto_hide_scrollbar: true,
             smooth_scroll: true,
-            scroll_speed: 40.0,  // Pixels per scroll step
+            scroll_speed: 40.0, // Pixels per scroll step
             hovering_scrollbar: false,
             dragging_scrollbar: false,
             drag_start_y: None,
             drag_start_offset: None,
         }
     }
-    
+
     /// Create a scrollable container with pixel-based viewport height
     pub fn new_with_pixel_height(viewport_height: f32) -> Self {
         Self {
@@ -157,28 +157,30 @@ impl ScrollableContainer {
         self.item_heights.clear();
         self.item_positions.clear();
         self.content_height = 0.0;
-        
+
         // For now, we'll estimate heights based on content type
         // In a full implementation, we'd need to compute each element
         let mut current_y = 0.0;
-        
+
         for (idx, element) in self.content.iter().enumerate() {
             let estimated_height = self.estimate_element_height(element);
             self.item_positions.push(current_y);
             self.item_heights.push(estimated_height);
             current_y += estimated_height;
-            
+
             // Log first few items for debugging
             if idx < 5 {
                 log::trace!(
                     "Item {}: position={:.1}, height={:.1}",
-                    idx, self.item_positions[idx], estimated_height
+                    idx,
+                    self.item_positions[idx],
+                    estimated_height
                 );
             }
         }
-        
+
         self.content_height = current_y;
-        
+
         log::debug!(
             "ScrollableContainer metrics: viewport_height={:.1}, content_height={:.1}, items={}, should_show_scrollbar={}",
             self.viewport_height,
@@ -186,42 +188,48 @@ impl ScrollableContainer {
             self.content.len(),
             self.content_height > self.viewport_height
         );
-        
+
         // Update legacy item-based tracking
-        let avg_height = if self.content.is_empty() { 40.0 } else { self.content_height / self.content.len() as f32 };
-        self.max_visible_items = ((self.viewport_height / avg_height).ceil() as usize)
-            .min(self.content.len());
+        let avg_height = if self.content.is_empty() {
+            40.0
+        } else {
+            self.content_height / self.content.len() as f32
+        };
+        self.max_visible_items =
+            ((self.viewport_height / avg_height).ceil() as usize).min(self.content.len());
     }
-    
+
     /// Estimate element height based on content type
     fn estimate_element_height(&self, element: &Element) -> f32 {
         self.estimate_element_height_recursive(element, 0)
     }
-    
+
     fn estimate_element_height_recursive(&self, element: &Element, depth: usize) -> f32 {
         let context = DimensionContext {
-            dpi: 96.0, 
-            pixel_cell: 20.0, 
-            pixel_max: 1000.0
+            dpi: 96.0,
+            pixel_cell: 20.0,
+            pixel_max: 1000.0,
         };
-        
-        let padding = element.padding.top.evaluate_as_pixels(context) 
+
+        let padding = element.padding.top.evaluate_as_pixels(context)
             + element.padding.bottom.evaluate_as_pixels(context);
         let margin = element.margin.top.evaluate_as_pixels(context)
             + element.margin.bottom.evaluate_as_pixels(context);
-        
+
         let content_height = match &element.content {
             ElementContent::Text(text) => {
                 // Estimate based on text length and line breaks
                 let lines = text.lines().count().max(1);
                 let line_height = 20.0; // Approximate line height
                 let text_height = lines as f32 * line_height;
-                
+
                 // Log markdown text heights
                 if lines > 1 || text.len() > 100 {
                     log::trace!(
                         "Text height (depth {}): {} lines, {}px, text_preview: {:?}",
-                        depth, lines, text_height, 
+                        depth,
+                        lines,
+                        text_height,
                         &text.chars().take(50).collect::<String>()
                     );
                 }
@@ -236,12 +244,14 @@ impl ScrollableContainer {
                     for (idx, child) in children.iter().enumerate() {
                         let child_height = self.estimate_element_height_recursive(child, depth + 1);
                         total_height += child_height;
-                        
+
                         // Log significant child heights
                         if child_height > 40.0 && depth < 3 {
                             log::trace!(
                                 "Child {} height (depth {}): {:.1}px",
-                                idx, depth, child_height
+                                idx,
+                                depth,
+                                child_height
                             );
                         }
                     }
@@ -254,9 +264,9 @@ impl ScrollableContainer {
             }
             _ => 20.0, // Default height for other types
         };
-        
+
         let total = content_height + padding + margin;
-        
+
         // Log significant element heights
         if total > 100.0 && depth < 2 {
             log::trace!(
@@ -264,7 +274,7 @@ impl ScrollableContainer {
                 depth, content_height, padding, margin, total
             );
         }
-        
+
         total
     }
 
@@ -275,7 +285,7 @@ impl ScrollableContainer {
         } else {
             let max_scroll = (self.content_height - self.viewport_height).max(0.0);
             self.scroll_offset = self.scroll_offset.min(max_scroll);
-            
+
             // Find first visible item based on actual positions
             self.top_row = 0;
             for (idx, &pos) in self.item_positions.iter().enumerate() {
@@ -320,6 +330,11 @@ impl ScrollableContainer {
         }
     }
 
+    pub fn set_scroll_offset(&mut self, offset: f32) {
+        self.scroll_offset = offset;
+        self.constrain_scroll();
+    }
+
     fn get_scrollbar_thumb_info(&self) -> (f32, f32) {
         if self.content_height <= self.viewport_height {
             return (0.0, self.viewport_height);
@@ -342,7 +357,7 @@ impl ScrollableContainer {
     /// Get scrollbar rendering information
     pub fn get_scrollbar_info(&self) -> ScrollbarInfo {
         let should_show = self.should_show_scrollbar();
-        
+
         if !should_show || self.content_height == 0.0 {
             return ScrollbarInfo {
                 should_show: false,
@@ -356,7 +371,7 @@ impl ScrollableContainer {
 
         // Calculate thumb size as ratio of viewport to total
         let thumb_size = (self.viewport_height / self.content_height).min(1.0);
-        
+
         // Calculate thumb position
         let max_scroll = (self.content_height - self.viewport_height).max(0.0);
         let thumb_position = if max_scroll > 0.0 {
@@ -378,23 +393,25 @@ impl ScrollableContainer {
     pub fn render(&self, font: &Rc<LoadedFont>) -> Element {
         // Create a viewport container with fixed height and borders
         let mut content_children = Vec::new();
-        
+
         // Use actual item positions and heights for accurate rendering
         for (idx, item) in self.content.iter().enumerate() {
-            if let (Some(&pos), Some(&height)) = (self.item_positions.get(idx), self.item_heights.get(idx)) {
+            if let (Some(&pos), Some(&height)) =
+                (self.item_positions.get(idx), self.item_heights.get(idx))
+            {
                 let item_top = pos - self.scroll_offset;
                 let item_bottom = item_top + height;
-                
+
                 // Skip items completely above viewport
                 if item_bottom < 0.0 {
                     continue;
                 }
-                
+
                 // Stop rendering items completely below viewport
                 if item_top > self.viewport_height {
                     break;
                 }
-                
+
                 // Render visible items
                 content_children.push(item.clone());
             }
@@ -410,14 +427,10 @@ impl ScrollableContainer {
 
         // Create viewport container with fixed height and clipping
         let mut viewport_children = vec![content_area];
-        
-        // Add scrollbar if needed
-        if self.should_show_scrollbar() {
-            let scrollbar_info = self.get_scrollbar_info();
-            let scrollbar = self.render_scrollbar_element(font, &scrollbar_info);
-            viewport_children.push(scrollbar);
-        }
-        
+
+        // Don't render scrollbar as Element - it will be rendered externally
+        // using direct rendering at the appropriate z-index
+
         // Create viewport container
         Element::new(font, ElementContent::Children(viewport_children))
             .display(DisplayType::Block)
@@ -429,14 +442,18 @@ impl ScrollableContainer {
                 ..Default::default()
             })
     }
-    
-    fn render_scrollbar_element(&self, font: &Rc<LoadedFont>, scrollbar_info: &ScrollbarInfo) -> Element {
+
+    fn render_scrollbar_element(
+        &self,
+        font: &Rc<LoadedFont>,
+        scrollbar_info: &ScrollbarInfo,
+    ) -> Element {
         let scrollbar_width = self.scrollbar_width;
         let thumb_height = (scrollbar_info.thumb_size * self.viewport_height).max(20.0);
         let available_space = self.viewport_height - thumb_height;
         let thumb_offset = scrollbar_info.thumb_position * available_space;
-        
-        // Create scrollbar thumb  
+
+        // Create scrollbar thumb
         let thumb = Element::new(font, ElementContent::Text(String::new()))
             .display(DisplayType::Block)
             .colors(ElementColors {
@@ -449,7 +466,7 @@ impl ScrollableContainer {
                 top: Dimension::Pixels(thumb_offset),
                 ..Default::default()
             });
-        
+
         // Create scrollbar container with thumb overlaid on track
         let scrollbar_container = Element::new(font, ElementContent::Children(vec![thumb]))
             .display(DisplayType::Block)
@@ -466,7 +483,7 @@ impl ScrollableContainer {
             })
             .float(Float::Right)
             .zindex(2); // Render on top layer
-        
+
         scrollbar_container
     }
 
@@ -478,7 +495,7 @@ impl ScrollableContainer {
         let needs_scrollbar = self.content_height > self.viewport_height;
         log::trace!(
             "should_show_scrollbar: content_height={:.1}, viewport_height={:.1}, needs={}, auto_hide={}, hovering={}",
-            self.content_height, self.viewport_height, needs_scrollbar, 
+            self.content_height, self.viewport_height, needs_scrollbar,
             self.auto_hide_scrollbar, self.hovering_scrollbar
         );
 

@@ -143,7 +143,7 @@ impl super::TermWindow {
         let saved_dims = self.dimensions;
         self.dimensions = *dimensions;
         self.quad_generation += 1;
-        
+
         log::debug!(
             "apply_dimensions: saved_dims={:?}, new_dims={:?}, sidebar_expansion={}",
             saved_dims,

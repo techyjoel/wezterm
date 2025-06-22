@@ -19,6 +19,9 @@ Think critically and be skeptical of prior work. Fix problems you find that will
 
 ### Common Development Commands
 ```bash
+# Type-check without building, only show errors (use this form unless requested to fix warnings by the user)
+cargo check 2>&1 | awk '/^error/ {print; in_block=1; next} in_block { if (/^$/) in_block=0; else print }'
+
 # Type-check without building (fastest iteration)
 cargo check
 
@@ -26,7 +29,7 @@ cargo check
 cargo build
 
 # Build in release mode
-cargo build --release | tail 50
+cargo build --release 2>&1 | tail 50
 
 # Run in debug mode
 cargo run
