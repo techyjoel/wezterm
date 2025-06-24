@@ -609,7 +609,10 @@ brew install pkg-config
             })
             .collect();
 
-        let rendered_items: Vec<Element> = filtered_items
+        let mut rendered_items: Vec<Element> = Vec::new();
+        
+        // Render the actual items
+        rendered_items.extend(filtered_items
             .into_iter()
             .map(|item| {
                 // Wrap each item in a block container to ensure vertical stacking
@@ -618,20 +621,20 @@ brew install pkg-config
                     ElementContent::Children(vec![self.render_activity_item(item, font)]),
                 )
                 .display(DisplayType::Block)
-            })
-            .collect();
+            }));
             
+        let rendered_items_count = rendered_items.len();
         log::debug!("Rendering activity log: {} items filtered, {} items rendered", 
-            self.activity_log.len(), rendered_items.len());
+            self.activity_log.len(), rendered_items_count);
 
         // Create scrollable container with pixel-based viewport height
-        let viewport_height = available_height - 32.0; // Account for padding (16px top + 16px bottom)
+        let viewport_height = available_height;
 
         log::debug!(
             "Activity log: available_height={}, viewport_height={}, total_items={}",
             available_height,
             viewport_height,
-            rendered_items.len()
+            rendered_items_count
         );
 
         // Use pixel-based height for scrollable container
@@ -641,6 +644,12 @@ brew install pkg-config
 
         // CRITICAL: Set scroll position AFTER content is set, so the container can validate the offset
         scrollable_container.set_scroll_offset(self.activity_log_scroll_offset);
+        
+        log::debug!(
+            "Setting scroll offset on container: offset={}, items={}",
+            self.activity_log_scroll_offset,
+            rendered_items_count
+        );
 
         // Store scrollbar info for external rendering
         let scrollbar_info = scrollable_container.get_scrollbar_info();
@@ -712,18 +721,11 @@ brew install pkg-config
         let activity_log = self.render_activity_log(font, available_for_log);
         
         // Wrap in a container with background color
-        // Don't use margins here - positioning is handled by the render context
         let container = Element::new(font, ElementContent::Children(vec![activity_log]))
             .display(DisplayType::Block)
             .colors(ElementColors {
                 bg: LinearRgba::with_components(0.03, 0.03, 0.035, 1.0).into(), // Slightly lighter than sidebar
                 ..Default::default()
-            })
-            .padding(BoxDimension {
-                left: Dimension::Pixels(16.0),
-                right: Dimension::Pixels(16.0),
-                top: Dimension::Pixels(8.0),
-                bottom: Dimension::Pixels(8.0),
             })
             .min_width(Some(Dimension::Pixels(bounds.size.width)))
             .min_height(Some(Dimension::Pixels(bounds.size.height)));
@@ -754,15 +756,22 @@ brew install pkg-config
             children.push(suggestion_element);
         }
 
-        // Calculate the actual position of the activity log based on content
+        // Use the already calculated bounds
         let bounds = self.get_activity_log_bounds(window_height).unwrap_or_else(|| {
             euclid::rect(16.0, 200.0, self.width as f32 - 32.0, window_height - 320.0)
         });
-        let available_for_log = bounds.size.height;
+        
+        // The spacer should fill the remaining space in the window
+        // Total height = sum of all components
+        // We already have: header + status + filters + goal + suggestion = bounds.origin.y
+        // We need: spacer + chat_input = window_height - bounds.origin.y
+        // So spacer = window_height - bounds.origin.y - chat_input_height
+        let chat_input_height = 74.0;
+        let spacer_height = (window_height - bounds.origin.y - chat_input_height).max(0.0);
 
         log::debug!(
-            "Sidebar height calculation: window_height={}, activity_log_top={}, available_for_log={}",
-            window_height, bounds.origin.y, available_for_log
+            "Sidebar layout: window_height={}, content_above_log={}, spacer_height={}, chat_height={}",
+            window_height, bounds.origin.y, spacer_height, chat_input_height
         );
 
         // Skip the activity log here - it will be rendered separately at a different z-index
@@ -770,7 +779,7 @@ brew install pkg-config
         children.push(
             Element::new(font, ElementContent::Text(String::new()))
                 .display(DisplayType::Block)
-                .min_height(Some(Dimension::Pixels(available_for_log)))
+                .min_height(Some(Dimension::Pixels(spacer_height)))
                 // Completely transparent - no background
                 .colors(ElementColors {
                     bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(),
@@ -851,27 +860,33 @@ brew install pkg-config
     
     /// Get the bounds of the activity log viewport for clipping
     pub fn get_activity_log_bounds(&self, window_height: f32) -> Option<euclid::Rect<f32, window::PixelUnit>> {
-        // Calculate dynamic positions based on actual content
-        // Header: 50px (text + padding)
-        // Status chip: 40px (chip + padding)  
-        // Filter chips: 50px (chips + padding)
-        let mut top = 50.0 + 40.0 + 50.0; // 140px for fixed elements
+        // Calculate dynamic positions based on ACTUAL rendered heights:
+        // Header: 58px
+        let mut top = 58.0;
+        
+        // Status chip
+        top += 52.0;
+        
+        // Filter chips
+        top += 55.0;
         
         // Add goal card height if present
         if self.current_goal.is_some() {
-            top += 140.0;
+            top += 201.0;
         }
         
         // Add suggestion card height if present
         if self.current_suggestion.is_some() {
-            top += 160.0;
+            // Setting to match visual observation
+            top += 201.0;
         }
         
-        // Add some padding between cards and activity log
-        top += 16.0;
+        // Add padding between last card and activity log for visual separation
+        top += 10.0; // Increased for better visual separation
         
-        // Bottom is fixed for chat input
-        let bottom = window_height - 120.0; // Before chat input
+        // Bottom calculation
+        // Add small margin to ensure it doesn't touch the bottom
+        let bottom = window_height - 90.0;
         let left = 16.0;  // Padding
         let right = self.width as f32 - 16.0; // Right padding for scrollbar
         
