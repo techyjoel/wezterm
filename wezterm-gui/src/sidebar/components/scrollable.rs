@@ -331,6 +331,8 @@ impl ScrollableContainer {
     }
 
     pub fn set_scroll_offset(&mut self, offset: f32) {
+        log::debug!("ScrollableContainer::set_scroll_offset - offset={} -> constrained to {}", 
+            offset, offset.clamp(0.0, (self.content_height - self.viewport_height).max(0.0)));
         self.scroll_offset = offset;
         self.constrain_scroll();
     }
@@ -391,34 +393,14 @@ impl ScrollableContainer {
     }
 
     pub fn render(&self, font: &Rc<LoadedFont>) -> Element {
-        // Create a viewport container with fixed height and borders
-        let mut content_children = Vec::new();
+        log::debug!(
+            "ScrollableContainer::render - scroll_offset={}, content_height={}, viewport_height={}, items={}",
+            self.scroll_offset, self.content_height, self.viewport_height, self.content.len()
+        );
 
-        // Use actual item positions and heights for accurate rendering
-        for (idx, item) in self.content.iter().enumerate() {
-            if let (Some(&pos), Some(&height)) =
-                (self.item_positions.get(idx), self.item_heights.get(idx))
-            {
-                let item_top = pos - self.scroll_offset;
-                let item_bottom = item_top + height;
-
-                // Skip items completely above viewport
-                if item_bottom < 0.0 {
-                    continue;
-                }
-
-                // Stop rendering items completely below viewport
-                if item_top > self.viewport_height {
-                    break;
-                }
-
-                // Render visible items
-                content_children.push(item.clone());
-            }
-        }
-
-        // Create content area with translated position for scrolling
-        let content_area = Element::new(font, ElementContent::Children(content_children))
+        // Simply render all content items - let the viewport handle clipping
+        // The negative margin will shift the content up for scrolling
+        let content_area = Element::new(font, ElementContent::Children(self.content.clone()))
             .display(DisplayType::Block)
             .margin(BoxDimension {
                 top: Dimension::Pixels(-self.scroll_offset),
