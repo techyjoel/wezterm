@@ -208,6 +208,44 @@ impl super::TermWindow {
                     self.drag_ui_item(item, start_event, x, y, event, context);
                     return;
                 }
+
+                // Forward mouse move events to sidebars that might have active drag operations
+                // This ensures scrollbar dragging continues to work even when the mouse
+                // moves outside the sidebar bounds
+                let mut sidebar_handled = false;
+                {
+                    let mut sidebar_manager = self.sidebar_manager.borrow_mut();
+
+                    // Check right sidebar for active drag
+                    if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
+                        let mut sidebar_locked = sidebar.lock().unwrap();
+                        // Check if this sidebar might be dragging (we'll let it decide)
+                        if let Ok(handled) = sidebar_locked.handle_mouse_event(&event) {
+                            if handled {
+                                sidebar_handled = true;
+                                context.invalidate();
+                            }
+                        }
+                    }
+
+                    // Check left sidebar for active drag if right didn't handle it
+                    if !sidebar_handled {
+                        if let Some(sidebar) = sidebar_manager.get_left_sidebar() {
+                            let mut sidebar_locked = sidebar.lock().unwrap();
+                            if let Ok(handled) = sidebar_locked.handle_mouse_event(&event) {
+                                if handled {
+                                    sidebar_handled = true;
+                                    context.invalidate();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // If a sidebar handled the event (e.g., scrollbar dragging), don't process it further
+                if sidebar_handled {
+                    return;
+                }
             }
             _ => {}
         }
