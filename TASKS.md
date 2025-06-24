@@ -317,11 +317,13 @@ The implementation is divided into 7 phases:
     - ✅ Element to Quad conversion with proper translate pattern
     - ✅ Fixed layout with fixed-height top elements, flexible middle activity log, fixed bottom chat input
     - ✅ Added window_height parameter to Sidebar trait for dynamic height calculations
-  - **Remaining Issues**:
-    - Scrollbar thumb calculation uses hardcoded 40px per item (needs dynamic height)
-    - Filter chip bounds persistence between renders
+  - **Remaining Issues** (see SIDEBAR_SCROLLBAR.md "Revised Improvement Plan" for full details):
+    - Scrollbar thumb calculation uses hardcoded 40px per item (needs dynamic height based on font metrics)
+    - Filter chip click detection not working consistently (mouse interaction issues)
     - Some activity log content may be cut off
+    - Activity log area has odd margin coloration (background not filling properly)
     - Auto-hide scrollbar behavior not implemented
+    - Performance: markdown re-renders every frame
 
 - [ ] **2.4.5** Performance optimization - Caching for markdown and syntax highlighting
   - **Development status**: Pending
@@ -348,15 +350,22 @@ The implementation is divided into 7 phases:
 - Comprehensive mock data system for development/testing
 
 **Remaining Phase 2 work**:
-- **2.4.4**: Fix scrollbar thumb calculations and filter chip state persistence
+- **2.4.4**: Fix scrollbar and interaction issues (see SIDEBAR_SCROLLBAR.md "Revised Improvement Plan")
+  - Phase 1: Dynamic height measurement system (Critical)
+  - Phase 2: Fix mouse interactions for filter chips and scrollbar (High)
+  - Phase 3: Fix content rendering and margins (Medium)
+  - Phase 4: Performance optimizations (Low)
 - **2.4.5**: Add performance optimization for markdown/syntax caching
 - **2.5**: Complete config system integration for AI-specific settings
 
-**Known Issues**:
+**Known Issues** (detailed in SIDEBAR_SCROLLBAR.md):
 - Multi-line chat input not yet interactive (can't click and type)
-- Filter chips not reliably clickable
-- Scrollbar thumb moves too fast due to hardcoded item height
+- Filter chips not reliably clickable (mouse coordinate transformation issues)
+- Scrollbar thumb moves incorrectly due to hardcoded 40px item height assumption
+- Height calculations don't adapt to font size/family/line spacing changes
+- Activity log margins show odd coloration (background fill issues)
 - Markdown rendering implementation needs verification
+- Performance: markdown re-renders every frame
 
 ---
 
