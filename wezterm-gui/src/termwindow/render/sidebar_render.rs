@@ -506,10 +506,18 @@ impl crate::TermWindow {
                 )?;
                 
                 // Translate to the correct position within the sidebar
+                // Note: activity_bounds.origin.x already includes the left padding (16px),
+                // so we shouldn't add it to sidebar_x again
                 activity_log_computed.translate(euclid::vec2(
                     sidebar_x + activity_bounds.origin.x, 
                     activity_bounds.origin.y
                 ));
+                
+                log::debug!(
+                    "Activity log computed bounds before translation: {:?}, after translation to y={}",
+                    activity_log_computed.bounds,
+                    activity_bounds.origin.y
+                );
                 
                 // Render the activity log
                 let gl_state = self.render_state.as_ref().unwrap();
