@@ -80,6 +80,17 @@ pub trait NeonRenderer {
         font: &Rc<LoadedFont>,
         style: &NeonStyle,
     ) -> Result<()>;
+    
+    /// Render neon glyph with explicit bounds and z-index
+    fn render_neon_glyph_with_bounds_and_zindex(
+        &mut self,
+        layers: &mut TripleLayerQuadAllocator,
+        text: &str,
+        content_bounds: RectF,
+        font: &Rc<LoadedFont>,
+        style: &NeonStyle,
+        base_zindex: i8,
+    ) -> Result<()>;
 
     /// Render neon text/icon with explicit bounds
     fn render_neon_glyph_with_bounds(
@@ -211,7 +222,8 @@ impl NeonRenderer for TermWindow {
         // This function currently assumes a 40x40 button size for backward compatibility
         // TODO: Make this more generic by passing in content bounds
         let content_bounds = euclid::rect(position.x, position.y, 40.0, 40.0);
-        self.render_neon_glyph_with_bounds(layers, text, content_bounds, font, style)
+        // Use z-index 2 as default (assumes button is at z-index 1)
+        self.render_neon_glyph_with_bounds_and_zindex(layers, text, content_bounds, font, style, 2)
     }
 
     /// Generic version that accepts explicit content bounds
@@ -222,6 +234,20 @@ impl NeonRenderer for TermWindow {
         content_bounds: RectF,
         font: &Rc<LoadedFont>,
         style: &NeonStyle,
+    ) -> Result<()> {
+        // Use z-index 2 as default (assumes button is at z-index 1)
+        self.render_neon_glyph_with_bounds_and_zindex(layers, text, content_bounds, font, style, 2)
+    }
+    
+    /// Full version that accepts bounds and z-index offset
+    fn render_neon_glyph_with_bounds_and_zindex(
+        &mut self,
+        layers: &mut TripleLayerQuadAllocator,
+        text: &str,
+        content_bounds: RectF,
+        font: &Rc<LoadedFont>,
+        style: &NeonStyle,
+        base_zindex: i8,
     ) -> Result<()> {
         // Debug logging commented out for performance
         // log::debug!(
@@ -475,6 +501,7 @@ impl NeonRenderer for TermWindow {
             });
 
         // Create layout context for main icon
+        // The zindex should be 0 since we're already rendering within the correct z-layer
         let context = crate::termwindow::box_model::LayoutContext {
             width: config::DimensionContext {
                 dpi: self.dimensions.dpi as f32,
@@ -489,7 +516,7 @@ impl NeonRenderer for TermWindow {
             bounds: content_bounds,
             metrics: &metrics,
             gl_state: self.render_state.as_ref().unwrap(),
-            zindex: 2, // Render above glow
+            zindex: base_zindex + 1, // Render icon 1 level above the base to avoid conflicts
         };
 
         // Compute the element layout

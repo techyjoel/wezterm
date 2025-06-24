@@ -95,7 +95,9 @@ impl ScrollbarRenderer {
     pub fn update(&mut self, total_size: f32, viewport_size: f32, scroll_offset: f32) {
         self.total_size = total_size;
         self.viewport_size = viewport_size;
-        self.scroll_offset = scroll_offset;
+        // Ensure scroll offset is within valid bounds
+        let max_scroll = (total_size - viewport_size).max(0.0);
+        self.scroll_offset = scroll_offset.clamp(0.0, max_scroll);
     }
 
     /// Calculate thumb position and size
@@ -110,9 +112,14 @@ impl ScrollbarRenderer {
         let thumb_size = (track_length * thumb_ratio).max(self.min_thumb_size);
 
         // Calculate thumb position
-        let scroll_ratio = self.scroll_offset / (self.total_size - self.viewport_size);
+        let max_scroll = (self.total_size - self.viewport_size).max(0.0);
+        let scroll_ratio = if max_scroll > 0.0 {
+            (self.scroll_offset / max_scroll).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         let max_thumb_offset = track_length - thumb_size;
-        let thumb_offset = max_thumb_offset * scroll_ratio;
+        let thumb_offset = (max_thumb_offset * scroll_ratio).clamp(0.0, max_thumb_offset);
 
         (thumb_offset, thumb_size)
     }
@@ -306,6 +313,14 @@ impl ScrollbarRenderer {
     /// Get the current state
     pub fn state(&self) -> &ScrollbarState {
         &self.state
+    }
+
+    pub fn total_size(&self) -> f32 {
+        self.total_size
+    }
+
+    pub fn viewport_size(&self) -> f32 {
+        self.viewport_size
     }
 
     /// Check if scrollbar is needed

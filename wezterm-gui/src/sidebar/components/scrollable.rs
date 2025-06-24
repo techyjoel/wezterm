@@ -431,16 +431,11 @@ impl ScrollableContainer {
         // Don't render scrollbar as Element - it will be rendered externally
         // using direct rendering at the appropriate z-index
 
-        // Create viewport container
+        // Create viewport container with fixed height to enforce clipping
+        // Remove background color so content shows through the "hole" in the sidebar
         Element::new(font, ElementContent::Children(viewport_children))
             .display(DisplayType::Block)
             .min_height(Some(Dimension::Pixels(self.viewport_height)))
-            .border(BoxDimension::new(Dimension::Pixels(1.0)))
-            .colors(ElementColors {
-                border: BorderColor::new(LinearRgba::with_components(0.3, 0.3, 0.35, 0.8)),
-                bg: LinearRgba::with_components(0.05, 0.05, 0.06, 0.5).into(),
-                ..Default::default()
-            })
     }
 
     fn render_scrollbar_element(

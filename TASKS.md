@@ -310,7 +310,7 @@ The implementation is divided into 7 phases:
   - Auto-scroll to bottom on new messages
   - Maintain scroll position when reviewing history
 - [ ] **2.4.4** Fix sidebar rendering positioning and layout issues (In Progress)
-  - **Development status**: Scrollbar visible but mouse interactions broken
+  - **Development status**: Cut-a-hole rendering implemented, alignment issues remain
   - **Completed**:
     - Fixed fundamental positioning issue using translate pattern from fancy_tab_bar
     - Implemented proper Element to Quad conversion with compute_element starting at (0,0) then translating
@@ -322,7 +322,7 @@ The implementation is divided into 7 phases:
     - Fixed activity log items displaying side-by-side by adding DisplayType::Block
     - Fixed activity log overflowing past window bottom with proper height calculations
     - Fixed multi-line markdown content height calculation with recursive algorithm
-    - **Scrollbar Refactored**: Now uses direct rendering at z-index 12
+    - **Scrollbar Refactored**: Now uses direct rendering at proper z-index
       - Created reusable ScrollbarRenderer component in render/scrollbar_renderer.rs
       - Implements z-index strategy from ZINDEX_AND_LAYERS.md
       - Fixed sidebar backgrounds to use dedicated z-indices (3 & 4)
@@ -332,22 +332,56 @@ The implementation is divided into 7 phases:
   - **Implemented features**:
     - ✅ **Scrollbar refactoring complete**: Now uses direct rendering
       - ScrollbarRenderer component created and integrated
-      - Renders at z-index 12 with proper UI items
+      - Renders at z-index 16 with proper UI items
       - Full mouse support implemented in renderer
     - ✅ **Z-ordering solved**: Using z-index strategy instead of sub-layers
       - Each UI component gets its own z-index
-      - Scrollbar renders at z-index 12
+      - Activity log content renders at z-index 10 
+      - Sidebar background renders at z-index 12 with "cut-a-hole" for activity log
+      - Main sidebar content at z-index 14
+      - Scrollbar renders at z-index 16
       - No more 3-layer limitation
+    - ✅ **Cut-a-hole rendering implemented**:
+      - Activity log renders at lower z-index (10) and shows through hole
+      - Sidebar background cuts rectangular sections around activity log
+      - Dynamic bounds calculation based on actual content
+      - Background added to activity log content
+    - ✅ **Icon rendering fixed**:
+      - Sidebar button icons now visible
+      - Created render_neon_glyph_with_bounds_and_zindex() method
+      - Icons render at correct z-index relative to buttons
+      - Right button at z-index 16, left button at z-index 36
   - **Current issues**:
-    - **Mouse interactions completely broken**:
-      - Filter chips sometimes respond but behavior is unreliable
-      - Filter chip hit zones don't match visual positions
-      - Scrollbar doesn't respond to any mouse events (clicks, drag, wheel)
-      - UI items may not be properly registered or coordinates are wrong
-      - Need to debug event routing and coordinate systems
+    - **Activity log alignment**: 
+      - Activity log shows up under suggestion box still
+      - Chat input box missing (likely rendered too far down)
+      - Need to refine bounds calculations
+    - **Filter chips broken**: 
+      - Filter chip bounds array is empty when clicks happen
+      - update_filter_chip_bounds() is called but bounds aren't persisting
+      - Need to fix timing of bounds calculation
+    - **Scrollbar partially working**:
+      - Scrollbar drag updates offset but visual scroll not happening
+      - ScrollableContainer state not persisting between renders
+      - Need to store scroll offset in AiSidebar state
+    - **Coordinate system correct**:
+      - Window coordinates match expected positions
+      - Scrollbar bounds correct: x=1712, y=200 (right edge of sidebar)
       - Will need more layers for modal overlays
       - "More" button in suggestions needs to show overlay above other content
       - May require architectural changes to support 10+ layers
+  - **Next steps to fix**:
+    1. Fix filter chip bounds persistence:
+       - Move bounds storage from render method to persistent state
+       - Calculate bounds once when sidebar position changes
+       - Debug why update_filter_chip_bounds isn't working
+    2. Fix scroll rendering:
+       - ScrollableContainer is recreated each render, losing state
+       - Need to trigger re-render when scroll offset changes
+       - Verify set_scroll_offset() actually updates the container
+    3. Fix scroll wheel processing:
+       - Add missing debug log to trace why wheel events aren't processed
+       - Check if scrollbar renderer exists when wheel events arrive
   - **Remaining tasks**:
     1. Fix mouse interaction:
        - Debug why all clicks go to filter chips

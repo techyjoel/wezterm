@@ -293,6 +293,104 @@ pub trait Modal {
 - Layer system with z-ordering
 
 
+## Z-Index and Layer System Documentation
+
+### Overview
+
+WezTerm uses a two-level rendering system that can be confusing at first. This document clarifies how it works based on code analysis.
+
+### The Two-Level System
+
+#### Level 1: Z-Index (RenderLayer)
+- **Purpose**: Determines rendering order between different UI components
+- **Range**: Any `i8` value (-128 to 127)
+- **Created dynamically**: New `RenderLayer` objects are created as needed
+- **Code**: `renderstate.rs:723` - `layer_for_zindex(zindex: i8)`
+
+#### Level 2: Sub-Layers (within each RenderLayer)
+- **Purpose**: Separates content types within a single z-index
+- **Count**: Exactly 3 sub-layers per z-index (hardcoded)
+- **Indices**: 0, 1, 2 only
+- **Code**: `renderstate.rs:556` - `pub vb: RefCell<[TripleVertexBuffer; 3]>`
+
+### How It Works
+
+#### 1. Z-Index Creates RenderLayers
+```rust
+// renderstate.rs:723-742
+pub fn layer_for_zindex(&self, zindex: i8) -> anyhow::Result<Rc<RenderLayer>> {
+    // Checks if layer exists, creates if not
+    // Keeps layers sorted by zindex for rendering order
+}
+```
+
+#### 2. Each RenderLayer Has Fixed Sub-Layers
+```rust
+// quad.rs:339-344 (HeapQuadAllocator::allocate)
+match layer_num {
+    0 => &mut self.layer0,
+    1 => &mut self.layer1,
+    2 => &mut self.layer2,
+    _ => unreachable!(),  // PANICS if > 2
+}
+
+// renderstate.rs:664-671 (BorrowedLayers)
+fn allocate(&mut self, layer_num: usize) -> anyhow::Result<QuadImpl> {
+    self.layers[layer_num].allocate()  // Array access - panics if > 2
+}
+```
+
+#### 3. Sub-Layer Usage Convention
+- **Sub-layer 0**: Backgrounds, underlines, block cursors
+- **Sub-layer 1**: Text glyphs
+- **Sub-layer 2**: Sprites, UI elements, bar cursors
+
+### Code Examples
+
+#### Terminal Rendering (z-index 0)
+```rust
+// paint.rs:196-199
+let layer = gl_state.layer_for_zindex(0)?;
+let mut layers = layer.quad_allocator();
+
+// paint.rs:254-265
+self.filled_rectangle(&mut layers, 0, rect, background)?;  // Sub-layer 0 for background
+```
+
+#### Element Rendering
+```rust
+// box_model.rs:905-951
+let layer = gl_state.layer_for_zindex(element.zindex)?;
+let mut layers = layer.quad_allocator();
+
+// Different content types use different sub-layers:
+let mut quad = layers.allocate(2)?;  // Sprites use sub-layer 2
+let mut quad = layers.allocate(1)?;  // Glyphs use sub-layer 1
+```
+
+#### Z-Index Inheritance
+```rust
+// box_model.rs:634
+zindex: element.zindex + context.zindex,  // Elements inherit parent z-index
+```
+
+### Z-Index Assignments
+- **Z-index 0**: Terminal content (existing)
+- **Z-index 1**: Tab bar (existing)
+- **Z-index 10**: Right sidebar activity log content
+- **Z-index 12**: Right sidebar background
+- **Z-index 14**: Right sidebar main content
+- **Z-index 16**: Right sidebar scrollbars(s) and buttons
+- **Z-index 20**: Right sidebar overlays
+- **Z-index 22**: Right sidebar overlay content within overlays (such as sidebars within overlays)
+- **Z-index 30**: Left sidebar content for scrolling
+- **Z-index 32**: Left sidebar background
+- **Z-index 34**: Left sidebar main content
+- **Z-index 36**: Left Sidebar scrollbar(s) and buttons
+- **Z-index 38**: Left sidebar overlays
+- **Z-index 40**: Left sidebar overlay content within overlays (such as sidebars within overlays)
+
+
 ## Important Implementation Notes
 
 ### Window Resizing with Sidebars

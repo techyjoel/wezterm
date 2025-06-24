@@ -121,6 +121,9 @@ pub struct AiSidebar {
     
     // UI element bounds for hit testing
     filter_chip_bounds: Vec<(ActivityFilter, euclid::Rect<f32, window::PixelUnit>)>,
+    
+    // Sidebar position for coordinate conversion
+    sidebar_x_position: f32,
 }
 
 impl AiSidebar {
@@ -142,6 +145,7 @@ impl AiSidebar {
             activity_log_scrollbar_bounds: None,
             activity_log_scroll_offset: 0.0,
             filter_chip_bounds: Vec::new(),
+            sidebar_x_position: 0.0,
         }
     }
 
@@ -295,29 +299,6 @@ brew install pkg-config
             ("Chat", ActivityFilter::Chat),
             ("Suggestions", ActivityFilter::Suggestions),
         ];
-        
-        // Clear previous bounds
-        self.filter_chip_bounds.clear();
-        
-        // Calculate chip positions
-        // These are approximate based on the layout
-        let base_x = 16.0; // left padding
-        let base_y = 106.0; // Approximate Y position (header + status chip + padding)
-        let chip_height = 24.0; // Small chip height
-        let chip_spacing = 8.0;
-        let chip_widths = vec![35.0, 75.0, 40.0, 85.0]; // Approximate widths
-        
-        let mut current_x = base_x;
-        for ((_, filter), width) in filters.iter().zip(chip_widths.iter()) {
-            let bounds = euclid::rect(
-                current_x,
-                base_y,
-                *width,
-                chip_height
-            );
-            self.filter_chip_bounds.push((*filter, bounds));
-            current_x += width + chip_spacing;
-        }
 
         let chips: Vec<Element> = filters
             .into_iter()
@@ -639,6 +620,9 @@ brew install pkg-config
                 .display(DisplayType::Block)
             })
             .collect();
+            
+        log::debug!("Rendering activity log: {} items filtered, {} items rendered", 
+            self.activity_log.len(), rendered_items.len());
 
         // Create scrollable container with pixel-based viewport height
         let viewport_height = available_height - 32.0; // Account for padding (16px top + 16px bottom)
@@ -651,14 +635,12 @@ brew install pkg-config
         );
 
         // Use pixel-based height for scrollable container
-        let mut scrollable_container = ScrollableContainer::new_with_pixel_height(viewport_height);
-
-        // Set scroll position
-        scrollable_container.set_scroll_offset(self.activity_log_scroll_offset);
-
-        scrollable_container = scrollable_container
+        let mut scrollable_container = ScrollableContainer::new_with_pixel_height(viewport_height)
             .with_content(rendered_items)
             .with_auto_hide_scrollbar(false); // Always show scrollbar for debugging
+
+        // CRITICAL: Set scroll position AFTER content is set, so the container can validate the offset
+        scrollable_container.set_scroll_offset(self.activity_log_scroll_offset);
 
         // Store scrollbar info for external rendering
         let scrollbar_info = scrollable_container.get_scrollbar_info();
@@ -668,7 +650,8 @@ brew install pkg-config
         if scrollbar_info.should_show {
             let total_size = scrollbar_info.total_items as f32 * 40.0; // Approximate item height
             let viewport_size = scrollbar_info.viewport_items as f32 * 40.0;
-            let scroll_offset = scrollbar_info.scroll_offset as f32 * 40.0;
+            // Use the actual scroll offset in pixels, not the converted value
+            let scroll_offset = self.activity_log_scroll_offset;
 
             match &mut self.activity_log_scrollbar_renderer {
                 Some(renderer) => {
@@ -689,18 +672,8 @@ brew install pkg-config
 
         let scrollable = scrollable_container.render(font);
 
-        // Create the activity log with padding
-        let padded_scrollable = Element::new(font, ElementContent::Children(vec![scrollable]))
-            .display(DisplayType::Block)
-            .padding(BoxDimension {
-                left: Dimension::Pixels(16.0),
-                right: Dimension::Pixels(16.0),
-                top: Dimension::Pixels(8.0),
-                bottom: Dimension::Pixels(8.0),
-            })
-            .min_height(Some(Dimension::Pixels(available_height)));
-
-        padded_scrollable
+        // Return the scrollable without extra padding since it's handled by the container
+        scrollable
     }
 
     fn render_chat_input(&self, font: &Rc<LoadedFont>) -> Element {
@@ -725,6 +698,39 @@ brew install pkg-config
         })
     }
 
+    /// Render the activity log separately for layered rendering
+    pub fn render_activity_log_content(&mut self, font: &Rc<LoadedFont>, window_height: f32) -> Element {
+        // Get the dynamic bounds for the activity log
+        let bounds = self.get_activity_log_bounds(window_height).unwrap_or_else(|| {
+            euclid::rect(16.0, 200.0, self.width as f32 - 32.0, window_height - 320.0)
+        });
+        
+        // The activity log height is the bounds height
+        let available_for_log = bounds.size.height;
+        
+        // Render the activity log content
+        let activity_log = self.render_activity_log(font, available_for_log);
+        
+        // Wrap in a container with background color
+        // Don't use margins here - positioning is handled by the render context
+        let container = Element::new(font, ElementContent::Children(vec![activity_log]))
+            .display(DisplayType::Block)
+            .colors(ElementColors {
+                bg: LinearRgba::with_components(0.03, 0.03, 0.035, 1.0).into(), // Slightly lighter than sidebar
+                ..Default::default()
+            })
+            .padding(BoxDimension {
+                left: Dimension::Pixels(16.0),
+                right: Dimension::Pixels(16.0),
+                top: Dimension::Pixels(8.0),
+                bottom: Dimension::Pixels(8.0),
+            })
+            .min_width(Some(Dimension::Pixels(bounds.size.width)))
+            .min_height(Some(Dimension::Pixels(bounds.size.height)));
+            
+        container
+    }
+    
     pub fn render_content(&mut self, font: &Rc<LoadedFont>, window_height: f32) -> Element {
         let mut children = vec![];
 
@@ -748,51 +754,36 @@ brew install pkg-config
             children.push(suggestion_element);
         }
 
-        // Calculate fixed heights for elements ABOVE the activity log:
-        // Header: 50px (text + padding)
-        // Status chip: 40px (chip + padding)
-        // Filter chips: 50px (chips + padding)
-        // Extra for testing: 350px
-        let top_fixed_height = 490.0;
-
-        // Add optional card heights
-        let goal_height = if self.current_goal.is_some() {
-            140.0
-        } else {
-            0.0
-        };
-        let suggestion_height = if self.current_suggestion.is_some() {
-            160.0
-        } else {
-            0.0
-        };
-
-        // Fixed height for elements BELOW the activity log:
-        // Chat input: 120px (3 lines + button + padding)
-        let bottom_fixed_height = 120.0;
-
-        // Calculate available height for activity log
-        let total_fixed = top_fixed_height + goal_height + suggestion_height + bottom_fixed_height;
-        let available_for_log = (window_height - total_fixed).max(50.0);
+        // Calculate the actual position of the activity log based on content
+        let bounds = self.get_activity_log_bounds(window_height).unwrap_or_else(|| {
+            euclid::rect(16.0, 200.0, self.width as f32 - 32.0, window_height - 320.0)
+        });
+        let available_for_log = bounds.size.height;
 
         log::debug!(
-            "Sidebar height calculation: window_height={}, top_fixed={}, goal={}, suggestion={}, bottom_fixed={}, total_fixed={}, available_for_log={}",
-            window_height, top_fixed_height, goal_height, suggestion_height, bottom_fixed_height, total_fixed, available_for_log
+            "Sidebar height calculation: window_height={}, activity_log_top={}, available_for_log={}",
+            window_height, bounds.origin.y, available_for_log
         );
 
-        // Activity log with dynamic height
-        children.push(self.render_activity_log(font, available_for_log));
+        // Skip the activity log here - it will be rendered separately at a different z-index
+        // Add a transparent spacer to maintain layout
+        children.push(
+            Element::new(font, ElementContent::Text(String::new()))
+                .display(DisplayType::Block)
+                .min_height(Some(Dimension::Pixels(available_for_log)))
+                // Completely transparent - no background
+                .colors(ElementColors {
+                    bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(),
+                    ..Default::default()
+                })
+        );
 
         // Fixed height chat input at bottom
         children.push(self.render_chat_input(font));
 
-        // Container
+        // Container - transparent so the hole works
         Element::new(font, ElementContent::Children(children))
             .display(DisplayType::Block)
-            .colors(ElementColors {
-                bg: LinearRgba::with_components(0.05, 0.05, 0.06, 1.0).into(),
-                ..Default::default()
-            })
             .min_width(Some(Dimension::Pixels(self.width as f32)))
             .min_height(Some(Dimension::Pixels(window_height)))
     }
@@ -853,36 +844,132 @@ brew install pkg-config
 
     /// Set the scrollbar bounds for hit testing
     pub fn set_scrollbar_bounds(&mut self, bounds: euclid::Rect<f32, window::PixelUnit>) {
+        log::debug!("Setting scrollbar bounds: origin=({}, {}), size=({}, {})", 
+            bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
         self.activity_log_scrollbar_bounds = Some(bounds);
+    }
+    
+    /// Get the bounds of the activity log viewport for clipping
+    pub fn get_activity_log_bounds(&self, window_height: f32) -> Option<euclid::Rect<f32, window::PixelUnit>> {
+        // Calculate dynamic positions based on actual content
+        // Header: 50px (text + padding)
+        // Status chip: 40px (chip + padding)  
+        // Filter chips: 50px (chips + padding)
+        let mut top = 50.0 + 40.0 + 50.0; // 140px for fixed elements
+        
+        // Add goal card height if present
+        if self.current_goal.is_some() {
+            top += 140.0;
+        }
+        
+        // Add suggestion card height if present
+        if self.current_suggestion.is_some() {
+            top += 160.0;
+        }
+        
+        // Add some padding between cards and activity log
+        top += 16.0;
+        
+        // Bottom is fixed for chat input
+        let bottom = window_height - 120.0; // Before chat input
+        let left = 16.0;  // Padding
+        let right = self.width as f32 - 16.0; // Right padding for scrollbar
+        
+        log::debug!("Activity log bounds: top={}, bottom={}, left={}, right={}, height={}", 
+            top, bottom, left, right, bottom - top);
+        
+        Some(euclid::rect(left, top, right - left, bottom - top))
     }
 
     /// Check if a mouse event is within the scrollbar bounds
     fn is_scrollbar_event(&self, event: &MouseEvent) -> bool {
         if let Some(bounds) = &self.activity_log_scrollbar_bounds {
             let point = euclid::point2(event.coords.x as f32, event.coords.y as f32);
-            bounds.contains(point)
+            let contains = bounds.contains(point);
+            log::debug!("Checking scrollbar bounds: point=({}, {}), bounds=({}, {}, {}, {}), contains={}", 
+                point.x, point.y, 
+                bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height,
+                contains);
+            contains
         } else {
+            log::debug!("No scrollbar bounds set");
             false
         }
     }
     
     /// Update filter chip bounds with sidebar position offset
     pub fn update_filter_chip_bounds(&mut self, sidebar_x: f32) {
-        // Update bounds with actual sidebar position
-        for (_, bounds) in &mut self.filter_chip_bounds {
-            bounds.origin.x += sidebar_x;
+        // Store sidebar position for mouse event handling
+        self.sidebar_x_position = sidebar_x;
+        
+        // Clear and recalculate bounds with sidebar position
+        self.filter_chip_bounds.clear();
+        
+        // These positions are relative to the sidebar's origin
+        let filters = vec![
+            ("All", ActivityFilter::All),
+            ("Commands", ActivityFilter::Commands),
+            ("Chat", ActivityFilter::Chat),
+            ("Suggestions", ActivityFilter::Suggestions),
+        ];
+        
+        let base_x = 16.0; // left padding within sidebar
+        let base_y = 106.0; // Approximate Y position
+        let chip_height = 24.0;
+        let chip_spacing = 8.0;
+        let chip_widths = vec![35.0, 75.0, 40.0, 85.0];
+        
+        let mut current_x = base_x + sidebar_x; // Add sidebar offset
+        for ((_, filter), width) in filters.iter().zip(chip_widths.iter()) {
+            let bounds = euclid::rect(
+                current_x,
+                base_y,
+                *width,
+                chip_height
+            );
+            self.filter_chip_bounds.push((*filter, bounds));
+            current_x += width + chip_spacing;
+        }
+        
+        log::debug!("Updated filter chip bounds with sidebar_x={}", sidebar_x);
+        for (filter, bounds) in &self.filter_chip_bounds {
+            log::debug!("  {:?}: x={}, y={}, w={}, h={}", 
+                filter, bounds.origin.x, bounds.origin.y, 
+                bounds.size.width, bounds.size.height);
         }
     }
     
-    /// Check which filter chip was clicked
-    fn get_clicked_filter(&self, event: &MouseEvent) -> Option<ActivityFilter> {
-        let point = euclid::point2(event.coords.x as f32, event.coords.y as f32);
-        for (filter, bounds) in &self.filter_chip_bounds {
-            if bounds.contains(point) {
-                return Some(*filter);
-            }
+    /// Check which filter chip was clicked based on coordinates
+    fn get_clicked_filter(&self, event: &MouseEvent, sidebar_x: f32) -> Option<ActivityFilter> {
+        // Check if click is in the filter chip area (approximate Y range)
+        let y = event.coords.y as f32;
+        if y < 90.0 || y > 130.0 {
+            return None;
         }
-        None
+        
+        // Convert window X coordinate to sidebar-relative X
+        let relative_x = event.coords.x as f32 - sidebar_x;
+        
+        // The chips are laid out starting at x=16 within the sidebar
+        // Approximate widths: All(35), Commands(75), Chat(40), Suggestions(85)
+        // With 8px spacing between chips
+        let base_x = 16.0;
+        if relative_x < base_x {
+            return None;
+        }
+        
+        let x = relative_x - base_x;
+        if x < 35.0 {
+            Some(ActivityFilter::All)
+        } else if x < 118.0 {  // 35 + 8 + 75
+            Some(ActivityFilter::Commands)
+        } else if x < 166.0 {  // 118 + 8 + 40
+            Some(ActivityFilter::Chat)
+        } else if x < 259.0 {  // 166 + 8 + 85
+            Some(ActivityFilter::Suggestions)
+        } else {
+            None
+        }
     }
 }
 
@@ -918,13 +1005,33 @@ impl Sidebar for AiSidebar {
     }
 
     fn handle_mouse_event(&mut self, event: &MouseEvent) -> Result<bool> {
+        log::debug!("AI sidebar handle_mouse_event: {:?} at ({}, {})", 
+            event.kind, event.coords.x, event.coords.y);
+        
+        // Log current bounds for debugging
+        if let WMEK::Press(MousePress::Left) = &event.kind {
+            if let Some(bounds) = &self.activity_log_scrollbar_bounds {
+                log::debug!("Scrollbar bounds: x={}, y={}, w={}, h={}",
+                    bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+            }
+            log::debug!("Filter chip bounds:");
+            for (filter, bounds) in &self.filter_chip_bounds {
+                log::debug!("  {:?}: x={}, y={}, w={}, h={}", 
+                    filter, bounds.origin.x, bounds.origin.y, 
+                    bounds.size.width, bounds.size.height);
+            }
+        }
+        
         // Handle scroll wheel events
         if let WMEK::VertWheel(amount) = &event.kind {
+            log::debug!("Scroll wheel event: amount={}, has_renderer={}", 
+                amount, self.activity_log_scrollbar_renderer.is_some());
             // Check if we have a scrollbar renderer to get scroll metrics
-            if let Some(_renderer) = &self.activity_log_scrollbar_renderer {
+            if let Some(renderer) = &self.activity_log_scrollbar_renderer {
                 let scroll_speed = 40.0; // Pixels per scroll step
-                let scroll_amount = scroll_speed * (*amount as f32);
-
+                let scroll_amount = scroll_speed * (*amount as f32).abs();
+                
+                let old_offset = self.activity_log_scroll_offset;
                 let new_offset = if *amount > 0 {
                     // Scroll up
                     (self.activity_log_scroll_offset - scroll_amount).max(0.0)
@@ -933,14 +1040,17 @@ impl Sidebar for AiSidebar {
                     self.activity_log_scroll_offset + scroll_amount
                 };
 
-                // Constrain to valid range
-                // TODO: Get actual content height from scrollbar info
-                self.activity_log_scroll_offset = new_offset;
+                // Constrain to valid range using actual content metrics
+                let max_scroll = (renderer.total_size() - renderer.viewport_size()).max(0.0);
+                self.activity_log_scroll_offset = new_offset.clamp(0.0, max_scroll);
+                
                 log::debug!(
-                    "Scroll wheel updated offset to: {}",
-                    self.activity_log_scroll_offset
+                    "Scroll wheel: old_offset={}, new_offset={}, max_scroll={}, amount={}, scroll_amount={}",
+                    old_offset, self.activity_log_scroll_offset, max_scroll, amount, scroll_amount
                 );
                 return Ok(true);
+            } else {
+                log::debug!("No scrollbar renderer for scroll wheel");
             }
         }
 
@@ -966,7 +1076,7 @@ impl Sidebar for AiSidebar {
         // Check for filter chip clicks
         match event.kind {
             WMEK::Press(MousePress::Left) => {
-                if let Some(filter) = self.get_clicked_filter(event) {
+                if let Some(filter) = self.get_clicked_filter(event, self.sidebar_x_position) {
                     log::debug!("Filter chip clicked: {:?}", filter);
                     self.activity_filter = filter;
                     return Ok(true);
