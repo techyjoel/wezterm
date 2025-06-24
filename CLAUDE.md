@@ -162,6 +162,8 @@ The project uses Cargo workspaces with these key members:
 
 WezTerm includes a complete widget framework for building interactive UI components:
 
+**Note**: The TermWiz widget system is primarily for standalone terminal-based applications. WezTerm's GUI components (including sidebars) use the Element-based Box Model system described below, not TermWiz widgets.
+
 **Core Widget Trait:**
 ```rust
 pub trait Widget {
@@ -292,6 +294,17 @@ pub trait Modal {
 - `UIItem` registration for mouse handling
 - Layer system with z-ordering
 
+### Cut-a-Hole Rendering Pattern
+
+For complex layered UI like sidebars with scrollable regions, we have used a "cut-a-hole" rendering approach:
+
+- Render scrollable content at a lower z-index (e.g., z-index 10)
+- Render the container background at a higher z-index (e.g., z-index 12) with rectangular sections excluded
+- The lower content shows through the "hole" in the background
+- This allows independent scrolling while maintaining proper visual hierarchy
+
+This pattern is used in the right sidebar to separate the activity log scrolling from fixed UI elements.
+
 
 ## Z-Index and Layer System Documentation
 
@@ -381,13 +394,13 @@ zindex: element.zindex + context.zindex,  // Elements inherit parent z-index
 - **Z-index 12**: Right sidebar background
 - **Z-index 14**: Right sidebar main content
 - **Z-index 16**: Right sidebar scrollbars(s) and buttons
-- **Z-index 20**: Right sidebar overlays
+- **Z-index 20**: Right sidebar overlays (e.g. modals)
 - **Z-index 22**: Right sidebar overlay content within overlays (such as sidebars within overlays)
 - **Z-index 30**: Left sidebar content for scrolling
 - **Z-index 32**: Left sidebar background
 - **Z-index 34**: Left sidebar main content
 - **Z-index 36**: Left Sidebar scrollbar(s) and buttons
-- **Z-index 38**: Left sidebar overlays
+- **Z-index 38**: Left sidebar overlays  (e.g. modals)
 - **Z-index 40**: Left sidebar overlay content within overlays (such as sidebars within overlays)
 
 

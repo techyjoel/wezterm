@@ -35,18 +35,18 @@ impl crate::TermWindow {
 
         // Paint left button bar background if left sidebar exists
         if has_left_sidebar {
-            // Use z-index 4 for left sidebar background
+            // Use z-index 32 for left sidebar background (per CLAUDE.md)
             let gl_state = self.render_state.as_ref().unwrap();
-            let layer = gl_state.layer_for_zindex(4)?;
+            let layer = gl_state.layer_for_zindex(32)?;
             let mut layers = layer.quad_allocator();
             self.paint_left_button_bar_background(&mut layers)?;
         }
 
         // Paint left sidebar if visible
         if left_visible {
-            // Use z-index 4 for left sidebar background
+            // Use z-index 32 for left sidebar background (per CLAUDE.md)
             let gl_state = self.render_state.as_ref().unwrap();
-            let layer = gl_state.layer_for_zindex(4)?;
+            let layer = gl_state.layer_for_zindex(32)?;
             let mut layers = layer.quad_allocator();
             self.paint_left_sidebar(&mut layers)?;
         }
