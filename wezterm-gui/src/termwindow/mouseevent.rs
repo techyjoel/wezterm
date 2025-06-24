@@ -137,6 +137,27 @@ impl super::TermWindow {
                     // Completed a drag
                     return;
                 }
+
+                // Forward mouse release to sidebars that might have active drag operations
+                // This ensures scrollbar drag states are properly cleared even when the
+                // mouse is released outside the sidebar bounds
+                if press == &MousePress::Left {
+                    let mut sidebar_manager = self.sidebar_manager.borrow_mut();
+
+                    // Check right sidebar
+                    if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
+                        let mut sidebar_locked = sidebar.lock().unwrap();
+                        let _ = sidebar_locked.handle_mouse_event(&event);
+                    }
+
+                    // Check left sidebar
+                    if let Some(sidebar) = sidebar_manager.get_left_sidebar() {
+                        let mut sidebar_locked = sidebar.lock().unwrap();
+                        let _ = sidebar_locked.handle_mouse_event(&event);
+                    }
+
+                    drop(sidebar_manager);
+                }
             }
 
             WMEK::Press(ref press) => {

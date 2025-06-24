@@ -137,7 +137,7 @@ impl ScrollableContainer {
         self.auto_hide_scrollbar = auto_hide;
         self
     }
-    
+
     /// Set the font context for accurate height calculations
     pub fn with_font_context(mut self, context: DimensionContext) -> Self {
         self.font_context = Some(context);
@@ -204,7 +204,7 @@ impl ScrollableContainer {
             self.content.len(),
             self.content_height > self.viewport_height
         );
-        
+
         // Log summary of height calculations
         if self.content.len() > 0 {
             let avg_item_height = self.content_height / self.content.len() as f32;
@@ -230,18 +230,23 @@ impl ScrollableContainer {
         // Use the stored font context or a default one
         let context = self.font_context.unwrap_or(DimensionContext {
             dpi: 96.0,
-            pixel_cell: 16.0,  // Conservative default line height
+            pixel_cell: 16.0, // Conservative default line height
             pixel_max: self.viewport_height,
         });
         self.estimate_element_height_recursive(element, 0, context)
     }
 
-    fn estimate_element_height_recursive(&self, element: &Element, depth: usize, context: DimensionContext) -> f32 {
+    fn estimate_element_height_recursive(
+        &self,
+        element: &Element,
+        depth: usize,
+        context: DimensionContext,
+    ) -> f32 {
         let padding = element.padding.top.evaluate_as_pixels(context)
             + element.padding.bottom.evaluate_as_pixels(context);
         let margin = element.margin.top.evaluate_as_pixels(context)
             + element.margin.bottom.evaluate_as_pixels(context);
-        
+
         // Account for borders if present
         let border_height = element.border.top.evaluate_as_pixels(context)
             + element.border.bottom.evaluate_as_pixels(context);
@@ -276,7 +281,8 @@ impl ScrollableContainer {
                 } else {
                     let mut total_height = 0.0;
                     for (idx, child) in children.iter().enumerate() {
-                        let child_height = self.estimate_element_height_recursive(child, depth + 1, context);
+                        let child_height =
+                            self.estimate_element_height_recursive(child, depth + 1, context);
                         total_height += child_height;
 
                         // Log significant child heights
@@ -362,8 +368,11 @@ impl ScrollableContainer {
     }
 
     pub fn set_scroll_offset(&mut self, offset: f32) {
-        log::debug!("ScrollableContainer::set_scroll_offset - offset={} -> constrained to {}", 
-            offset, offset.clamp(0.0, (self.content_height - self.viewport_height).max(0.0)));
+        log::debug!(
+            "ScrollableContainer::set_scroll_offset - offset={} -> constrained to {}",
+            offset,
+            offset.clamp(0.0, (self.content_height - self.viewport_height).max(0.0))
+        );
         self.scroll_offset = offset;
         self.constrain_scroll();
     }

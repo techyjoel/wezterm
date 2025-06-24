@@ -80,7 +80,7 @@ pub trait NeonRenderer {
         font: &Rc<LoadedFont>,
         style: &NeonStyle,
     ) -> Result<()>;
-    
+
     /// Render neon glyph with explicit bounds and z-index
     fn render_neon_glyph_with_bounds_and_zindex(
         &mut self,
@@ -238,7 +238,7 @@ impl NeonRenderer for TermWindow {
         // Use z-index 2 as default (assumes button is at z-index 1)
         self.render_neon_glyph_with_bounds_and_zindex(layers, text, content_bounds, font, style, 2)
     }
-    
+
     /// Full version that accepts bounds and z-index offset
     fn render_neon_glyph_with_bounds_and_zindex(
         &mut self,

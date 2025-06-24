@@ -308,7 +308,7 @@ impl crate::TermWindow {
         let expansion = sidebar_manager.get_window_expansion() as f32;
         let is_visible = sidebar_manager.is_right_visible();
         let sidebar_mode = sidebar_manager.config.mode;
-        
+
         // Calculate sidebar position
         let (visible_width, sidebar_x) = if is_visible {
             if sidebar_mode == crate::sidebar::SidebarMode::Expand {
@@ -317,11 +317,14 @@ impl crate::TermWindow {
                 (full_width, self.dimensions.pixel_width as f32 - full_width)
             }
         } else {
-            (MIN_SIDEBAR_WIDTH, self.dimensions.pixel_width as f32 - MIN_SIDEBAR_WIDTH)
+            (
+                MIN_SIDEBAR_WIDTH,
+                self.dimensions.pixel_width as f32 - MIN_SIDEBAR_WIDTH,
+            )
         };
 
         let sidebar_bg_color = LinearRgba::with_components(0.02, 0.02, 0.024, 1.0);
-        
+
         // Get the actual activity log bounds from the sidebar
         let (activity_log_top, activity_log_bottom, activity_log_left, activity_log_right) = {
             let sidebar = sidebar_manager.get_right_sidebar();
@@ -331,26 +334,48 @@ impl crate::TermWindow {
                     .as_any()
                     .downcast_ref::<crate::sidebar::ai_sidebar::AiSidebar>()
                 {
-                    if let Some(bounds) = ai_sidebar.get_activity_log_bounds(self.dimensions.pixel_height as f32) {
-                        (bounds.origin.y, bounds.origin.y + bounds.size.height, bounds.origin.x, bounds.origin.x + bounds.size.width)
+                    if let Some(bounds) =
+                        ai_sidebar.get_activity_log_bounds(self.dimensions.pixel_height as f32)
+                    {
+                        (
+                            bounds.origin.y,
+                            bounds.origin.y + bounds.size.height,
+                            bounds.origin.x,
+                            bounds.origin.x + bounds.size.width,
+                        )
                     } else {
-                        (200.0, self.dimensions.pixel_height as f32 - 120.0, 16.0, visible_width - 16.0)
+                        (
+                            200.0,
+                            self.dimensions.pixel_height as f32 - 120.0,
+                            16.0,
+                            visible_width - 16.0,
+                        )
                     }
                 } else {
-                    (200.0, self.dimensions.pixel_height as f32 - 120.0, 16.0, visible_width - 16.0)
+                    (
+                        200.0,
+                        self.dimensions.pixel_height as f32 - 120.0,
+                        16.0,
+                        visible_width - 16.0,
+                    )
                 }
             } else {
-                (200.0, self.dimensions.pixel_height as f32 - 120.0, 16.0, visible_width - 16.0)
+                (
+                    200.0,
+                    self.dimensions.pixel_height as f32 - 120.0,
+                    16.0,
+                    visible_width - 16.0,
+                )
             }
         };
         let activity_log_height = activity_log_bottom - activity_log_top;
-        
+
         log::debug!("Cut-a-hole rendering: sidebar_x={}, visible_width={}, activity_log bounds: top={}, bottom={}, height={}", 
             sidebar_x, visible_width, activity_log_top, activity_log_bottom, activity_log_height);
-        
+
         // Paint sidebar background at z-index 12 with a "hole" for the activity log
         let gl_state = self.render_state.as_ref().unwrap();
-        
+
         // Top section (above activity log)
         if activity_log_top > 0.0 {
             let layer = gl_state.layer_for_zindex(12)?;
@@ -358,7 +383,7 @@ impl crate::TermWindow {
             let top_rect = euclid::rect(sidebar_x, 0.0, visible_width, activity_log_top);
             self.filled_rectangle(&mut layers, 0, top_rect, sidebar_bg_color)?;
         }
-        
+
         // Bottom section (below activity log)
         if activity_log_bottom < self.dimensions.pixel_height as f32 {
             let layer = gl_state.layer_for_zindex(12)?;
@@ -371,7 +396,7 @@ impl crate::TermWindow {
             );
             self.filled_rectangle(&mut layers, 0, bottom_rect, sidebar_bg_color)?;
         }
-        
+
         // Left edge of activity log area (if needed for borders)
         if activity_log_left > 0.0 {
             let layer = gl_state.layer_for_zindex(12)?;
@@ -384,7 +409,7 @@ impl crate::TermWindow {
             );
             self.filled_rectangle(&mut layers, 0, left_rect, sidebar_bg_color)?;
         }
-        
+
         // Right edge of activity log area (for scrollbar background)
         let right_edge_width = visible_width - activity_log_right;
         if right_edge_width > 0.0 {
@@ -398,15 +423,15 @@ impl crate::TermWindow {
             );
             self.filled_rectangle(&mut layers, 0, right_rect, sidebar_bg_color)?;
         }
-        
+
         // DEBUG: Add a red border around the hole to make it visible
         let debug_color = LinearRgba::with_components(1.0, 0.0, 0.0, 0.5);
         let border_width = 2.0;
-        
+
         // Get layer for debug borders
         let layer = gl_state.layer_for_zindex(12)?;
         let mut layers = layer.quad_allocator();
-        
+
         // Top border
         let top_border = euclid::rect(
             sidebar_x + activity_log_left,
@@ -415,7 +440,7 @@ impl crate::TermWindow {
             border_width,
         );
         self.filled_rectangle(&mut layers, 1, top_border, debug_color)?;
-        
+
         // Bottom border
         let bottom_border = euclid::rect(
             sidebar_x + activity_log_left,
@@ -465,7 +490,7 @@ impl crate::TermWindow {
             let mut sidebar_locked = sidebar.lock().unwrap();
 
             let font = self.fonts.title_font()?;
-            
+
             // First render the activity log content at z-index 10 (lower layer, will show through the hole)
             log::debug!("Rendering activity log at z-index 10");
             if let Some(ai_sidebar) = sidebar_locked
@@ -473,12 +498,21 @@ impl crate::TermWindow {
                 .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
             {
                 // Get the activity log element
-                let activity_log_element = ai_sidebar.render_activity_log_content(&font, self.dimensions.pixel_height as f32);
-                
+                let activity_log_element = ai_sidebar
+                    .render_activity_log_content(&font, self.dimensions.pixel_height as f32);
+
                 // Get the activity log bounds to position it correctly
-                let activity_bounds = ai_sidebar.get_activity_log_bounds(self.dimensions.pixel_height as f32)
-                    .unwrap_or_else(|| euclid::rect(16.0, 200.0, visible_width - 32.0, self.dimensions.pixel_height as f32 - 320.0));
-                
+                let activity_bounds = ai_sidebar
+                    .get_activity_log_bounds(self.dimensions.pixel_height as f32)
+                    .unwrap_or_else(|| {
+                        euclid::rect(
+                            16.0,
+                            200.0,
+                            visible_width - 32.0,
+                            self.dimensions.pixel_height as f32 - 320.0,
+                        )
+                    });
+
                 // Compute it at z-index 10 with bounds matching the hole
                 let mut activity_log_computed = self.compute_element(
                     &LayoutContext {
@@ -500,35 +534,35 @@ impl crate::TermWindow {
                         ),
                         metrics: &self.render_metrics,
                         gl_state: self.render_state.as_ref().unwrap(),
-                        zindex: 10,  // Activity log content at z-index 10
+                        zindex: 10, // Activity log content at z-index 10
                     },
                     &activity_log_element,
                 )?;
-                
+
                 // Translate to the correct position within the sidebar
                 // Note: activity_bounds.origin.x already includes the left padding (16px),
                 // so we shouldn't add it to sidebar_x again
                 activity_log_computed.translate(euclid::vec2(
-                    sidebar_x + activity_bounds.origin.x, 
-                    activity_bounds.origin.y
+                    sidebar_x + activity_bounds.origin.x,
+                    activity_bounds.origin.y,
                 ));
-                
+
                 log::debug!(
                     "Activity log computed bounds before translation: {:?}, after translation to y={}",
                     activity_log_computed.bounds,
                     activity_bounds.origin.y
                 );
-                
+
                 // Render the activity log
                 let gl_state = self.render_state.as_ref().unwrap();
                 self.render_element(&activity_log_computed, gl_state, None)?;
                 log::debug!("Activity log rendered at z-index 10");
             }
-            
+
             // Now get the main sidebar element
             let element = sidebar_locked.render(&font, self.dimensions.pixel_height as f32);
             drop(sidebar_locked);
-            
+
             // Render main sidebar content at z-index 14
             log::debug!("Rendering main sidebar content at z-index 14");
             let mut computed = self.compute_element(
@@ -568,7 +602,7 @@ impl crate::TermWindow {
 
             // Render scrollbars at z-index 16 after main content
             self.render_sidebar_scrollbars(&sidebar, sidebar_x, visible_width)?;
-            
+
             // Update filter chip bounds with sidebar position
             let mut sidebar_locked = sidebar.lock().unwrap();
             if let Some(ai_sidebar) = sidebar_locked
@@ -633,9 +667,11 @@ impl crate::TermWindow {
                     let sidebar_locked = sidebar.lock().unwrap();
                     if let Some(ai_sidebar) = sidebar_locked
                         .as_any()
-                        .downcast_ref::<crate::sidebar::ai_sidebar::AiSidebar>()
-                    {
-                        if let Some(bounds) = ai_sidebar.get_activity_log_bounds(self.dimensions.pixel_height as f32) {
+                        .downcast_ref::<crate::sidebar::ai_sidebar::AiSidebar>(
+                    ) {
+                        if let Some(bounds) =
+                            ai_sidebar.get_activity_log_bounds(self.dimensions.pixel_height as f32)
+                        {
                             (bounds.origin.y, bounds.size.height)
                         } else {
                             (200.0, self.dimensions.pixel_height as f32 - 320.0)
@@ -693,9 +729,13 @@ impl crate::TermWindow {
 
                 // Don't add scrollbar UI items - they conflict with terminal scrollbar
                 // The sidebar will handle scrollbar events via hit testing
-                log::debug!("Scrollbar rendered at bounds: ({}, {}, {}, {})", 
-                    scrollbar_bounds.origin.x, scrollbar_bounds.origin.y,
-                    scrollbar_bounds.size.width, scrollbar_bounds.size.height);
+                log::debug!(
+                    "Scrollbar rendered at bounds: ({}, {}, {}, {})",
+                    scrollbar_bounds.origin.x,
+                    scrollbar_bounds.origin.y,
+                    scrollbar_bounds.size.width,
+                    scrollbar_bounds.size.height
+                );
 
                 // Update sidebar with scrollbar bounds
                 let mut sidebar_locked = sidebar.lock().unwrap();
