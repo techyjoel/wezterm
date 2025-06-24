@@ -10,7 +10,7 @@ use crate::termwindow::render::scrollbar_renderer::{ScrollbarOrientation, Scroll
 use crate::termwindow::UIItemType;
 use ::window::color::LinearRgba;
 use anyhow::Result;
-use config::Dimension;
+use config::{Dimension, DimensionContext};
 use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime};
 use termwiz::input::KeyCode;
@@ -612,16 +612,10 @@ brew install pkg-config
         let mut rendered_items: Vec<Element> = Vec::new();
         
         // Render the actual items
+        // Note: Items already have proper display types and margins, no need to wrap
         rendered_items.extend(filtered_items
             .into_iter()
-            .map(|item| {
-                // Wrap each item in a block container to ensure vertical stacking
-                Element::new(
-                    font,
-                    ElementContent::Children(vec![self.render_activity_item(item, font)]),
-                )
-                .display(DisplayType::Block)
-            }));
+            .map(|item| self.render_activity_item(item, font)));
             
         let rendered_items_count = rendered_items.len();
         log::debug!("Rendering activity log: {} items filtered, {} items rendered", 
@@ -638,7 +632,17 @@ brew install pkg-config
         );
 
         // Use pixel-based height for scrollable container
+        // Get actual font metrics for accurate height calculations
+        let font_metrics = font.metrics();
+        let line_height = font_metrics.cell_height.get() as f32;
+        let font_context = DimensionContext {
+            dpi: 96.0,
+            pixel_cell: line_height,
+            pixel_max: viewport_height,
+        };
+        
         let mut scrollable_container = ScrollableContainer::new_with_pixel_height(viewport_height)
+            .with_font_context(font_context)
             .with_content(rendered_items)
             .with_auto_hide_scrollbar(false); // Always show scrollbar for debugging
 
@@ -657,10 +661,10 @@ brew install pkg-config
 
         // Create/update scrollbar renderer if needed
         if scrollbar_info.should_show {
-            let total_size = scrollbar_info.total_items as f32 * 40.0; // Approximate item height
-            let viewport_size = scrollbar_info.viewport_items as f32 * 40.0;
-            // Use the actual scroll offset in pixels, not the converted value
-            let scroll_offset = self.activity_log_scroll_offset;
+            // Use the new pixel-based values from ScrollbarInfo
+            let total_size = scrollbar_info.content_height;
+            let viewport_size = scrollbar_info.viewport_height;
+            let scroll_offset = scrollbar_info.scroll_offset;
 
             match &mut self.activity_log_scrollbar_renderer {
                 Some(renderer) => {

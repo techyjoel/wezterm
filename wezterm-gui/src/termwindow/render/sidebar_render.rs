@@ -653,11 +653,11 @@ impl crate::TermWindow {
                     scrollbar_height,
                 );
 
-                // Create scrollbar renderer
+                // Create scrollbar renderer using pixel-based values
                 let mut scrollbar = ScrollbarRenderer::new_vertical(
-                    scrollbar_info.total_items as f32 * 40.0, // Approximate item height
-                    scrollbar_info.viewport_items as f32 * 40.0,
-                    scrollbar_info.scroll_offset as f32 * 40.0,
+                    scrollbar_info.content_height,
+                    scrollbar_info.viewport_height,
+                    scrollbar_info.scroll_offset,
                     20.0, // min thumb size
                 );
 

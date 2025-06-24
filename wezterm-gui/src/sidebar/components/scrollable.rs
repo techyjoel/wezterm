@@ -47,6 +47,8 @@ pub struct ScrollableContainer {
     dragging_scrollbar: bool,
     drag_start_y: Option<f32>,
     drag_start_offset: Option<f32>,
+    // Font metrics context
+    font_context: Option<DimensionContext>,
     // For backwards compatibility, keep item-based tracking
     top_row: usize,
     max_visible_items: usize,
@@ -61,11 +63,15 @@ pub struct ScrollbarInfo {
     pub thumb_position: f32,
     /// Thumb size as a fraction of total height (0.0 to 1.0)
     pub thumb_size: f32,
-    /// Current scroll offset for hit testing
-    pub scroll_offset: usize,
-    /// Total scrollable items
+    /// Total content height in pixels
+    pub content_height: f32,
+    /// Visible viewport height in pixels  
+    pub viewport_height: f32,
+    /// Current scroll offset in pixels
+    pub scroll_offset: f32,
+    /// DEPRECATED: Total scrollable items (kept for compatibility)
     pub total_items: usize,
-    /// Visible viewport items
+    /// DEPRECATED: Visible viewport items (kept for compatibility)
     pub viewport_items: usize,
 }
 
@@ -93,6 +99,7 @@ impl ScrollableContainer {
             dragging_scrollbar: false,
             drag_start_y: None,
             drag_start_offset: None,
+            font_context: None,
         }
     }
 
@@ -116,6 +123,7 @@ impl ScrollableContainer {
             dragging_scrollbar: false,
             drag_start_y: None,
             drag_start_offset: None,
+            font_context: None,
         }
     }
 
@@ -127,6 +135,13 @@ impl ScrollableContainer {
 
     pub fn with_auto_hide_scrollbar(mut self, auto_hide: bool) -> Self {
         self.auto_hide_scrollbar = auto_hide;
+        self
+    }
+    
+    /// Set the font context for accurate height calculations
+    pub fn with_font_context(mut self, context: DimensionContext) -> Self {
+        self.font_context = Some(context);
+        self.scroll_speed = context.pixel_cell * 2.0; // 2 lines per scroll step
         self
     }
 
@@ -189,6 +204,16 @@ impl ScrollableContainer {
             self.content.len(),
             self.content_height > self.viewport_height
         );
+        
+        // Log summary of height calculations
+        if self.content.len() > 0 {
+            let avg_item_height = self.content_height / self.content.len() as f32;
+            log::debug!(
+                "Average item height: {:.1}px, Total padding+margins estimated: {:.1}px",
+                avg_item_height,
+                self.content_height - (self.content.len() as f32 * 20.0) // Assuming 20px base text height
+            );
+        }
 
         // Update legacy item-based tracking
         let avg_height = if self.content.is_empty() {
@@ -202,27 +227,35 @@ impl ScrollableContainer {
 
     /// Estimate element height based on content type
     fn estimate_element_height(&self, element: &Element) -> f32 {
-        self.estimate_element_height_recursive(element, 0)
+        // Use the stored font context or a default one
+        let context = self.font_context.unwrap_or(DimensionContext {
+            dpi: 96.0,
+            pixel_cell: 16.0,  // Conservative default line height
+            pixel_max: self.viewport_height,
+        });
+        self.estimate_element_height_recursive(element, 0, context)
     }
 
-    fn estimate_element_height_recursive(&self, element: &Element, depth: usize) -> f32 {
-        let context = DimensionContext {
-            dpi: 96.0,
-            pixel_cell: 20.0,
-            pixel_max: 1000.0,
-        };
-
+    fn estimate_element_height_recursive(&self, element: &Element, depth: usize, context: DimensionContext) -> f32 {
         let padding = element.padding.top.evaluate_as_pixels(context)
             + element.padding.bottom.evaluate_as_pixels(context);
         let margin = element.margin.top.evaluate_as_pixels(context)
             + element.margin.bottom.evaluate_as_pixels(context);
+        
+        // Account for borders if present
+        let border_height = element.border.top.evaluate_as_pixels(context)
+            + element.border.bottom.evaluate_as_pixels(context);
+
+        // Get the actual line height from element or use default
+        let line_height_multiplier = element.line_height.unwrap_or(1.0) as f32;
+        let base_line_height = context.pixel_cell;
+        let actual_line_height = base_line_height * line_height_multiplier;
 
         let content_height = match &element.content {
             ElementContent::Text(text) => {
-                // Estimate based on text length and line breaks
+                // Calculate height based on actual line count and font metrics
                 let lines = text.lines().count().max(1);
-                let line_height = 20.0; // Approximate line height
-                let text_height = lines as f32 * line_height;
+                let text_height = lines as f32 * actual_line_height;
 
                 // Log markdown text heights
                 if lines > 1 || text.len() > 100 {
@@ -243,11 +276,11 @@ impl ScrollableContainer {
                 } else {
                     let mut total_height = 0.0;
                     for (idx, child) in children.iter().enumerate() {
-                        let child_height = self.estimate_element_height_recursive(child, depth + 1);
+                        let child_height = self.estimate_element_height_recursive(child, depth + 1, context);
                         total_height += child_height;
 
                         // Log significant child heights
-                        if child_height > 40.0 && depth < 3 {
+                        if child_height > actual_line_height * 2.0 && depth < 3 {
                             log::trace!(
                                 "Child {} height (depth {}): {:.1}px",
                                 idx,
@@ -256,23 +289,20 @@ impl ScrollableContainer {
                             );
                         }
                     }
-                    // Add spacing between block-level children
-                    if element.display == DisplayType::Block {
-                        total_height += (children.len().saturating_sub(1)) as f32 * 8.0;
-                    }
+                    // Don't add extra spacing - elements already have their own margins
                     total_height
                 }
             }
-            _ => 20.0, // Default height for other types
+            _ => actual_line_height, // Default to one line height for other types
         };
 
-        let total = content_height + padding + margin;
+        let total = content_height + padding + margin + border_height;
 
         // Log significant element heights
-        if total > 100.0 && depth < 2 {
+        if total > actual_line_height * 2.0 && depth < 3 {
             log::trace!(
-                "Element total height (depth {}): content={:.1}, padding={:.1}, margin={:.1}, total={:.1}",
-                depth, content_height, padding, margin, total
+                "Element height (depth {}): content={:.1}, padding={:.1}, margin={:.1}, border={:.1}, total={:.1}",
+                depth, content_height, padding, margin, border_height, total
             );
         }
 
@@ -366,7 +396,10 @@ impl ScrollableContainer {
                 should_show: false,
                 thumb_position: 0.0,
                 thumb_size: 1.0,
-                scroll_offset: self.scroll_offset as usize,
+                content_height: self.content_height,
+                viewport_height: self.viewport_height,
+                scroll_offset: self.scroll_offset,
+                // Deprecated fields
                 total_items: self.content.len(),
                 viewport_items: self.max_visible_items,
             };
@@ -387,7 +420,10 @@ impl ScrollableContainer {
             should_show: true,
             thumb_position: thumb_position.clamp(0.0, 1.0),
             thumb_size: thumb_size.clamp(0.1, 1.0), // Minimum 10% size
-            scroll_offset: self.scroll_offset as usize,
+            content_height: self.content_height,
+            viewport_height: self.viewport_height,
+            scroll_offset: self.scroll_offset,
+            // Deprecated fields for compatibility
             total_items: self.content.len(),
             viewport_items: self.max_visible_items,
         }
