@@ -51,7 +51,7 @@ cargo build
 gdb ./target/debug/wezterm
 # In gdb: break rust_panic, run, bt
 
-# Run the built binary wtih debug logging
+# Run the built binary with debug logging
 WEZTERM_LOG=debug ./target/release/wezterm
 ```
 
@@ -99,6 +99,7 @@ The workflow you should use is:
    - Runtime configuration via Lua scripts
    - Key bindings, appearance, behavior settings
    - Dynamic reloading support
+   - Our custom config file is located at ./clibuddy/wezterm.lua
 
 5. **SSH Integration (`wezterm-ssh/`)** - Native SSH client implementation
    - Pure Rust SSH client (no OpenSSH dependency)
@@ -305,6 +306,51 @@ For complex layered UI like sidebars with scrollable regions, we have used a "cu
 
 This pattern is used in the right sidebar to separate the activity log scrolling from fixed UI elements.
 
+### GPU Blur Effect System
+
+WezTerm includes a GPU-accelerated blur system for creating neon glow effects on UI elements:
+
+**Key Components:**
+- `termwindow/render/blur.rs` - Main blur renderer with WebGPU/OpenGL backends
+- `termwindow/render/effects_overlay.rs` - Manages effects layer rendered after main content
+- `termwindow/render/icon_to_texture.rs` - Converts glyphs/icons to textures for blur input
+- `shaders/blur.wgsl` and `blur-*.glsl` - GPU shaders for 2-pass Gaussian blur
+
+**Usage Example:**
+```rust
+// In your render method:
+render_neon_glyph(
+    params,
+    element,           // The UI element to apply glow to
+    glyph,            // The icon/character
+    style,            // NeonStyle with color and glow settings
+    metrics,          // Font metrics
+    underline_height,
+    cell_size
+)?;
+```
+
+**How It Works:**
+1. Icon/glyph is rasterized to a texture with padding for blur
+2. Horizontal Gaussian blur pass
+3. Vertical Gaussian blur pass  
+4. Result is additively blended at the original position
+
+**Configuration:**
+- Blur radius: Up to ~15-16 pixels (default 8px)
+- Intensity: Configurable via `style.glow_intensity`
+- Caching: LRU cache with 50MB limit for reusing blurred textures
+
+**Performance:**
+- 2 GPU passes vs previous 240 CPU passes
+- Supports both WebGPU and OpenGL backends
+- Automatic backend selection based on `config.front_end`
+
+**Blur Algorithm:**
+- Sigma: `(radius + 1.0) / 2.0`
+- Kernel size: `ceil(sigma * 3.0)` for 3-sigma coverage
+- Maximum 63 kernel elements
+
 
 ## Z-Index and Layer System Documentation
 
@@ -318,19 +364,19 @@ WezTerm uses a two-level rendering system that can be confusing at first. This d
 - **Purpose**: Determines rendering order between different UI components
 - **Range**: Any `i8` value (-128 to 127)
 - **Created dynamically**: New `RenderLayer` objects are created as needed
-- **Code**: `renderstate.rs:723` - `layer_for_zindex(zindex: i8)`
+- **Code**: `renderstate.rs` - `layer_for_zindex(zindex: i8)`
 
 #### Level 2: Sub-Layers (within each RenderLayer)
 - **Purpose**: Separates content types within a single z-index
 - **Count**: Exactly 3 sub-layers per z-index (hardcoded)
 - **Indices**: 0, 1, 2 only
-- **Code**: `renderstate.rs:556` - `pub vb: RefCell<[TripleVertexBuffer; 3]>`
+- **Code**: `renderstate.rs` - `pub vb: RefCell<[TripleVertexBuffer; 3]>`
 
 ### How It Works
 
 #### 1. Z-Index Creates RenderLayers
 ```rust
-// renderstate.rs:723-742
+// renderstate.rs:
 pub fn layer_for_zindex(&self, zindex: i8) -> anyhow::Result<Rc<RenderLayer>> {
     // Checks if layer exists, creates if not
     // Keeps layers sorted by zindex for rendering order
@@ -347,7 +393,7 @@ match layer_num {
     _ => unreachable!(),  // PANICS if > 2
 }
 
-// renderstate.rs:664-671 (BorrowedLayers)
+// renderstate.rs: (BorrowedLayers)
 fn allocate(&mut self, layer_num: usize) -> anyhow::Result<QuadImpl> {
     self.layers[layer_num].allocate()  // Array access - panics if > 2
 }
@@ -362,17 +408,17 @@ fn allocate(&mut self, layer_num: usize) -> anyhow::Result<QuadImpl> {
 
 #### Terminal Rendering (z-index 0)
 ```rust
-// paint.rs:196-199
+// paint.rs:
 let layer = gl_state.layer_for_zindex(0)?;
 let mut layers = layer.quad_allocator();
 
-// paint.rs:254-265
+// paint.rs:
 self.filled_rectangle(&mut layers, 0, rect, background)?;  // Sub-layer 0 for background
 ```
 
 #### Element Rendering
 ```rust
-// box_model.rs:905-951
+// box_model.rs:
 let layer = gl_state.layer_for_zindex(element.zindex)?;
 let mut layers = layer.quad_allocator();
 
@@ -383,7 +429,7 @@ let mut quad = layers.allocate(1)?;  // Glyphs use sub-layer 1
 
 #### Z-Index Inheritance
 ```rust
-// box_model.rs:634
+// box_model.rs:
 zindex: element.zindex + context.zindex,  // Elements inherit parent z-index
 ```
 

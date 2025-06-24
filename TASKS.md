@@ -15,9 +15,9 @@ This document outlines the phased implementation plan for CLiBuddy Terminal, a f
 - **Configuration**: Dynamic Lua-based config with hot reloading
 
 ### What We Need to Build:
-- **Sidebar Framework**: No existing sidebar implementation
-- **WebSocket Client**: No WebSocket support (need tokio-tungstenite)
-- **Secret Detection**: No existing secret filtering (need custom implementation)
+- **Sidebar Framework**
+- **WebSocket Client**
+- **Secret Detection**: likely need a custom implementation
 - **Terminal Capture**: Hook into existing PTY stream at read_from_pane_pty
 - **State Management**: Follow mux patterns with Arc<Mutex<>> for shared state
 
@@ -56,26 +56,17 @@ The implementation is divided into 7 phases:
   - **Note**: Uses Element-based rendering instead of termwiz widgets
   - **Key insight**: Painting a background rectangle for the left button bar (on layer 1) is required to properly offset terminal content. Without this visual separation, the terminal padding calculations don't take effect.
 - [x] **1.1.2** Implement `Sidebar` trait
-  ```rust
-  pub trait Sidebar: Send + Sync {
-      fn render(&mut self);
-      fn get_width(&self) -> u16;
-      fn is_visible(&self) -> bool;
-      fn toggle_visibility(&mut self);
-      fn get_position(&self) -> SidebarPosition;
-      fn set_width(&mut self, width: u16);
-      fn handle_mouse_event(&mut self, event: &MouseEvent) -> Result<bool>;
-      fn handle_key_event(&mut self, key: &KeyCode) -> Result<bool>;
-  }
-  ```
+  - **Implementation**: Trait includes render() returning Element, get_scrollbars() for external rendering, handle_mouse_event/handle_key_event with Result<bool>, and as_any() methods for downcasting
   - **Note**: Added Send + Sync bounds for thread safety
   - **Note**: Uses WezTerm's MouseEvent/KeyCode types, returns Result<bool>
+  - **Note**: render() method takes font and window_height parameters
 - [x] **1.1.3** Create `SidebarManager` to handle multiple sidebars
   - Manage left and right sidebar instances
   - Handle visibility states
   - Coordinate animations
   - **Note**: Uses `Arc<Mutex<dyn Sidebar>>` for thread-safe storage
   - **Note**: Includes animation progress calculation and update methods
+  - **Implementation Note**: Animations are implemented but intentionally disabled for immediate show/hide behavior. The infrastructure remains available for future use if needed.
 
 ### 1.2 Layout System Integration
 - [x] **1.2.1** Modify `TermWindow` layout calculations
@@ -102,6 +93,7 @@ The implementation is divided into 7 phases:
   - Basic background rendering for both sidebars with animation support
   - Fixed quad allocation using TripleLayerQuadAllocatorTrait
   - Animations slide in from left/right edges based on progress
+  - **Implementation Note**: Uses "cut-a-hole" rendering pattern for scrollable content areas. Activity log renders at lower z-index and shows through rectangular exclusions in the sidebar background. This pattern separates scrolling content from fixed UI elements.
 - [x] **1.2.3** Add sidebar toggle buttons to window chrome
   - Create button UI items for left sidebar icons (gear, SSH)
     - Look at NerdFonts: na-fa-gear, nf-md-lan_connect
@@ -131,6 +123,7 @@ The implementation is divided into 7 phases:
   - **Existing**: Use ScrollHit pattern from tab bar
   - **Note**: Renders only visible items, includes scrollbar with mouse wheel support
   - **Note**: is_over_scrollbar() not yet implemented (returns false)
+  - **Implementation Note**: Scrollbar rendering extracted to external `ScrollbarRenderer` component that renders at proper z-index. `ScrollableContainer` provides `ScrollbarInfo` for external rendering rather than rendering scrollbar as an Element.
 - [x] **1.3.3** Create chip components for status display and filtering
   - **Existing**: Use box_model.rs with rounded borders
   - **Note**: ChipStyle enum with 6 variants, ChipSize with 3 sizes
@@ -212,7 +205,12 @@ The implementation is divided into 7 phases:
   - **Features**: Multiple glow layers, configurable intensity/radius, border support
   - **Integration**: Applied to sidebar toggle buttons with per-button configs
 
-### 2.1.5 Foundation Fixes (Critical Implementation Details)
+### 2.1.5 Foundation Architecture Notes
+- [x] **Scrollbar Infrastructure**: Created reusable `ScrollbarRenderer` component in `termwindow/render/scrollbar_renderer.rs` supporting vertical/horizontal orientations, drag scrolling, and proper z-index rendering
+- [x] **Coordinate System**: Sidebar tracks window position for mouse event coordinate conversion. Methods like `set_sidebar_position()` update internal tracking for proper hit testing.
+- [x] **Mock Data System**: Comprehensive `populate_mock_data()` demonstrates all UI features including markdown, syntax highlighting, expandable commands, and 20+ items for scroll testing
+
+### 2.1.6 Foundation Fixes (Critical Implementation Details)
 - [x] **Element to Quad Conversion**
   - **Issue**: Elements were created but not rendered as GPU quads
   - **Solution**: Fixed TODO in sidebar_render.rs by implementing proper rendering pipeline
@@ -309,110 +307,21 @@ The implementation is divided into 7 phases:
   - **Development status**: Completed (part of activity log scrolling)
   - Auto-scroll to bottom on new messages
   - Maintain scroll position when reviewing history
-- [ ] **2.4.4** Fix sidebar rendering positioning and layout issues (In Progress)
-  - **Development status**: Cut-a-hole rendering implemented, alignment issues remain
+- [ ] **2.4.4** Fix sidebar rendering positioning and layout issues (**Partially Complete**)
   - **Completed**:
-    - Fixed fundamental positioning issue using translate pattern from fancy_tab_bar
-    - Implemented proper Element to Quad conversion with compute_element starting at (0,0) then translating
-    - Fixed layout to have fixed-height top elements, flexible middle activity log, fixed bottom chat input
-    - Added window_height parameter to Sidebar trait for dynamic height calculations
-    - Improved resize handle exclusion zone (20px) for better mouse cursor behavior
-    - Added 20+ mock items to test scrolling functionality
-    - Implemented scrollbar infrastructure with ScrollbarInfo struct
-    - Fixed activity log items displaying side-by-side by adding DisplayType::Block
-    - Fixed activity log overflowing past window bottom with proper height calculations
-    - Fixed multi-line markdown content height calculation with recursive algorithm
-    - **Scrollbar Refactored**: Now uses direct rendering at proper z-index
-      - Created reusable ScrollbarRenderer component in render/scrollbar_renderer.rs
-      - Implements z-index strategy from ZINDEX_AND_LAYERS.md
-      - Fixed sidebar backgrounds to use dedicated z-indices (3 & 4)
-      - Scrollbar renders independently of Element system
-      - Full mouse interaction support (drag, click, wheel)
-      - State tracked in AI sidebar for proper event handling
-  - **Implemented features**:
-    - ✅ **Scrollbar refactoring complete**: Now uses direct rendering
-      - ScrollbarRenderer component created and integrated
-      - Renders at z-index 16 with proper UI items
-      - Full mouse support implemented in renderer
-    - ✅ **Z-ordering solved**: Using z-index strategy instead of sub-layers
-      - Each UI component gets its own z-index
-      - Activity log content renders at z-index 10 
-      - Sidebar background renders at z-index 12 with "cut-a-hole" for activity log
-      - Main sidebar content at z-index 14
-      - Scrollbar renders at z-index 16
-      - No more 3-layer limitation
-    - ✅ **Cut-a-hole rendering implemented**:
-      - Activity log renders at lower z-index (10) and shows through hole
-      - Sidebar background cuts rectangular sections around activity log
-      - Dynamic bounds calculation based on actual content
-      - Background added to activity log content
-    - ✅ **Icon rendering fixed**:
-      - Sidebar button icons now visible
-      - Created render_neon_glyph_with_bounds_and_zindex() method
-      - Icons render at correct z-index relative to buttons
-      - Right button at z-index 16, left button at z-index 36
-  - **Current issues**:
-    - **Activity log alignment**: 
-      - Activity log shows up under suggestion box still
-      - Chat input box missing (likely rendered too far down)
-      - Need to refine bounds calculations
-    - **Filter chips broken**: 
-      - Filter chip bounds array is empty when clicks happen
-      - update_filter_chip_bounds() is called but bounds aren't persisting
-      - Need to fix timing of bounds calculation
-    - **Scrollbar partially working**:
-      - Scrollbar drag updates offset but visual scroll not happening
-      - ScrollableContainer state not persisting between renders
-      - Need to store scroll offset in AiSidebar state
-    - **Coordinate system correct**:
-      - Window coordinates match expected positions
-      - Scrollbar bounds correct: x=1712, y=200 (right edge of sidebar)
-      - Will need more layers for modal overlays
-      - "More" button in suggestions needs to show overlay above other content
-      - May require architectural changes to support 10+ layers
-  - **Next steps to fix**:
-    1. Fix filter chip bounds persistence:
-       - Move bounds storage from render method to persistent state
-       - Calculate bounds once when sidebar position changes
-       - Debug why update_filter_chip_bounds isn't working
-    2. Fix scroll rendering:
-       - ScrollableContainer is recreated each render, losing state
-       - Need to trigger re-render when scroll offset changes
-       - Verify set_scroll_offset() actually updates the container
-    3. Fix scroll wheel processing:
-       - Add missing debug log to trace why wheel events aren't processed
-       - Check if scrollbar renderer exists when wheel events arrive
-  - **Remaining tasks**:
-    1. Fix mouse interaction:
-       - Debug why all clicks go to filter chips
-       - Implement proper UIItem registration for scrollbar
-       - Add UIItemType variants for sidebar scrollbar components
-       - Handle mouse wheel events properly in ScrollableContainer
-       - Implement drag scrolling logic
-       - Add click-to-page functionality
-    2. Fix scrollbar overlap:
-       - Adjust content area to account for scrollbar width
-       - Or use overlay approach with proper spacing
-    3. Make scrollbar reusable:
-       - Extract scrollbar rendering into separate component
-       - Create generic ScrollbarRenderer that can be used anywhere
-       - Support both vertical and horizontal scrollbars
-    4. Implement modal overlay system:
-       - Research expanding layer system from 3 to 10+ layers
-       - Or implement alternative overlay mechanism
-       - Support for suggestion expansion ("more" button)
-       - Support for other modal dialogs in sidebar
-    5. Polish and refinement:
-       - Fine-tune spacing and margins
-       - Add hover states for scrollbar
-       - Smooth scrolling animation
-       - Configuration options
-  - **Implementation notes**:
-    - WezTerm has a fixed 3-layer rendering system (hardcoded throughout)
-    - Cannot render with filled_rectangle after render_element is called
-    - Scrollbar must be part of the Element tree, not rendered separately
-    - Need to investigate proper mouse event handling in Element system
-    - May need to propose architectural change for more layers
+    - ✅ Cut-a-hole rendering implemented for activity log scrolling
+    - ✅ Z-index strategy using dedicated indices for each UI layer (see CLAUDE.md for specific indices)
+    - ✅ Scrollbar infrastructure with direct rendering at proper z-index
+    - ✅ Activity log visual scrolling fixed (commit fba9b83ee)
+    - ✅ Icon rendering at correct z-indices
+    - ✅ Element to Quad conversion with proper translate pattern
+    - ✅ Fixed layout with fixed-height top elements, flexible middle activity log, fixed bottom chat input
+    - ✅ Added window_height parameter to Sidebar trait for dynamic height calculations
+  - **Remaining Issues**:
+    - Scrollbar thumb calculation uses hardcoded 40px per item (needs dynamic height)
+    - Filter chip bounds persistence between renders
+    - Some activity log content may be cut off
+    - Auto-hide scrollbar behavior not implemented
 
 - [ ] **2.4.5** Performance optimization - Caching for markdown and syntax highlighting
   - **Development status**: Pending
@@ -423,34 +332,31 @@ The implementation is divided into 7 phases:
   - **Rationale**: Currently the sidebar re-renders all markdown on every frame causing performance issues
 
 ### 2.5 Config System Integration
-- [ ] **2.5.1** Integrate our components into the Wezterm config system
-  - Identify the proper config flow for items like colors, activation booleans, and other preferences
-  - Set up the ./clibuddy/wezterm.lua file with relevant new config items, and remove the global export
-  - Integrate with the wezterm config processing system
+- [ ] **2.5.1** Integrate AI components into the Wezterm config system (**Partially Complete**)
+  - ✅ Basic sidebar settings (width, show_on_startup, mode) integrated
+  - ✅ Neon button styling configurable via config
+  - ✅ Config file exists at ./clibuddy/wezterm.lua
+  - ❌ AI-specific color themes and preferences not yet configurable
+  - **Note**: Config structure exists in `config/src/clibuddy.rs`
 
-**Phase 2 Summary**: Core AI sidebar UI is mostly complete. The sidebar renders with all major components (header, status, goals, suggestions, activity log, chat). All chat features implemented including multi-line input, markdown rendering, and syntax highlighting. The sidebar can be toggled via the button. 
+**Phase 2 Summary**: Core AI sidebar UI components are implemented but have interaction issues. The sidebar renders with all major components (header, status, goals, suggestions, activity log, chat) and can be toggled via the button.
+
+**Key Architectural Decisions**:
+- Element-based rendering throughout (not termwiz widgets)
+- External scrollbar rendering for proper z-index control
+- Cut-a-hole pattern for scrollable content areas
+- Comprehensive mock data system for development/testing
 
 **Remaining Phase 2 work**:
-- **2.4.4**: Fix scrollbar functionality and mouse interaction issues
-- **2.4.5**: Performance optimization for markdown/syntax caching  
-- **2.5**: Config system integration
-- **2.6**: Architectural improvements (more layers, reusable scrollbar, modal overlays)
+- **2.4.4**: Fix scrollbar thumb calculations and filter chip state persistence
+- **2.4.5**: Add performance optimization for markdown/syntax caching
+- **2.5**: Complete config system integration for AI-specific settings
 
 **Known Issues**:
-- Scrollbar is visible but non-functional (clicking cycles filter options)
-- Scrollbar overlaps content slightly
-- Mouse events not properly routed to scrollbar elements
-- Limited to 3 rendering layers (need 10+ for complex UI)
-
-**Implementation Details**:
-- Foundation fixes implemented first:
-  - Element to Quad conversion using `compute_element()` and `render_element()`
-  - Mouse event handling with UIItem system integration (needs more work)
-  - Fixed sidebar trait to use `window::MouseEvent` instead of termwiz
-- Total implementation: ~4,500 lines of code across sidebar modules
-- Build tested and compiles successfully in release mode
-- Code formatted with `cargo +nightly fmt`
-- Added comprehensive mock data demonstrating markdown and code highlighting
+- Multi-line chat input not yet interactive (can't click and type)
+- Filter chips not reliably clickable
+- Scrollbar thumb moves too fast due to hardcoded item height
+- Markdown rendering implementation needs verification
 
 ---
 

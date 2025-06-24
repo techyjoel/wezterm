@@ -5,6 +5,7 @@
 //
 // 1. Layer Limitation: WezTerm uses a fixed 3-layer rendering system (layers 0, 1, 2).
 //    The system is hardcoded throughout the codebase with fixed-size arrays.
+//    Note, these 3 layers are separate from the z-layers (which are unlimited).
 //
 // 2. Render Order: The `render_element` method in box_model.rs invalidates the layers
 //    quad allocator after use. This means any direct rendering with `filled_rectangle`
@@ -17,7 +18,6 @@
 // - The scrollbar is rendered as an Element child of the viewport container
 // - Uses negative margins to position the scrollbar over the content area
 // - Uses Float::Right to align to the right edge
-// - Sets zindex(2) to ensure rendering on the topmost layer
 // - The track is the container's background, the thumb is a child element
 //
 // This approach works within WezTerm's constraints while providing a functional scrollbar.
@@ -73,6 +73,7 @@ impl ScrollableContainer {
     pub fn new(viewport_items: usize) -> Self {
         // For backwards compatibility, accept item count but convert to pixels
         // Assume ~40px per item as default
+        // TODO: This is not a safe assumption and we should not be calculating item heights here.
         let viewport_height = viewport_items as f32 * 40.0;
         Self {
             content: Vec::new(),
