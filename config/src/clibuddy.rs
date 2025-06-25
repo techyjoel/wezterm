@@ -1,6 +1,6 @@
 //! CLiBuddy-specific configuration
 
-use crate::RgbaColor;
+use crate::{RgbaColor, TextStyle};
 use wezterm_config_derive::ConfigMeta;
 use wezterm_dynamic::{FromDynamic, ToDynamic};
 
@@ -68,6 +68,10 @@ pub struct RightSidebarConfig {
     /// Sidebar mode (Overlay or Expand)
     #[dynamic(default)]
     pub mode: SidebarMode,
+
+    /// Font configuration for sidebar content
+    #[dynamic(default)]
+    pub fonts: SidebarFontConfig,
 }
 
 impl Default for RightSidebarConfig {
@@ -77,6 +81,31 @@ impl Default for RightSidebarConfig {
             width: default_sidebar_width(),
             show_on_startup: default_show_on_startup(),
             mode: SidebarMode::default(),
+            fonts: SidebarFontConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, FromDynamic, ToDynamic, ConfigMeta)]
+pub struct SidebarFontConfig {
+    /// Font weight for body text ("Regular" or "Light")
+    #[dynamic(default = "default_body_font_weight")]
+    pub body_weight: String,
+
+    /// Font size reduction for body text compared to headings (in points)
+    #[dynamic(default = "default_font_size_reduction")]
+    pub font_size_reduction: f64,
+
+    /// Override font family (defaults to Roboto if None)
+    pub font_family: Option<String>,
+}
+
+impl Default for SidebarFontConfig {
+    fn default() -> Self {
+        Self {
+            body_weight: default_body_font_weight(),
+            font_size_reduction: default_font_size_reduction(),
+            font_family: None,
         }
     }
 }
@@ -196,4 +225,12 @@ fn default_glow_layers() -> u8 {
 
 fn default_glow_radius() -> f32 {
     20.0
+}
+
+fn default_body_font_weight() -> String {
+    "Regular".to_string()
+}
+
+fn default_font_size_reduction() -> f64 {
+    1.0
 }

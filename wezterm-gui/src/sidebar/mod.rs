@@ -8,6 +8,17 @@ use wezterm_font::LoadedFont;
 use window::MouseEvent;
 // Widget traits will be implemented differently without termwiz widgets
 
+/// Bundle of fonts for rendering sidebar content
+#[derive(Clone)]
+pub struct SidebarFonts {
+    /// Font for headings (e.g., "CLiBuddy AI", "Current Goal")
+    pub heading: Rc<LoadedFont>,
+    /// Font for body text (status chips, filter chips, content)
+    pub body: Rc<LoadedFont>,
+    /// Font for code blocks in markdown
+    pub code: Rc<LoadedFont>,
+}
+
 pub mod ai_sidebar;
 pub mod animation;
 pub mod components;
@@ -154,7 +165,12 @@ impl Default for SidebarConfig {
 
 pub trait Sidebar: Send + Sync {
     // Return the rendered content for this sidebar
-    fn render(&mut self, font: &Rc<LoadedFont>, window_height: f32) -> Element;
+    fn render(&mut self, fonts: &SidebarFonts, window_height: f32) -> Element;
+
+    // DEPRECATED: This method is no longer used since fonts are passed in render()
+    fn set_font_config(&mut self, _fonts: &wezterm_font::FontConfiguration) {
+        // Default implementation does nothing - DEPRECATED
+    }
 
     // Get scrollbar information for external rendering
     fn get_scrollbars(&self) -> SidebarScrollbars {

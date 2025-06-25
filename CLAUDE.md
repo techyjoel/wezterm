@@ -228,6 +228,7 @@ struct Element {
 - Z-index layering
 - Float positioning
 - Background colors and gradients
+- Multi-line text wrapping via `ElementContent::WrappedText`
 
 ### Mouse Interaction (`wezterm-gui/src/termwindow/mouseevent.rs`)
 
@@ -473,6 +474,25 @@ When implementing sidebars that expand the window width, it's critical to unders
 
 4. **Sidebar Initialization**: When `show_on_startup` is true, ensure `set_right_visible(true)` is called during setup. Don't rely on `is_right_visible()` for this check in Expand mode as it always returns true.
 
+
+### Sidebar Font System
+
+Sidebars use a multi-font architecture for proper typography:
+
+**Font Bundle Structure:**
+```rust
+pub struct SidebarFonts {
+    pub heading: Rc<LoadedFont>,  // For titles, headers (Roboto Bold)
+    pub body: Rc<LoadedFont>,     // For content, chips (Roboto Regular/Light)
+    pub code: Rc<LoadedFont>,     // For code blocks (JetBrains Mono Light)
+}
+```
+
+**Usage Pattern:**
+- Fonts are resolved in the main thread during rendering
+- Passed to sidebar render methods via `&SidebarFonts` parameter
+- Thread-safe design avoids storing `Rc<LoadedFont>` in sidebars
+- Configuration via `clibuddy.right_sidebar.fonts` in wezterm.lua
 
 ## Implementation Plans
 

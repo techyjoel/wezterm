@@ -489,7 +489,16 @@ impl crate::TermWindow {
         if let Some(sidebar) = sidebar {
             let mut sidebar_locked = sidebar.lock().unwrap();
 
-            let font = self.fonts.title_font()?;
+            // Get all fonts for the sidebar
+            let heading_font = self.fonts.sidebar_heading_font()?;
+            let body_font = self.fonts.sidebar_body_font()?;
+            let code_font = self.fonts.sidebar_code_font()?;
+
+            let fonts = crate::sidebar::SidebarFonts {
+                heading: heading_font.clone(),
+                body: body_font,
+                code: code_font,
+            };
 
             // First render the activity log content at z-index 10 (lower layer, will show through the hole)
             log::debug!("Rendering activity log at z-index 10");
@@ -499,7 +508,7 @@ impl crate::TermWindow {
             {
                 // Get the activity log element
                 let activity_log_element = ai_sidebar
-                    .render_activity_log_content(&font, self.dimensions.pixel_height as f32);
+                    .render_activity_log_content(&fonts, self.dimensions.pixel_height as f32);
 
                 // Get the activity log bounds to position it correctly
                 let activity_bounds = ai_sidebar
@@ -560,7 +569,7 @@ impl crate::TermWindow {
             }
 
             // Now get the main sidebar element
-            let element = sidebar_locked.render(&font, self.dimensions.pixel_height as f32);
+            let element = sidebar_locked.render(&fonts, self.dimensions.pixel_height as f32);
             drop(sidebar_locked);
 
             // Render main sidebar content at z-index 14

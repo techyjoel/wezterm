@@ -285,7 +285,7 @@ The implementation is divided into 7 phases:
   - **Implementation**: Created `MultilineTextInput` component in forms.rs
     - Full text editing with cursor movement (arrow keys)
     - Backspace/Delete support
-    - Line wrapping and scrolling
+    - Line wrapping using `ElementContent::WrappedText`
     - Visual cursor display
     - Placeholder text support
     - Focus state with highlighted border
@@ -296,13 +296,15 @@ The implementation is divided into 7 phases:
   - User vs AI message styling ✓
   - Markdown rendering support ✓ (AI messages only)
   - Code block syntax highlighting ✓
+  - Multi-line text wrapping ✓
   - **Implementation**: 
     - Created `MarkdownRenderer` component using `pulldown-cmark`
     - Supports headings (H1-H6), paragraphs, lists, code blocks
     - Integrated `syntect` for syntax highlighting in code blocks
     - Uses "base16-ocean.dark" theme for code
-    - User messages remain plain text, AI messages render with full markdown
+    - User messages remain plain text with WrappedText, AI messages render with full markdown
     - Proper styling for different message types
+    - `render_with_code_font()` method supports different fonts for code blocks
 - [x] **2.4.3** Add chat history scrolling
   - **Development status**: Completed (part of activity log scrolling)
   - Auto-scroll to bottom on new messages
@@ -338,8 +340,10 @@ The implementation is divided into 7 phases:
   - ✅ Basic sidebar settings (width, show_on_startup, mode) integrated
   - ✅ Neon button styling configurable via config
   - ✅ Config file exists at ./clibuddy/wezterm.lua
+  - ✅ Font configuration system for sidebar (heading, body, code fonts)
   - ❌ AI-specific color themes and preferences not yet configurable
   - **Note**: Config structure exists in `config/src/clibuddy.rs`
+  - **Font Architecture**: Uses `SidebarFonts` struct with 3 fonts (heading: Roboto Bold, body: Roboto Regular/Light, code: JetBrains Mono Light)
 
 **Phase 2 Summary**: Core AI sidebar UI components are implemented but have interaction issues. The sidebar renders with all major components (header, status, goals, suggestions, activity log, chat) and can be toggled via the button.
 
@@ -366,6 +370,12 @@ The implementation is divided into 7 phases:
 - Activity log margins show odd coloration (background fill issues)
 - Markdown rendering implementation needs verification
 - Performance: markdown re-renders every frame
+
+**Font System Architecture**:
+- **SidebarFonts struct**: Bundles heading, body, and code fonts for proper typography
+- **Thread-safe design**: Fonts resolved in main thread, passed via render() method
+- **Configurable**: Via `clibuddy.right_sidebar.fonts` in wezterm.lua
+- **Defaults**: Heading uses Roboto Bold, body uses Roboto Regular/Light with 1pt reduction, code uses JetBrains Mono Light
 
 ---
 

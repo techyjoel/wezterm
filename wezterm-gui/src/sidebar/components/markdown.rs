@@ -31,11 +31,26 @@ impl MarkdownRenderer {
     /// Render markdown text to an Element tree
     pub fn render(text: &str, font: &Rc<LoadedFont>) -> Element {
         let renderer = Self::new();
-        renderer.render_markdown(text, font)
+        renderer.render_markdown(text, font, None)
+    }
+
+    /// Render markdown text with a specific code font
+    pub fn render_with_code_font(
+        text: &str,
+        font: &Rc<LoadedFont>,
+        code_font: &Rc<LoadedFont>,
+    ) -> Element {
+        let renderer = Self::new();
+        renderer.render_markdown(text, font, Some(code_font))
     }
 
     /// Internal render method
-    fn render_markdown(&self, text: &str, font: &Rc<LoadedFont>) -> Element {
+    fn render_markdown(
+        &self,
+        text: &str,
+        font: &Rc<LoadedFont>,
+        code_font: Option<&Rc<LoadedFont>>,
+    ) -> Element {
         let parser = Parser::new(text);
         let mut elements = Vec::new();
         let mut current_paragraph = Vec::new();
@@ -139,10 +154,12 @@ impl MarkdownRenderer {
                     Tag::CodeBlock(_) => {
                         in_code_block = false;
                         // Render code block with syntax highlighting
+                        // Use code font if provided, otherwise use regular font
+                        let code_render_font = code_font.unwrap_or(&font);
                         let highlighted_element = self.highlight_code_block(
                             &code_block_content,
                             code_block_lang.as_deref(),
-                            font,
+                            code_render_font,
                         );
                         elements.push(highlighted_element);
                         code_block_content.clear();

@@ -2,7 +2,7 @@ use super::components::{
     Card, CardState, Chip, ChipSize, ChipStyle, MarkdownRenderer, MultilineTextInput,
     ScrollableContainer, ScrollbarInfo,
 };
-use super::{Sidebar, SidebarConfig, SidebarPosition};
+use super::{Sidebar, SidebarConfig, SidebarFonts, SidebarPosition};
 use crate::termwindow::box_model::{
     BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent,
 };
@@ -14,7 +14,7 @@ use config::{Dimension, DimensionContext};
 use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime};
 use termwiz::input::KeyCode;
-use wezterm_font::LoadedFont;
+use wezterm_font::{FontConfiguration, LoadedFont};
 use window::{MouseEvent, MouseEventKind as WMEK, MousePress, PixelUnit};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -264,20 +264,23 @@ brew install pkg-config
         self.agent_mode = AgentMode::Thinking;
     }
 
-    fn render_header(&self, font: &Rc<LoadedFont>) -> Element {
-        let title = Element::new(font, ElementContent::Text("CLiBuddy AI".to_string()))
-            .colors(ElementColors {
-                text: LinearRgba::with_components(0.95, 0.95, 0.95, 1.0).into(),
-                ..Default::default()
-            })
-            .padding(BoxDimension {
-                left: Dimension::Pixels(16.0),
-                top: Dimension::Pixels(12.0),
-                bottom: Dimension::Pixels(12.0),
-                right: Dimension::Pixels(16.0),
-            });
+    fn render_header(&self, fonts: &SidebarFonts) -> Element {
+        let title = Element::new(
+            &fonts.heading,
+            ElementContent::Text("CLiBuddy AI".to_string()),
+        )
+        .colors(ElementColors {
+            text: LinearRgba::with_components(0.95, 0.95, 0.95, 1.0).into(),
+            ..Default::default()
+        })
+        .padding(BoxDimension {
+            left: Dimension::Pixels(16.0),
+            top: Dimension::Pixels(12.0),
+            bottom: Dimension::Pixels(12.0),
+            right: Dimension::Pixels(16.0),
+        });
 
-        Element::new(font, ElementContent::Children(vec![title]))
+        Element::new(&fonts.heading, ElementContent::Children(vec![title]))
             .display(DisplayType::Block)
             .colors(ElementColors {
                 bg: LinearRgba::with_components(0.08, 0.08, 0.1, 1.0).into(),
@@ -294,7 +297,7 @@ brew install pkg-config
             })
     }
 
-    fn render_filter_chips(&mut self, font: &Rc<LoadedFont>) -> Element {
+    fn render_filter_chips(&mut self, fonts: &SidebarFonts) -> Element {
         let filters = vec![
             ("All", ActivityFilter::All),
             ("Commands", ActivityFilter::Commands),
@@ -317,11 +320,11 @@ brew install pkg-config
                     .with_size(ChipSize::Small)
                     .clickable(true)
                     .selected(is_selected)
-                    .render(font)
+                    .render(&fonts.body)
             })
             .collect();
 
-        Element::new(font, ElementContent::Children(chips))
+        Element::new(&fonts.body, ElementContent::Children(chips))
             .display(DisplayType::Block)
             .padding(BoxDimension {
                 left: Dimension::Pixels(16.0),
@@ -331,7 +334,7 @@ brew install pkg-config
             })
     }
 
-    fn render_status_chip(&self, font: &Rc<LoadedFont>) -> Element {
+    fn render_status_chip(&self, fonts: &SidebarFonts) -> Element {
         let (label, style, icon) = match self.agent_mode {
             AgentMode::Idle => ("Idle", ChipStyle::Default, "○"),
             AgentMode::Thinking => ("Thinking", ChipStyle::Info, "◐"),
@@ -343,9 +346,9 @@ brew install pkg-config
             .with_style(style)
             .with_size(ChipSize::Medium)
             .with_icon(icon.to_string())
-            .render(font);
+            .render(&fonts.body);
 
-        Element::new(font, ElementContent::Children(vec![chip]))
+        Element::new(&fonts.body, ElementContent::Children(vec![chip]))
             .display(DisplayType::Block)
             .padding(BoxDimension {
                 left: Dimension::Pixels(16.0),
@@ -355,7 +358,7 @@ brew install pkg-config
             })
     }
 
-    fn render_current_goal(&self, font: &Rc<LoadedFont>) -> Option<Element> {
+    fn render_current_goal(&self, fonts: &SidebarFonts) -> Option<Element> {
         let goal = self.current_goal.as_ref()?;
 
         let mut content = vec![];
@@ -363,15 +366,18 @@ brew install pkg-config
         // Goal text
         let goal_text = if goal.is_editing {
             // Show edit input
-            Element::new(font, ElementContent::Text(format!("{}_", &goal.edit_text)))
-                .colors(ElementColors {
-                    text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
-                    bg: LinearRgba::with_components(0.15, 0.15, 0.17, 1.0).into(),
-                    ..Default::default()
-                })
-                .padding(BoxDimension::new(Dimension::Pixels(8.0)))
+            Element::new(
+                &fonts.body,
+                ElementContent::Text(format!("{}_", &goal.edit_text)),
+            )
+            .colors(ElementColors {
+                text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
+                bg: LinearRgba::with_components(0.15, 0.15, 0.17, 1.0).into(),
+                ..Default::default()
+            })
+            .padding(BoxDimension::new(Dimension::Pixels(8.0)))
         } else {
-            Element::new(font, ElementContent::WrappedText(goal.text.clone()))
+            Element::new(&fonts.body, ElementContent::WrappedText(goal.text.clone()))
                 .colors(ElementColors {
                     text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
                     ..Default::default()
@@ -388,7 +394,7 @@ brew install pkg-config
                 .with_style(ChipStyle::Success)
                 .with_size(ChipSize::Small)
                 .clickable(true)
-                .render(font);
+                .render(&fonts.body);
             actions.push(confirm_btn);
         }
 
@@ -397,19 +403,19 @@ brew install pkg-config
                 .with_style(ChipStyle::Default)
                 .with_size(ChipSize::Small)
                 .clickable(true)
-                .render(font);
+                .render(&fonts.body);
             actions.push(edit_btn);
         } else {
             let save_btn = Chip::new("Save".to_string())
                 .with_style(ChipStyle::Primary)
                 .with_size(ChipSize::Small)
                 .clickable(true)
-                .render(font);
+                .render(&fonts.body);
             let cancel_btn = Chip::new("Cancel".to_string())
                 .with_style(ChipStyle::Default)
                 .with_size(ChipSize::Small)
                 .clickable(true)
-                .render(font);
+                .render(&fonts.body);
             actions.push(save_btn);
             actions.push(cancel_btn);
         }
@@ -418,10 +424,10 @@ brew install pkg-config
             .with_title("Current Goal".to_string())
             .with_content(content)
             .with_actions(actions)
-            .render(font);
+            .render(&fonts.heading);
 
         Some(
-            Element::new(font, ElementContent::Children(vec![card]))
+            Element::new(&fonts.body, ElementContent::Children(vec![card]))
                 .display(DisplayType::Block)
                 .padding(BoxDimension {
                     left: Dimension::Pixels(16.0),
@@ -432,11 +438,15 @@ brew install pkg-config
         )
     }
 
-    fn render_current_suggestion(&self, font: &Rc<LoadedFont>) -> Option<Element> {
+    fn render_current_suggestion(&self, fonts: &SidebarFonts) -> Option<Element> {
         let suggestion = self.current_suggestion.as_ref()?;
 
-        let content = vec![MarkdownRenderer::render(&suggestion.content, font)
-            .padding(BoxDimension::new(Dimension::Pixels(8.0)))];
+        let content = vec![MarkdownRenderer::render_with_code_font(
+            &suggestion.content,
+            &fonts.body,
+            &fonts.code,
+        )
+        .padding(BoxDimension::new(Dimension::Pixels(8.0)))];
 
         let mut actions = vec![];
 
@@ -445,12 +455,12 @@ brew install pkg-config
                 .with_style(ChipStyle::Success)
                 .with_size(ChipSize::Medium)
                 .clickable(true)
-                .render(font);
+                .render(&fonts.body);
             let dismiss_btn = Chip::new("✕ Dismiss".to_string())
                 .with_style(ChipStyle::Default)
                 .with_size(ChipSize::Medium)
                 .clickable(true)
-                .render(font);
+                .render(&fonts.body);
             actions.push(run_btn);
             actions.push(dismiss_btn);
         }
@@ -459,10 +469,10 @@ brew install pkg-config
             .with_title(suggestion.title.clone())
             .with_content(content)
             .with_actions(actions)
-            .render(font);
+            .render(&fonts.heading);
 
         Some(
-            Element::new(font, ElementContent::Children(vec![card]))
+            Element::new(&fonts.body, ElementContent::Children(vec![card]))
                 .display(DisplayType::Block)
                 .padding(BoxDimension {
                     left: Dimension::Pixels(16.0),
@@ -473,7 +483,7 @@ brew install pkg-config
         )
     }
 
-    pub fn render_activity_item(&self, item: &ActivityItem, font: &Rc<LoadedFont>) -> Element {
+    pub fn render_activity_item(&self, item: &ActivityItem, fonts: &SidebarFonts) -> Element {
         match item {
             ActivityItem::Command {
                 command,
@@ -495,7 +505,7 @@ brew install pkg-config
                 };
 
                 let mut content = vec![Element::new(
-                    font,
+                    &fonts.body,
                     ElementContent::Text(format!("{} {}", status_icon, command)),
                 )
                 .colors(ElementColors {
@@ -505,20 +515,23 @@ brew install pkg-config
 
                 if *expanded && output.is_some() {
                     content.push(
-                        Element::new(font, ElementContent::Text(output.as_ref().unwrap().clone()))
-                            .colors(ElementColors {
-                                text: LinearRgba::with_components(0.7, 0.7, 0.7, 1.0).into(),
-                                ..Default::default()
-                            })
-                            .padding(BoxDimension {
-                                left: Dimension::Pixels(4.0),
-                                top: Dimension::Pixels(4.0),
-                                ..Default::default()
-                            }),
+                        Element::new(
+                            &fonts.body,
+                            ElementContent::Text(output.as_ref().unwrap().clone()),
+                        )
+                        .colors(ElementColors {
+                            text: LinearRgba::with_components(0.7, 0.7, 0.7, 1.0).into(),
+                            ..Default::default()
+                        })
+                        .padding(BoxDimension {
+                            left: Dimension::Pixels(4.0),
+                            top: Dimension::Pixels(4.0),
+                            ..Default::default()
+                        }),
                     );
                 }
 
-                Card::new().with_content(content).render(font)
+                Card::new().with_content(content).render(&fonts.body)
             }
             ActivityItem::Chat {
                 message, is_user, ..
@@ -531,18 +544,18 @@ brew install pkg-config
 
                 // Render message content with markdown if it's from AI
                 let content = if *is_user {
-                    Element::new(font, ElementContent::WrappedText(message.clone())).colors(
+                    Element::new(&fonts.body, ElementContent::WrappedText(message.clone())).colors(
                         ElementColors {
                             text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
                             ..Default::default()
                         },
                     )
                 } else {
-                    // AI messages use markdown rendering
-                    MarkdownRenderer::render(message, font)
+                    // AI messages use markdown rendering with code font support
+                    MarkdownRenderer::render_with_code_font(message, &fonts.body, &fonts.code)
                 };
 
-                Element::new(font, ElementContent::Children(vec![content]))
+                Element::new(&fonts.body, ElementContent::Children(vec![content]))
                     .display(DisplayType::Block)
                     .colors(ElementColors {
                         bg: bg_color.into(),
@@ -572,10 +585,14 @@ brew install pkg-config
             }
             ActivityItem::Suggestion { title, content, .. } => Card::new()
                 .with_title(format!("Past: {}", title))
-                .with_content(vec![MarkdownRenderer::render(content, font)])
-                .render(font),
+                .with_content(vec![MarkdownRenderer::render_with_code_font(
+                    content,
+                    &fonts.body,
+                    &fonts.code,
+                )])
+                .render(&fonts.heading),
             ActivityItem::Goal { text, .. } => {
-                Element::new(font, ElementContent::Text(format!("Goal: {}", text)))
+                Element::new(&fonts.body, ElementContent::Text(format!("Goal: {}", text)))
                     .colors(ElementColors {
                         text: LinearRgba::with_components(0.8, 0.8, 0.8, 1.0).into(),
                         ..Default::default()
@@ -586,7 +603,7 @@ brew install pkg-config
     }
 
     /// Get filtered activity items based on current filter
-    fn render_activity_log(&mut self, font: &Rc<LoadedFont>, available_height: f32) -> Element {
+    fn render_activity_log(&mut self, fonts: &SidebarFonts, available_height: f32) -> Element {
         let filtered_items: Vec<&ActivityItem> = self
             .activity_log
             .iter()
@@ -605,7 +622,7 @@ brew install pkg-config
         rendered_items.extend(
             filtered_items
                 .into_iter()
-                .map(|item| self.render_activity_item(item, font)),
+                .map(|item| self.render_activity_item(item, fonts)),
         );
 
         let rendered_items_count = rendered_items.len();
@@ -627,7 +644,7 @@ brew install pkg-config
 
         // Use pixel-based height for scrollable container
         // Get actual font metrics for accurate height calculations
-        let font_metrics = font.metrics();
+        let font_metrics = fonts.body.metrics();
         let line_height = font_metrics.cell_height.get() as f32;
         let font_context = DimensionContext {
             dpi: 96.0,
@@ -677,23 +694,23 @@ brew install pkg-config
             self.activity_log_scrollbar_renderer = None;
         }
 
-        let scrollable = scrollable_container.render(font);
+        let scrollable = scrollable_container.render(&fonts.body);
 
         // Return the scrollable without extra padding since it's handled by the container
         scrollable
     }
 
-    fn render_chat_input(&self, font: &Rc<LoadedFont>) -> Element {
-        let input_field = self.chat_input.render(font);
+    fn render_chat_input(&self, fonts: &SidebarFonts) -> Element {
+        let input_field = self.chat_input.render(&fonts.body);
 
         let send_button = Chip::new("Send".to_string())
             .with_style(ChipStyle::Primary)
             .with_size(ChipSize::Medium)
             .clickable(true)
-            .render(font);
+            .render(&fonts.body);
 
         Element::new(
-            font,
+            &fonts.body,
             ElementContent::Children(vec![input_field, send_button]),
         )
         .display(DisplayType::Block)
@@ -708,7 +725,7 @@ brew install pkg-config
     /// Render the activity log separately for layered rendering
     pub fn render_activity_log_content(
         &mut self,
-        font: &Rc<LoadedFont>,
+        fonts: &SidebarFonts,
         window_height: f32,
     ) -> Element {
         // Get the dynamic bounds for the activity log
@@ -722,10 +739,10 @@ brew install pkg-config
         let available_for_log = bounds.size.height;
 
         // Render the activity log content
-        let activity_log = self.render_activity_log(font, available_for_log);
+        let activity_log = self.render_activity_log(fonts, available_for_log);
 
         // Wrap in a container with background color
-        let container = Element::new(font, ElementContent::Children(vec![activity_log]))
+        let container = Element::new(&fonts.body, ElementContent::Children(vec![activity_log]))
             .display(DisplayType::Block)
             .colors(ElementColors {
                 bg: LinearRgba::with_components(0.03, 0.03, 0.035, 1.0).into(), // Slightly lighter than sidebar
@@ -737,26 +754,26 @@ brew install pkg-config
         container
     }
 
-    pub fn render_content(&mut self, font: &Rc<LoadedFont>, window_height: f32) -> Element {
+    pub fn render_content(&mut self, fonts: &SidebarFonts, window_height: f32) -> Element {
         let mut children = vec![];
 
         // Fixed height elements at top
         // Header
-        children.push(self.render_header(font));
+        children.push(self.render_header(fonts));
 
         // Status chip
-        children.push(self.render_status_chip(font));
+        children.push(self.render_status_chip(fonts));
 
         // Filter chips
-        children.push(self.render_filter_chips(font));
+        children.push(self.render_filter_chips(fonts));
 
         // Current goal card
-        if let Some(goal_element) = self.render_current_goal(font) {
+        if let Some(goal_element) = self.render_current_goal(fonts) {
             children.push(goal_element);
         }
 
         // Current suggestion card
-        if let Some(suggestion_element) = self.render_current_suggestion(font) {
+        if let Some(suggestion_element) = self.render_current_suggestion(fonts) {
             children.push(suggestion_element);
         }
 
@@ -783,7 +800,7 @@ brew install pkg-config
         // Skip the activity log here - it will be rendered separately at a different z-index
         // Add a transparent spacer to maintain layout
         children.push(
-            Element::new(font, ElementContent::Text(String::new()))
+            Element::new(&fonts.body, ElementContent::Text(String::new()))
                 .display(DisplayType::Block)
                 .min_height(Some(Dimension::Pixels(spacer_height)))
                 // Completely transparent - no background
@@ -794,10 +811,10 @@ brew install pkg-config
         );
 
         // Fixed height chat input at bottom
-        children.push(self.render_chat_input(font));
+        children.push(self.render_chat_input(fonts));
 
         // Container - transparent so the hole works
-        Element::new(font, ElementContent::Children(children))
+        Element::new(&fonts.heading, ElementContent::Children(children))
             .display(DisplayType::Block)
             .min_width(Some(Dimension::Pixels(self.width as f32)))
             .min_height(Some(Dimension::Pixels(window_height)))
@@ -1018,8 +1035,8 @@ brew install pkg-config
 }
 
 impl Sidebar for AiSidebar {
-    fn render(&mut self, font: &Rc<LoadedFont>, window_height: f32) -> Element {
-        self.render_content(font, window_height)
+    fn render(&mut self, fonts: &SidebarFonts, window_height: f32) -> Element {
+        self.render_content(fonts, window_height)
     }
 
     fn get_scrollbars(&self) -> super::SidebarScrollbars {

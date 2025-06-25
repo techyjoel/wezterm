@@ -1,4 +1,4 @@
-use super::{Sidebar, SidebarPosition};
+use super::{Sidebar, SidebarFonts, SidebarPosition};
 use crate::termwindow::box_model::{Element, ElementColors, ElementContent};
 use anyhow::Result;
 use std::rc::Rc;
@@ -22,10 +22,10 @@ impl SettingsSidebar {
 }
 
 impl Sidebar for SettingsSidebar {
-    fn render(&mut self, font: &Rc<LoadedFont>, _window_height: f32) -> Element {
+    fn render(&mut self, fonts: &SidebarFonts, _window_height: f32) -> Element {
         // Placeholder for settings sidebar
         Element::new(
-            font,
+            &fonts.heading,
             ElementContent::Text("Settings Sidebar (Coming Soon)".to_string()),
         )
         .colors(ElementColors {

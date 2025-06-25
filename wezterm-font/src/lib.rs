@@ -452,13 +452,16 @@ impl FallbackResolveInfo {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 enum Entity {
     Title,
     CommandPalette,
     CharSelect,
     PaneSelect,
     SidebarIcon,
+    SidebarHeading,
+    SidebarBody,
+    SidebarCode,
 }
 
 struct FontConfigInner {
@@ -475,6 +478,9 @@ struct FontConfigInner {
     char_select_font: RefCell<Option<Rc<LoadedFont>>>,
     command_palette_font: RefCell<Option<Rc<LoadedFont>>>,
     sidebar_icon_font: RefCell<Option<Rc<LoadedFont>>>,
+    sidebar_heading_font: RefCell<Option<Rc<LoadedFont>>>,
+    sidebar_body_font: RefCell<Option<Rc<LoadedFont>>>,
+    sidebar_code_font: RefCell<Option<Rc<LoadedFont>>>,
     fallback_channel: RefCell<Option<Sender<FallbackResolveInfo>>>,
 }
 
@@ -497,6 +503,9 @@ impl FontConfigInner {
             char_select_font: RefCell::new(None),
             command_palette_font: RefCell::new(None),
             sidebar_icon_font: RefCell::new(None),
+            sidebar_heading_font: RefCell::new(None),
+            sidebar_body_font: RefCell::new(None),
+            sidebar_code_font: RefCell::new(None),
             font_scale: RefCell::new(1.0),
             dpi: RefCell::new(dpi),
             config: RefCell::new(config.clone()),
@@ -516,6 +525,9 @@ impl FontConfigInner {
         self.char_select_font.borrow_mut().take();
         self.command_palette_font.borrow_mut().take();
         self.sidebar_icon_font.borrow_mut().take();
+        self.sidebar_heading_font.borrow_mut().take();
+        self.sidebar_body_font.borrow_mut().take();
+        self.sidebar_code_font.borrow_mut().take();
         self.metrics.borrow_mut().take();
         *self.font_dirs.borrow_mut() = Arc::new(FontDatabase::with_font_dirs(config)?);
         Ok(())
@@ -627,10 +639,80 @@ impl FontConfigInner {
                     .unwrap_or(config.window_frame.font_size.unwrap_or(sys_size)),
                 None, // Use same font family as title
             ),
+            Entity::SidebarHeading => {
+                // Heading fonts use the base size
+                (sys_size, None) // Will be handled below
+            }
+            Entity::SidebarBody => {
+                // Body text uses size reduction
+                let reduction = config.clibuddy.right_sidebar.fonts.font_size_reduction;
+                let size = sys_size - reduction;
+                (size, None) // Will be handled below
+            }
+            Entity::SidebarCode => {
+                // Code blocks use size reduction
+                let reduction = config.clibuddy.right_sidebar.fonts.font_size_reduction;
+                let size = sys_size - reduction;
+                (size, None) // Will be handled below
+            }
         };
 
-        let text_style =
-            text_style.unwrap_or(config.window_frame.font.as_ref().unwrap_or(&sys_font));
+        // Handle sidebar fonts specially
+        let sidebar_style;
+        let text_style = if text_style.is_some() {
+            text_style.unwrap()
+        } else if matches!(
+            entity,
+            Entity::SidebarHeading | Entity::SidebarBody | Entity::SidebarCode
+        ) {
+            // Create TextStyle for sidebar fonts
+            let default_font_family = "Roboto".to_string();
+            let configured_family = config.clibuddy.right_sidebar.fonts.font_family.as_ref();
+
+            let (family, weight) = match entity {
+                Entity::SidebarHeading => {
+                    // Heading: Roboto Bold (default) or configured font
+                    let family = configured_family.unwrap_or(&default_font_family);
+                    (family.clone(), FontWeight::BOLD)
+                }
+                Entity::SidebarBody => {
+                    // Body: Roboto Regular/Light (default) or configured font
+                    let family = configured_family.unwrap_or(&default_font_family);
+                    let weight_str = &config.clibuddy.right_sidebar.fonts.body_weight;
+                    let weight = match weight_str.as_str() {
+                        "Light" => FontWeight::LIGHT,
+                        _ => FontWeight::REGULAR,
+                    };
+                    (family.clone(), weight)
+                }
+                Entity::SidebarCode => {
+                    // Code: JetBrains Mono Light (always, not configurable)
+                    ("JetBrains Mono".to_string(), FontWeight::LIGHT)
+                }
+                _ => unreachable!(),
+            };
+
+            log::debug!(
+                "Loading sidebar font: entity={:?}, family={}, weight={:?}, size={}",
+                entity,
+                family,
+                weight,
+                font_size
+            );
+
+            let fonts = vec![FontAttributes {
+                family,
+                weight,
+                ..Default::default()
+            }];
+            sidebar_style = TextStyle {
+                foreground: None,
+                font: fonts,
+            };
+            &sidebar_style
+        } else {
+            config.window_frame.font.as_ref().unwrap_or(&sys_font)
+        };
 
         let dpi = *self.dpi.borrow() as u32;
         let pixel_size = (font_size * dpi as f64 / 72.0) as u16;
@@ -731,6 +813,48 @@ impl FontConfigInner {
         let loaded = self.make_entity_font_impl(myself, Entity::SidebarIcon)?;
 
         sidebar_icon_font.replace(Rc::clone(&loaded));
+
+        Ok(loaded)
+    }
+
+    fn sidebar_heading_font(&self, myself: &Rc<Self>) -> anyhow::Result<Rc<LoadedFont>> {
+        let mut sidebar_heading_font = self.sidebar_heading_font.borrow_mut();
+
+        if let Some(entry) = sidebar_heading_font.as_ref() {
+            return Ok(Rc::clone(entry));
+        }
+
+        let loaded = self.make_entity_font_impl(myself, Entity::SidebarHeading)?;
+
+        sidebar_heading_font.replace(Rc::clone(&loaded));
+
+        Ok(loaded)
+    }
+
+    fn sidebar_body_font(&self, myself: &Rc<Self>) -> anyhow::Result<Rc<LoadedFont>> {
+        let mut sidebar_body_font = self.sidebar_body_font.borrow_mut();
+
+        if let Some(entry) = sidebar_body_font.as_ref() {
+            return Ok(Rc::clone(entry));
+        }
+
+        let loaded = self.make_entity_font_impl(myself, Entity::SidebarBody)?;
+
+        sidebar_body_font.replace(Rc::clone(&loaded));
+
+        Ok(loaded)
+    }
+
+    fn sidebar_code_font(&self, myself: &Rc<Self>) -> anyhow::Result<Rc<LoadedFont>> {
+        let mut sidebar_code_font = self.sidebar_code_font.borrow_mut();
+
+        if let Some(entry) = sidebar_code_font.as_ref() {
+            return Ok(Rc::clone(entry));
+        }
+
+        let loaded = self.make_entity_font_impl(myself, Entity::SidebarCode)?;
+
+        sidebar_code_font.replace(Rc::clone(&loaded));
 
         Ok(loaded)
     }
@@ -1107,6 +1231,18 @@ impl FontConfiguration {
 
     pub fn sidebar_icon_font(&self) -> anyhow::Result<Rc<LoadedFont>> {
         self.inner.sidebar_icon_font(&self.inner)
+    }
+
+    pub fn sidebar_heading_font(&self) -> anyhow::Result<Rc<LoadedFont>> {
+        self.inner.sidebar_heading_font(&self.inner)
+    }
+
+    pub fn sidebar_body_font(&self) -> anyhow::Result<Rc<LoadedFont>> {
+        self.inner.sidebar_body_font(&self.inner)
+    }
+
+    pub fn sidebar_code_font(&self) -> anyhow::Result<Rc<LoadedFont>> {
+        self.inner.sidebar_code_font(&self.inner)
     }
 
     /// Given a text style, load (with caching) the font that best

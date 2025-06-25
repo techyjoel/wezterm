@@ -412,45 +412,7 @@ end)
 -- Add file watching for the user config to enable hot reload
 wezterm.add_to_config_reload_watch_list(get_user_config_path())
 
-config.clibuddy = {
-    sidebar_button = {
-        icon_font_size = 16.0,
-        border_width = 2.0,
-        corner_radius = 8.0,
-        
-        -- Default neon style for all buttons (optional)
-        -- GPU-accelerated neon glow configuration
-        -- neon = {
-        --     color = '#00FFFF',      -- Cyan - Primary neon color when "lit"
-        --     base_color = '#0A0A0F', -- Dark blue-black - Base color when "unlit"
-        --     glow_intensity = 0.7,   -- Glow intensity (0.0 = no glow, 1.0 = full glow)
-        --     glow_radius = 12.0,     -- Glow radius in pixels (blur extension)
-        -- },
-        
-        -- Override for left button (settings)
-        left_style = {
-            neon = {
-                color = '#00FFFF',      -- Cyan neon
-                base_color = '#0F0F0F', -- Dark grey
-                glow_intensity = 0.9,   -- 90% glow intensity
-                glow_radius = 15.0,      -- 8 pixel blur radius
-            }
-        },
-        
-        -- Override for right button (AI assistant)
-        right_style = {
-            neon = {
-                color = '#FF1493',      -- Deep pink neon
-                base_color = '#0F0F0F', -- Dark grey
-                glow_intensity = 0.9,   -- 90% glow intensity
-                glow_radius = 15.0,      -- 8 pixel blur radius
-            }
-        }
-    }
-}
-
--- CLIBuddy Sidebar Configuration (stored separately from main config)
--- This will be read by our Rust code directly, not by WezTerm's config system
+-- CLIBuddy Sidebar Configuration
 local clibuddy_config = {
     -- Left sidebar settings (settings/config sidebar)
     left_sidebar = {
@@ -479,6 +441,12 @@ local clibuddy_config = {
         -- Colors
         background_color = 'rgba(5, 5, 6, 1.0)',
         border_color = 'rgba(64, 64, 64, 1.0)',
+        -- Font configuration
+        fonts = {
+            body_weight = 'Regular',  -- 'Regular' or 'Light' for body text
+            font_size_reduction = 1.0,  -- How many points smaller than heading font (1 point)
+            -- font_family = 'Roboto',  -- Optional: override font family (defaults to Roboto)
+        },
         -- Toggle button
         button = {
             visible = true,
@@ -560,6 +528,47 @@ local clibuddy_config = {
 
 -- Export CLIBuddy config for our Rust code to access
 wezterm.GLOBAL.clibuddy_config = clibuddy_config
+
+-- Set up config.clibuddy with the necessary fields for Rust to read
+config.clibuddy = {
+    sidebar_button = {
+        icon_font_size = 16.0,
+        border_width = 2.0,
+        corner_radius = 8.0,
+        
+        -- Override for left button (settings)
+        left_style = {
+            neon = {
+                color = '#00FFFF',      -- Cyan neon
+                base_color = '#0F0F0F', -- Dark grey
+                glow_intensity = 0.9,   -- 90% glow intensity
+                glow_radius = 15.0,      -- 8 pixel blur radius
+            }
+        },
+        
+        -- Override for right button (AI assistant)
+        right_style = {
+            neon = {
+                color = '#FF1493',      -- Deep pink neon
+                base_color = '#0F0F0F', -- Dark grey
+                glow_intensity = 0.9,   -- 90% glow intensity
+                glow_radius = 15.0,      -- 8 pixel blur radius
+            }
+        }
+    },
+    
+    -- Add the right sidebar configuration so Rust can access it
+    right_sidebar = {
+        width = clibuddy_config.right_sidebar.width,
+        show_on_startup = clibuddy_config.right_sidebar.show_on_startup,
+        -- Font configuration
+        fonts = {
+            body_weight = clibuddy_config.right_sidebar.fonts.body_weight,
+            font_size_reduction = clibuddy_config.right_sidebar.fonts.font_size_reduction,
+            font_family = clibuddy_config.right_sidebar.fonts.font_family,
+        },
+    }
+}
 
 -- Finally, return the configuration to wezterm
 return config
