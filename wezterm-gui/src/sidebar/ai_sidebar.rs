@@ -433,14 +433,8 @@ brew install pkg-config
     fn render_current_suggestion(&self, font: &Rc<LoadedFont>) -> Option<Element> {
         let suggestion = self.current_suggestion.as_ref()?;
 
-        let content = vec![
-            Element::new(font, ElementContent::Text(suggestion.content.clone()))
-                .colors(ElementColors {
-                    text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
-                    ..Default::default()
-                })
-                .padding(BoxDimension::new(Dimension::Pixels(8.0))),
-        ];
+        let content = vec![MarkdownRenderer::render(&suggestion.content, font)
+            .padding(BoxDimension::new(Dimension::Pixels(8.0)))];
 
         let mut actions = vec![];
 
@@ -576,14 +570,7 @@ brew install pkg-config
             }
             ActivityItem::Suggestion { title, content, .. } => Card::new()
                 .with_title(format!("Past: {}", title))
-                .with_content(vec![Element::new(
-                    font,
-                    ElementContent::Text(content.clone()),
-                )
-                .colors(ElementColors {
-                    text: LinearRgba::with_components(0.7, 0.7, 0.7, 1.0).into(),
-                    ..Default::default()
-                })])
+                .with_content(vec![MarkdownRenderer::render(content, font)])
                 .render(font),
             ActivityItem::Goal { text, .. } => {
                 Element::new(font, ElementContent::Text(format!("Goal: {}", text)))
