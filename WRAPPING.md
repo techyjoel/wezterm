@@ -1,8 +1,35 @@
-# Text Wrapping Implementation Plan
+# Text Wrapping Implementation
+
+## Status
+
+### Completed ✅
+- Added `WrappedText(String)` variant to `ElementContent` enum
+- Added `MultilineText` variant to `ComputedElementContent` with line storage
+- Implemented core `wrap_text` function with word and character wrapping
+- Updated `compute_element` to handle WrappedText
+- Updated `render_element` to render MultilineText
+- Updated height estimation in ScrollableContainer
+- Converted AI sidebar components to use WrappedText:
+  - Goal text
+  - Chat messages (both user and AI)
+  - Suggestion content (via MarkdownRenderer)
+- Updated MarkdownRenderer to use WrappedText for:
+  - Paragraphs
+  - Headings
+  - Code blocks (including syntax highlighted lines)
+- Added support for all match arms in box_model and fancy_tab_bar
+
+### To-Do 📝
+- Unit tests for text wrapping logic
+- Performance optimization (caching wrapped text)
+- Configurable wrapping behavior
+- Support for preserving newlines in wrapped text
+- RTL text wrapping support
+- Hyphenation support for long words
 
 ## Overview
 
-This document outlines the implementation plan for adding text wrapping support to WezTerm's Element rendering system. The goal is to fix text wrapping issues in the AI sidebar where long text in suggestions, goals, chat messages, and markdown content gets truncated instead of wrapping to multiple lines.
+This document describes the text wrapping implementation for WezTerm's Element rendering system. Text wrapping was added to fix truncation issues in the AI sidebar where long text in suggestions, goals, chat messages, and markdown content would be cut off instead of wrapping to multiple lines.
 
 ## Problem Statement
 
@@ -63,6 +90,7 @@ fn wrap_text(
     font: &Rc<LoadedFont>,
     max_width: f32,
     context: &LayoutContext,
+    style: &config::TextStyle,  // Added parameter for text style
 ) -> anyhow::Result<Vec<Vec<ElementCell>>> {
     let mut lines = Vec::new();
     let mut current_line = Vec::new();
@@ -84,7 +112,7 @@ fn wrap_text(
         )?;
         
         // Calculate word width
-        let word_width = self.calculate_text_width(&word_infos, font, context)?;
+        let word_width = self.calculate_text_width(word, &word_infos, font, context, style)?;
         
         // Check if word fits on current line
         if current_width > 0.0 && current_width + word_width > max_width {
@@ -98,12 +126,12 @@ fn wrap_text(
         
         // If word itself is too wide, break it at character boundaries
         if word_width > max_width {
-            let cells = self.shape_text_to_cells(&word_infos, font, context)?;
+            let cells = self.shape_text_to_cells(word, &word_infos, font, context, style)?;
             let mut char_line = Vec::new();
             let mut char_width = 0.0;
             
             for cell in cells {
-                let cell_width = self.get_cell_width(&cell, font, context)?;
+                let cell_width = self.get_cell_width(&cell, context)?;
                 
                 if char_width + cell_width > max_width && !char_line.is_empty() {
                     lines.push(char_line);
@@ -121,7 +149,7 @@ fn wrap_text(
             }
         } else {
             // Word fits, add it to current line
-            let cells = self.shape_text_to_cells(&word_infos, font, context)?;
+            let cells = self.shape_text_to_cells(word, &word_infos, font, context, style)?;
             current_line.extend(cells);
             current_width += word_width;
         }
@@ -138,23 +166,37 @@ fn wrap_text(
 /// Helper to calculate text width from shaped glyphs
 fn calculate_text_width(
     &self,
+    text: &str,
     infos: &[GlyphInfo],
     font: &Rc<LoadedFont>,
     context: &LayoutContext,
+    style: &config::TextStyle,
 ) -> anyhow::Result<f32> {
     let mut width = 0.0;
     let mut glyph_cache = context.gl_state.glyph_cache.borrow_mut();
     
     for info in infos {
-        let glyph = glyph_cache.cached_glyph(
-            info,
-            None, // style
-            false, // followed_by_space
-            font,
-            context.metrics,
-            1, // num_cells
-        )?;
-        width += glyph.x_advance.get() as f32;
+        // Check if it's a unicode block glyph
+        let cell_start = &text[info.cluster as usize..];
+        let mut iter = Graphemes::new(cell_start).peekable();
+        if let Some(grapheme) = iter.next() {
+            if let Some(_key) = BlockKey::from_str(grapheme) {
+                width += context.width.pixel_cell;
+                continue;
+            }
+            
+            let followed_by_space = iter.peek() == Some(&" ");
+            let num_cells = grapheme_column_width(grapheme, None);
+            let glyph = glyph_cache.cached_glyph(
+                info,
+                style,
+                followed_by_space,
+                font,
+                context.metrics,
+                num_cells as u8,
+            )?;
+            width += glyph.x_advance.get() as f32;
+        }
     }
     
     Ok(width)
@@ -164,13 +206,52 @@ fn calculate_text_width(
 fn get_cell_width(
     &self,
     cell: &ElementCell,
-    font: &Rc<LoadedFont>,
     context: &LayoutContext,
 ) -> anyhow::Result<f32> {
     match cell {
         ElementCell::Sprite(_) => Ok(context.width.pixel_cell),
         ElementCell::Glyph(glyph) => Ok(glyph.x_advance.get() as f32),
     }
+}
+
+/// Helper to convert shaped text to ElementCells
+fn shape_text_to_cells(
+    &self,
+    text: &str,
+    infos: &[GlyphInfo],
+    font: &Rc<LoadedFont>,
+    context: &LayoutContext,
+    style: &config::TextStyle,
+) -> anyhow::Result<Vec<ElementCell>> {
+    let mut cells = Vec::new();
+    let mut glyph_cache = context.gl_state.glyph_cache.borrow_mut();
+
+    for info in infos {
+        // Check if it's a unicode block glyph
+        let cell_start = &text[info.cluster as usize..];
+        let mut iter = Graphemes::new(cell_start).peekable();
+        if let Some(grapheme) = iter.next() {
+            if let Some(key) = BlockKey::from_str(grapheme) {
+                let sprite = glyph_cache.cached_block(key, context.metrics)?;
+                cells.push(ElementCell::Sprite(sprite));
+                continue;
+            }
+
+            let followed_by_space = iter.peek() == Some(&" ");
+            let num_cells = grapheme_column_width(grapheme, None);
+            let glyph = glyph_cache.cached_glyph(
+                info,
+                style,
+                followed_by_space,
+                font,
+                context.metrics,
+                num_cells as u8,
+            )?;
+            cells.push(ElementCell::Glyph(glyph));
+        }
+    }
+
+    Ok(cells)
 }
 ```
 
@@ -182,14 +263,24 @@ In the `compute_element` method's match statement (around line 669), add the new
 
 ```rust
 ElementContent::WrappedText(text) => {
-    let lines = self.wrap_text(text, &element.font, max_width, context)?;
+    let lines = self.wrap_text(text, &element.font, max_width, context, &style)?;
     let line_height = context.height.pixel_cell;
     let num_lines = lines.len() as f32;
+    
+    // Calculate max width of all lines for proper content rect
+    let mut max_line_width: f32 = 0.0;
+    for line in &lines {
+        let mut line_width = 0.0;
+        for cell in line {
+            line_width += self.get_cell_width(cell, context)?;
+        }
+        max_line_width = max_line_width.max(line_width);
+    }
     
     let content_rect = euclid::rect(
         0.,
         0.,
-        max_width.max(min_width),
+        max_line_width.max(min_width),
         (line_height * num_lines).max(min_height),
     );
     
@@ -219,24 +310,70 @@ ElementContent::WrappedText(text) => {
 
 **File: `wezterm-gui/src/termwindow/box_model.rs`**
 
-In the `paint_element` method (around line 850), add handling for MultilineText:
+In the `render_element` method (around line 1116), add handling for MultilineText:
 
 ```rust
 ComputedElementContent::MultilineText { lines, line_height } => {
-    let mut y_offset = element.content_rect.min_y();
+    let mut y_offset = 0.0;
     
     for (line_idx, line_cells) in lines.iter().enumerate() {
-        let x = element.content_rect.min_x();
-        let y = y_offset + (line_idx as f32 * line_height);
+        let mut pos_x = element.content_rect.min_x();
+        let y = element.content_rect.min_y() + (line_idx as f32 * line_height);
         
-        // Render each line similar to single-line text
         for cell in line_cells {
+            if pos_x >= element.content_rect.max_x() {
+                break;
+            }
             match cell {
                 ElementCell::Sprite(sprite) => {
-                    // Existing sprite rendering code with adjusted y
+                    let width = sprite.coords.width();
+                    let height = sprite.coords.height();
+                    let pos_y = top + y;
+
+                    if pos_x + width as f32 > element.content_rect.max_x() {
+                        break;
+                    }
+
+                    let mut quad = layers.allocate(2)?;
+                    quad.set_position(
+                        pos_x + left,
+                        pos_y,
+                        pos_x + left + width as f32,
+                        pos_y + height as f32,
+                    );
+                    self.resolve_text(colors, inherited_colors).apply(&mut quad);
+                    quad.set_texture(sprite.texture_coords());
+                    quad.set_hsv(None);
+                    pos_x += width as f32;
                 }
                 ElementCell::Glyph(glyph) => {
-                    // Existing glyph rendering code with adjusted y
+                    if let Some(texture) = glyph.texture.as_ref() {
+                        let pos_y = y as f32 + top
+                            - (glyph.y_offset + glyph.bearing_y).get() as f32
+                            + element.baseline;
+
+                        if pos_x + glyph.x_advance.get() as f32
+                            > element.content_rect.max_x()
+                        {
+                            break;
+                        }
+                        let pos_x = pos_x + (glyph.x_offset + glyph.bearing_x).get() as f32;
+                        let width = texture.coords.size.width as f32 * glyph.scale as f32;
+                        let height = texture.coords.size.height as f32 * glyph.scale as f32;
+
+                        let mut quad = layers.allocate(1)?;
+                        quad.set_position(
+                            pos_x + left,
+                            pos_y,
+                            pos_x + left + width,
+                            pos_y + height,
+                        );
+                        self.resolve_text(colors, inherited_colors).apply(&mut quad);
+                        quad.set_texture(texture.texture_coords());
+                        quad.set_has_color(glyph.has_color);
+                        quad.set_hsv(None);
+                    }
+                    pos_x += glyph.x_advance.get() as f32;
                 }
             }
         }
@@ -346,16 +483,14 @@ MarkdownElement::Paragraph(children) => {
    - Check memory usage with large amounts of text
    - Verify no impact on non-wrapped text rendering
 
-## Implementation Order
+## Implementation Differences from Plan
 
-1. Add data structures (WrapMode, WrappedText, MultilineText)
-2. Implement wrap_text method with basic word wrapping
-3. Update compute_element to handle WrappedText
-4. Update paint_element to render MultilineText
-5. Update one component (e.g., suggestions) as proof of concept
-6. Test thoroughly
-7. Update remaining components
-8. Update height estimation for accurate scrolling
+### Key Changes Made:
+1. **Simplified API**: Instead of using `WrapMode` enum, we went with a single `WrappedText(String)` variant that automatically handles both word and character wrapping
+2. **Added text parameter**: Helper functions (`calculate_text_width`, `shape_text_to_cells`) need the original text string to extract grapheme clusters correctly
+3. **Added style parameter**: All text processing functions now take `&config::TextStyle` for proper glyph caching
+4. **Content rect calculation**: Added logic to calculate the maximum line width for proper content rect sizing (not just using max_width)
+5. **Complete rendering implementation**: The MultilineText rendering includes full sprite and glyph positioning logic
 
 ## Edge Cases to Handle
 
