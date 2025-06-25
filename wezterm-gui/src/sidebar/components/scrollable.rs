@@ -274,6 +274,54 @@ impl ScrollableContainer {
                 }
                 text_height
             }
+            ElementContent::WrappedText(text) => {
+                // Calculate accurate wrapped height using available width
+                // The context has pixel_max which represents the available width
+                let available_width = context.pixel_max
+                    - element.padding.left.evaluate_as_pixels(context)
+                    - element.padding.right.evaluate_as_pixels(context)
+                    - element.margin.left.evaluate_as_pixels(context)
+                    - element.margin.right.evaluate_as_pixels(context)
+                    - element.border.left.evaluate_as_pixels(context)
+                    - element.border.right.evaluate_as_pixels(context);
+
+                // Use font metrics to calculate wrapped lines
+                // This is a simplified calculation - in the actual implementation,
+                // we'd call the same text measurement logic used in wrap_text
+                let avg_char_width = context.pixel_cell * 0.6; // Approximate average character width
+                let chars_per_line = (available_width / avg_char_width).floor().max(1.0);
+
+                // Count words and estimate wrapping
+                let words: Vec<&str> = text.split_whitespace().collect();
+                let mut lines = 1.0;
+                let mut current_line_chars = 0.0;
+
+                for word in words {
+                    let word_chars = word.len() as f32 + 1.0; // +1 for space
+                    if current_line_chars + word_chars > chars_per_line && current_line_chars > 0.0
+                    {
+                        lines += 1.0;
+                        current_line_chars = word_chars;
+                    } else {
+                        current_line_chars += word_chars;
+                    }
+                }
+
+                let text_height = lines * actual_line_height;
+
+                // Log wrapped text heights
+                if lines > 1.0 || text.len() > 100 {
+                    log::trace!(
+                        "WrappedText height (depth {}): {:.1} lines, {}px, text_preview: {:?}",
+                        depth,
+                        lines,
+                        text_height,
+                        &text.chars().take(50).collect::<String>()
+                    );
+                }
+
+                text_height
+            }
             ElementContent::Children(children) => {
                 // Recursively calculate height of all children
                 if children.is_empty() {

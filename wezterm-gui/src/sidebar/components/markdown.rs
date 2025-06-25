@@ -83,7 +83,7 @@ impl MarkdownRenderer {
                         if !current_paragraph.is_empty() {
                             let text = current_paragraph.join("");
                             elements.push(
-                                Element::new(font, ElementContent::Text(text))
+                                Element::new(font, ElementContent::WrappedText(text))
                                     .colors(ElementColors {
                                         text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0)
                                             .into(),
@@ -121,7 +121,7 @@ impl MarkdownRenderer {
 
                             // TODO: Implement font size scaling when supported
                             elements.push(
-                                Element::new(font, ElementContent::Text(text))
+                                Element::new(font, ElementContent::WrappedText(text))
                                     .colors(ElementColors {
                                         text: color.into(),
                                         ..Default::default()
@@ -197,7 +197,7 @@ impl MarkdownRenderer {
         if !current_paragraph.is_empty() {
             let text = current_paragraph.join("");
             elements.push(
-                Element::new(font, ElementContent::Text(text)).colors(ElementColors {
+                Element::new(font, ElementContent::WrappedText(text)).colors(ElementColors {
                     text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
                     ..Default::default()
                 }),
@@ -249,7 +249,7 @@ impl MarkdownRenderer {
                 );
 
                 line_parts.push(
-                    Element::new(font, ElementContent::Text(text.to_string())).colors(
+                    Element::new(font, ElementContent::WrappedText(text.to_string())).colors(
                         ElementColors {
                             text: color.into(),
                             ..Default::default()
@@ -269,10 +269,12 @@ impl MarkdownRenderer {
         // If no lines were highlighted, fall back to plain text
         if line_elements.is_empty() {
             line_elements.push(
-                Element::new(font, ElementContent::Text(code.to_string())).colors(ElementColors {
-                    text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
-                    ..Default::default()
-                }),
+                Element::new(font, ElementContent::WrappedText(code.to_string())).colors(
+                    ElementColors {
+                        text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
+                        ..Default::default()
+                    },
+                ),
             );
         }
 

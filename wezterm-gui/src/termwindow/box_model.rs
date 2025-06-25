@@ -13,8 +13,9 @@ use config::{Dimension, DimensionContext};
 use finl_unicode::grapheme_clusters::Graphemes;
 use std::cell::RefCell;
 use std::rc::Rc;
-use termwiz::cell::{grapheme_column_width, Presentation};
+use termwiz::cell::{grapheme_column_width, unicode_column_width, Presentation};
 use termwiz::surface::Line;
+use wezterm_font::shaper::GlyphInfo;
 use wezterm_font::units::PixelUnit;
 use wezterm_font::LoadedFont;
 use wezterm_term::color::{ColorAttribute, ColorPalette};
@@ -465,6 +466,7 @@ impl Element {
 #[derive(Debug, Clone)]
 pub enum ElementContent {
     Text(String),
+    WrappedText(String), // Automatically wraps at word boundaries, falling back to character boundaries
     Children(Vec<Element>),
     Poly { line_width: isize, poly: SizedPoly },
 }
@@ -513,6 +515,7 @@ impl ComputedElement {
                 }
             }
             ComputedElementContent::Text(_) => {}
+            ComputedElementContent::MultilineText { .. } => {}
             ComputedElementContent::Poly { .. } => {}
         }
     }
@@ -536,6 +539,7 @@ impl ComputedElement {
 
         match &self.content {
             ComputedElementContent::Text(_) => {}
+            ComputedElementContent::MultilineText { .. } => {}
             ComputedElementContent::Children(kids) => {
                 for kid in kids {
                     kid.ui_item_impl(items);
@@ -549,6 +553,10 @@ impl ComputedElement {
 #[derive(Debug, Clone)]
 pub enum ComputedElementContent {
     Text(Vec<ElementCell>),
+    MultilineText {
+        lines: Vec<Vec<ElementCell>>,
+        line_height: f32,
+    },
     Children(Vec<ComputedElement>),
     Poly {
         line_width: isize,
@@ -612,6 +620,174 @@ impl Element {
 }
 
 impl super::TermWindow {
+    /// Wraps text at word boundaries to fit within max_width, with character-level fallback
+    fn wrap_text(
+        &self,
+        text: &str,
+        font: &Rc<LoadedFont>,
+        max_width: f32,
+        context: &LayoutContext,
+        style: &config::TextStyle,
+    ) -> anyhow::Result<Vec<Vec<ElementCell>>> {
+        let mut lines = Vec::new();
+        let mut current_line = Vec::new();
+        let mut current_width = 0.0;
+
+        // Split by whitespace while preserving it
+        let words = text.split_inclusive(' ');
+
+        for word in words {
+            // Shape the word to get its width
+            let window = self.window.as_ref().unwrap().clone();
+            let word_infos = font.shape(
+                word,
+                move || window.notify(TermWindowNotif::InvalidateShapeCache),
+                BlockKey::filter_out_synthetic,
+                None, // presentation
+                wezterm_bidi::Direction::LeftToRight,
+                None, // range
+                None, // direction override
+            )?;
+
+            // Calculate word width
+            let word_width = self.calculate_text_width(word, &word_infos, font, context, style)?;
+
+            // Check if word fits on current line
+            if current_width > 0.0 && current_width + word_width > max_width {
+                // Finalize current line
+                if !current_line.is_empty() {
+                    lines.push(current_line);
+                    current_line = Vec::new();
+                    current_width = 0.0;
+                }
+            }
+
+            // If word itself is too wide, break it at character boundaries
+            if word_width > max_width {
+                let cells = self.shape_text_to_cells(word, &word_infos, font, context, style)?;
+                let mut char_line = Vec::new();
+                let mut char_width = 0.0;
+
+                for cell in cells {
+                    let cell_width = self.get_cell_width(&cell, context)?;
+
+                    if char_width + cell_width > max_width && !char_line.is_empty() {
+                        lines.push(char_line);
+                        char_line = Vec::new();
+                        char_width = 0.0;
+                    }
+
+                    char_line.push(cell);
+                    char_width += cell_width;
+                }
+
+                if !char_line.is_empty() {
+                    current_line = char_line;
+                    current_width = char_width;
+                }
+            } else {
+                // Word fits, add it to current line
+                let cells = self.shape_text_to_cells(word, &word_infos, font, context, style)?;
+                current_line.extend(cells);
+                current_width += word_width;
+            }
+        }
+
+        // Add final line
+        if !current_line.is_empty() {
+            lines.push(current_line);
+        }
+
+        Ok(lines)
+    }
+
+    /// Helper to calculate text width from shaped glyphs
+    fn calculate_text_width(
+        &self,
+        text: &str,
+        infos: &[GlyphInfo],
+        font: &Rc<LoadedFont>,
+        context: &LayoutContext,
+        style: &config::TextStyle,
+    ) -> anyhow::Result<f32> {
+        let mut width = 0.0;
+        let mut glyph_cache = context.gl_state.glyph_cache.borrow_mut();
+
+        for info in infos {
+            // Check if it's a unicode block glyph
+            let cell_start = &text[info.cluster as usize..];
+            let mut iter = Graphemes::new(cell_start).peekable();
+            if let Some(grapheme) = iter.next() {
+                if let Some(_key) = BlockKey::from_str(grapheme) {
+                    width += context.width.pixel_cell;
+                    continue;
+                }
+
+                let followed_by_space = iter.peek() == Some(&" ");
+                let num_cells = grapheme_column_width(grapheme, None);
+                let glyph = glyph_cache.cached_glyph(
+                    info,
+                    style,
+                    followed_by_space,
+                    font,
+                    context.metrics,
+                    num_cells as u8,
+                )?;
+                width += glyph.x_advance.get() as f32;
+            }
+        }
+
+        Ok(width)
+    }
+
+    /// Helper to get width of a single ElementCell
+    fn get_cell_width(&self, cell: &ElementCell, context: &LayoutContext) -> anyhow::Result<f32> {
+        match cell {
+            ElementCell::Sprite(_) => Ok(context.width.pixel_cell),
+            ElementCell::Glyph(glyph) => Ok(glyph.x_advance.get() as f32),
+        }
+    }
+
+    /// Helper to convert shaped text to ElementCells
+    fn shape_text_to_cells(
+        &self,
+        text: &str,
+        infos: &[GlyphInfo],
+        font: &Rc<LoadedFont>,
+        context: &LayoutContext,
+        style: &config::TextStyle,
+    ) -> anyhow::Result<Vec<ElementCell>> {
+        let mut cells = Vec::new();
+        let mut glyph_cache = context.gl_state.glyph_cache.borrow_mut();
+
+        for info in infos {
+            // Check if it's a unicode block glyph
+            let cell_start = &text[info.cluster as usize..];
+            let mut iter = Graphemes::new(cell_start).peekable();
+            if let Some(grapheme) = iter.next() {
+                if let Some(key) = BlockKey::from_str(grapheme) {
+                    let sprite = glyph_cache.cached_block(key, context.metrics)?;
+                    cells.push(ElementCell::Sprite(sprite));
+                    continue;
+                }
+
+                let followed_by_space = iter.peek() == Some(&" ");
+                let num_cells = grapheme_column_width(grapheme, None);
+                let glyph = glyph_cache.cached_glyph(
+                    info,
+                    style,
+                    followed_by_space,
+                    font,
+                    context.metrics,
+                    num_cells as u8,
+                )?;
+                cells.push(ElementCell::Glyph(glyph));
+            }
+        }
+
+        Ok(cells)
+    }
+
     pub fn compute_element<'a>(
         &self,
         context: &LayoutContext,
@@ -755,6 +931,45 @@ impl super::TermWindow {
                     padding: rects.padding,
                     content_rect: rects.content_rect,
                     content: ComputedElementContent::Text(computed_cells),
+                })
+            }
+            ElementContent::WrappedText(text) => {
+                let lines = self.wrap_text(text, &element.font, max_width, context, &style)?;
+                let line_height = context.height.pixel_cell;
+                let num_lines = lines.len() as f32;
+
+                // Calculate max width of all lines for proper content rect
+                let mut max_line_width: f32 = 0.0;
+                for line in &lines {
+                    let mut line_width = 0.0;
+                    for cell in line {
+                        line_width += self.get_cell_width(cell, context)?;
+                    }
+                    max_line_width = max_line_width.max(line_width);
+                }
+
+                let content_rect = euclid::rect(
+                    0.,
+                    0.,
+                    max_line_width.max(min_width),
+                    (line_height * num_lines).max(min_height),
+                );
+
+                let rects = element.compute_rects(context, content_rect);
+
+                Ok(ComputedElement {
+                    item_type: element.item_type.clone(),
+                    zindex: element.zindex + context.zindex,
+                    baseline,
+                    border,
+                    border_corners,
+                    colors: element.colors.clone(),
+                    hover_colors: element.hover_colors.clone(),
+                    bounds: rects.bounds,
+                    border_rect: rects.border_rect,
+                    padding: rects.padding,
+                    content_rect: rects.content_rect,
+                    content: ComputedElementContent::MultilineText { lines, line_height },
                 })
             }
             ElementContent::Children(kids) => {
@@ -988,6 +1203,75 @@ impl super::TermWindow {
                                 quad.set_hsv(None);
                             }
                             pos_x += glyph.x_advance.get() as f32;
+                        }
+                    }
+                }
+            }
+            ComputedElementContent::MultilineText { lines, line_height } => {
+                let mut y_offset = 0.0;
+
+                for (line_idx, line_cells) in lines.iter().enumerate() {
+                    let mut pos_x = element.content_rect.min_x();
+                    let y = element.content_rect.min_y() + (line_idx as f32 * line_height);
+
+                    for cell in line_cells {
+                        if pos_x >= element.content_rect.max_x() {
+                            break;
+                        }
+                        match cell {
+                            ElementCell::Sprite(sprite) => {
+                                let width = sprite.coords.width();
+                                let height = sprite.coords.height();
+                                let pos_y = top + y;
+
+                                if pos_x + width as f32 > element.content_rect.max_x() {
+                                    break;
+                                }
+
+                                let mut quad = layers.allocate(2)?;
+                                quad.set_position(
+                                    pos_x + left,
+                                    pos_y,
+                                    pos_x + left + width as f32,
+                                    pos_y + height as f32,
+                                );
+                                self.resolve_text(colors, inherited_colors).apply(&mut quad);
+                                quad.set_texture(sprite.texture_coords());
+                                quad.set_hsv(None);
+                                pos_x += width as f32;
+                            }
+                            ElementCell::Glyph(glyph) => {
+                                if let Some(texture) = glyph.texture.as_ref() {
+                                    let pos_y = y as f32 + top
+                                        - (glyph.y_offset + glyph.bearing_y).get() as f32
+                                        + element.baseline;
+
+                                    if pos_x + glyph.x_advance.get() as f32
+                                        > element.content_rect.max_x()
+                                    {
+                                        break;
+                                    }
+                                    let pos_x =
+                                        pos_x + (glyph.x_offset + glyph.bearing_x).get() as f32;
+                                    let width =
+                                        texture.coords.size.width as f32 * glyph.scale as f32;
+                                    let height =
+                                        texture.coords.size.height as f32 * glyph.scale as f32;
+
+                                    let mut quad = layers.allocate(1)?;
+                                    quad.set_position(
+                                        pos_x + left,
+                                        pos_y,
+                                        pos_x + left + width,
+                                        pos_y + height,
+                                    );
+                                    self.resolve_text(colors, inherited_colors).apply(&mut quad);
+                                    quad.set_texture(texture.texture_coords());
+                                    quad.set_has_color(glyph.has_color);
+                                    quad.set_hsv(None);
+                                }
+                                pos_x += glyph.x_advance.get() as f32;
+                            }
                         }
                     }
                 }

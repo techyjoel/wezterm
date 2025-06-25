@@ -160,10 +160,10 @@ impl AiSidebar {
             edit_text: String::new(),
         });
 
-        // Set a current suggestion
+        // Set a current suggestion with longer text to test wrapping
         self.current_suggestion = Some(CurrentSuggestion {
             title: "Install missing dependency".to_string(),
-            content: "It looks like the linker couldn't find OpenSSL. Install it with: `brew install openssl@3` and rerun `make`.".to_string(),
+            content: "It looks like the linker couldn't find OpenSSL. This is a common issue when building projects that depend on OpenSSL for cryptographic functionality. You'll need to install OpenSSL using Homebrew. Run the following command: `brew install openssl@3` and then rerun `make`. If the issue persists, you may need to set environment variables like PKG_CONFIG_PATH=/opt/homebrew/opt/openssl@3/lib/pkgconfig to help the build system find the OpenSSL libraries.".to_string(),
             has_action: true,
             action_type: Some("run".to_string()),
         });
@@ -182,7 +182,7 @@ impl AiSidebar {
 
         self.activity_log.push(ActivityItem::Chat {
             id: "chat1".to_string(),
-            message: "Sounds good, please run that.".to_string(),
+            message: "I'm trying to compile my Rust project but getting linker errors about OpenSSL. I've tried installing it before but it doesn't seem to be working. Can you help me understand what's going wrong and how to fix it properly?".to_string(),
             is_user: true,
             timestamp: now - Duration::from_secs(30),
         });
@@ -208,6 +208,8 @@ impl AiSidebar {
    ```bash
    export OPENSSL_DIR=$(brew --prefix openssl)
    export PKG_CONFIG_PATH="$OPENSSL_DIR/lib/pkgconfig"
+   export LDFLAGS="-L$OPENSSL_DIR/lib"
+   export CPPFLAGS="-I$OPENSSL_DIR/include"
    ```
 
 4. Try running `make` again.
@@ -369,7 +371,7 @@ brew install pkg-config
                 })
                 .padding(BoxDimension::new(Dimension::Pixels(8.0)))
         } else {
-            Element::new(font, ElementContent::Text(goal.text.clone()))
+            Element::new(font, ElementContent::WrappedText(goal.text.clone()))
                 .colors(ElementColors {
                     text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
                     ..Default::default()
@@ -529,7 +531,7 @@ brew install pkg-config
 
                 // Render message content with markdown if it's from AI
                 let content = if *is_user {
-                    Element::new(font, ElementContent::Text(message.clone())).colors(
+                    Element::new(font, ElementContent::WrappedText(message.clone())).colors(
                         ElementColors {
                             text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
                             ..Default::default()
