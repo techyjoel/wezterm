@@ -326,10 +326,10 @@ The implementation is divided into 7 phases:
 - [ ] **2.6.1** Implement modal overlay framework
   - **Requirements**:
     - Show content above other sidebar elements
-    - Background dimming/blur
-    - Click-outside-to-close
+    - Drop shadow behind modal
+    - Background dimming/blur (if set to on, optional)
+    - Click-outside-to-close or click top-right x to close
     - Keyboard navigation (Escape to close)
-    - Animation support (fade in/out, slide)
   - **Use cases**:
     - Suggestion "more" expansion
     - Confirmation dialogs

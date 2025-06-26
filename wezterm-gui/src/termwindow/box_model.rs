@@ -21,6 +21,75 @@ use wezterm_font::LoadedFont;
 use wezterm_term::color::{ColorAttribute, ColorPalette};
 use window::bitmaps::atlas::Sprite;
 
+/// Estimate how many lines text will wrap to given available width
+/// This is a simplified version of the wrap_text logic for quick estimation
+/// Used by both the activity log height calculation and suggestion card truncation
+pub fn estimate_wrapped_lines(text: &str, available_width: f32, avg_char_width: f32) -> f32 {
+    let chars_per_line = (available_width / avg_char_width).floor().max(1.0);
+    
+    // Count words and estimate wrapping
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mut lines = 1.0;
+    let mut current_line_chars = 0.0;
+    
+    for word in words {
+        let word_chars = word.len() as f32 + 1.0; // +1 for space
+        if current_line_chars + word_chars > chars_per_line && current_line_chars > 0.0 {
+            lines += 1.0;
+            current_line_chars = word_chars;
+        } else {
+            current_line_chars += word_chars;
+        }
+    }
+    
+    lines
+}
+
+/// Integer version for when you need line count as usize
+pub fn estimate_wrapped_line_count(text: &str, available_width: f32, avg_char_width: f32) -> usize {
+    estimate_wrapped_lines(text, available_width, avg_char_width).ceil() as usize
+}
+
+/// Truncate text to fit within a specified number of lines
+/// Returns the truncated text that will fit within max_lines when wrapped
+pub fn truncate_to_wrapped_lines(
+    text: &str, 
+    available_width: f32, 
+    avg_char_width: f32, 
+    max_lines: usize
+) -> String {
+    let chars_per_line = (available_width / avg_char_width) as usize;
+    if chars_per_line == 0 {
+        return String::new();
+    }
+    
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mut truncated_words = Vec::new();
+    let mut line_count = 1;
+    let mut current_line_chars = 0;
+    
+    for word in &words {
+        let word_len = word.len() + 1; // +1 for space
+        
+        // Check if adding this word would exceed max lines
+        if current_line_chars + word_len > chars_per_line && current_line_chars > 0 {
+            line_count += 1;
+            current_line_chars = word_len;
+            
+            if line_count > max_lines {
+                // Stop before this word to stay within max lines
+                break;
+            }
+        } else {
+            current_line_chars += word_len;
+        }
+        
+        truncated_words.push(*word);
+    }
+    
+    truncated_words.join(" ")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerticalAlign {
     Top,

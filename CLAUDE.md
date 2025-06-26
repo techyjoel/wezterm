@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Refer to ../SPEC.md (if available) for a detailed spec of this project and use TASKS.md to track the project and tasks.
 
-Think critically and be skeptical of prior work. Fix problems you find that will break things (but don't do needless work). Consider multiple concepts for how to solve problems before you write code, and pick the best one that aligns with the codebase. Before editing things, use a subagent to examine the current codebase to ensure you fully understand all relevant portions (but subagents should not modify code, you must tell them not to). Don't make guesses, ensure you understand!
+Think critically and be skeptical of prior work. Think like a lead software engineer and architect. Fix problems you find that will break things (but don't do needless work). Consider multiple concepts for how to solve problems before you write code, and pick the best one that aligns with the codebase. Before editing things, use a subagent to examine the current codebase to ensure you fully understand all relevant portions (but subagents should not modify code, you must tell them not to). Don't make guesses, ensure you understand!
 
 ## Build and Development Commands
 

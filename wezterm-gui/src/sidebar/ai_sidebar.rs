@@ -1,21 +1,29 @@
 use super::components::{
-    Card, CardState, Chip, ChipSize, ChipStyle, MarkdownRenderer, MultilineTextInput,
-    ScrollableContainer, ScrollbarInfo,
+    Card, CardState, Chip, ChipSize, ChipStyle, MarkdownRenderer, Modal, ModalContent,
+    ModalManager, ModalSize, MultilineTextInput, ScrollableContainer, ScrollbarInfo,
+    SuggestionModal,
 };
 use super::{Sidebar, SidebarConfig, SidebarFonts, SidebarPosition};
 use crate::termwindow::box_model::{
-    BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent,
+    BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent, Float,
 };
 use crate::termwindow::render::scrollbar_renderer::{ScrollbarOrientation, ScrollbarRenderer};
 use crate::termwindow::UIItemType;
-use ::window::color::LinearRgba;
+use window::RectF;
+use crate::color::LinearRgba;
 use anyhow::Result;
 use config::{Dimension, DimensionContext};
 use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime};
 use termwiz::input::KeyCode;
+use wezterm_term::KeyModifiers;
 use wezterm_font::{FontConfiguration, LoadedFont};
 use window::{MouseEvent, MouseEventKind as WMEK, MousePress, PixelUnit};
+
+// Character width estimation for suggestion cards
+// This is tuned specifically for the sidebar's font (Roboto)
+// Activity log uses 0.6 which is more conservative
+const SUGGESTION_CHAR_WIDTH_MULTIPLIER: f32 = 0.4; // Try to get close to 2 full lines (but not beyond)
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentMode {
@@ -81,11 +89,12 @@ pub struct CurrentGoal {
     edit_text: String,
 }
 
+#[derive(Clone)]
 pub struct CurrentSuggestion {
-    title: String,
-    content: String,
-    has_action: bool,
-    action_type: Option<String>, // "run", "dismiss", etc
+    pub title: String,
+    pub content: String,
+    pub has_action: bool,
+    pub action_type: Option<String>, // "run", "dismiss", etc
 }
 
 pub struct AiSidebar {
@@ -121,9 +130,13 @@ pub struct AiSidebar {
 
     // UI element bounds for hit testing
     filter_chip_bounds: Vec<(ActivityFilter, euclid::Rect<f32, window::PixelUnit>)>,
+    more_link_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
 
     // Sidebar position for coordinate conversion
     sidebar_x_position: f32,
+    
+    // Modal management
+    modal_manager: ModalManager,
 }
 
 impl AiSidebar {
@@ -145,7 +158,9 @@ impl AiSidebar {
             activity_log_scrollbar_bounds: None,
             activity_log_scroll_offset: 0.0,
             filter_chip_bounds: Vec::new(),
+            more_link_bounds: None,
             sidebar_x_position: 0.0,
+            modal_manager: ModalManager::new(),
         }
     }
 
@@ -438,17 +453,90 @@ brew install pkg-config
         )
     }
 
-    fn render_current_suggestion(&self, fonts: &SidebarFonts) -> Option<Element> {
+    fn render_current_suggestion(&mut self, fonts: &SidebarFonts) -> Option<Element> {
         let suggestion = self.current_suggestion.as_ref()?;
 
-        let content = vec![MarkdownRenderer::render_with_code_font(
-            &suggestion.content,
+        // Clear previous more link bounds
+        self.more_link_bounds = None;
+
+        // Check if content would exceed 2 lines when wrapped
+        const MAX_LINES: usize = 2;
+        
+        // Get approximate width available for text in the suggestion card
+        // Sidebar: 16px padding each side = 32px
+        // Card: 8px margin each side = 16px  
+        // Content container: 8px padding each side = 16px
+        // Total: 32 + 16 + 16 = 64px
+        let available_width = (self.width as f32) - 64.0;
+        
+        // Use our wrapping estimation to determine if we need truncation
+        let estimated_lines = self.estimate_wrapped_lines(&suggestion.content, available_width, fonts);
+        let needs_more_link = estimated_lines > MAX_LINES;
+        
+        let mut content_elements = vec![];
+        
+        if needs_more_link {
+            // Truncate to fit within 2 lines using shared function
+            let font_metrics = fonts.body.metrics();
+            let avg_char_width = font_metrics.cell_height.get() as f32 * SUGGESTION_CHAR_WIDTH_MULTIPLIER;
+            
+            // Use shared truncation function
+            let truncated_text = crate::termwindow::box_model::truncate_to_wrapped_lines(
+                &suggestion.content,
+                available_width,
+                avg_char_width,
+                MAX_LINES
+            );
+            
+            // Add ellipsis
+            let display_text = format!("{}...", truncated_text);
+            
+            // Use plain text for truncated content
+            content_elements.push(
+                Element::new(
+                    &fonts.body,
+                    ElementContent::WrappedText(display_text)
+                )
+                .colors(ElementColors {
+                    text: LinearRgba(0.9, 0.9, 0.9, 1.0).into(),
+                    ..Default::default()
+                })
+                .display(DisplayType::Block)
+                .min_height(Some(Dimension::Pixels(
+                    2.0 * fonts.body.metrics().cell_height.get() as f32
+                ))) // Fixed height for 2 lines
+            );
+            
+        } else {
+            // For short content, still use fixed height
+            content_elements.push(
+                Element::new(
+                    &fonts.body,
+                    ElementContent::WrappedText(suggestion.content.clone())
+                )
+                .colors(ElementColors {
+                    text: LinearRgba(0.9, 0.9, 0.9, 1.0).into(),
+                    ..Default::default()
+                })
+                .display(DisplayType::Block)
+                .min_height(Some(Dimension::Pixels(
+                    2.0 * fonts.body.metrics().cell_height.get() as f32
+                ))) // Fixed height for 2 lines
+            );
+        }
+        
+        let content_container = Element::new(
             &fonts.body,
-            &fonts.code,
+            ElementContent::Children(content_elements)
         )
-        .padding(BoxDimension::new(Dimension::Pixels(8.0)))];
+        .display(DisplayType::Block)
+        .padding(BoxDimension::new(Dimension::Pixels(8.0)));
 
         let mut actions = vec![];
+
+        // Create a container for the action buttons
+        let mut left_actions = vec![];
+        let mut right_actions = vec![];
 
         if suggestion.has_action {
             let run_btn = Chip::new("▶ Run".to_string())
@@ -461,13 +549,45 @@ brew install pkg-config
                 .with_size(ChipSize::Medium)
                 .clickable(true)
                 .render(&fonts.body);
-            actions.push(run_btn);
-            actions.push(dismiss_btn);
+            
+            left_actions.push(run_btn);
+            left_actions.push(
+                Element::new(&fonts.body, ElementContent::Text(" ".to_string()))
+                    .min_width(Some(Dimension::Pixels(8.0)))
+            );
+            left_actions.push(dismiss_btn);
+        }
+        
+        // Add "Show more" button on the right if needed
+        if needs_more_link {
+            let show_more_btn = Chip::new("Show more".to_string())
+                .with_style(ChipStyle::Info)
+                .with_size(ChipSize::Medium)
+                .clickable(true)
+                .render(&fonts.body);
+            right_actions.push(show_more_btn);
+        }
+        
+        // Create the action row with left and right alignment
+        if !left_actions.is_empty() || !right_actions.is_empty() {
+            // Use a flex-like approach with float for right alignment
+            if !left_actions.is_empty() {
+                for action in left_actions {
+                    actions.push(action);
+                }
+            }
+            
+            if !right_actions.is_empty() {
+                // Right-align the show more button using float
+                for action in right_actions {
+                    actions.push(action.float(Float::Right));
+                }
+            }
         }
 
         let card = Card::new()
             .with_title(suggestion.title.clone())
-            .with_content(content)
+            .with_content(vec![content_container])
             .with_actions(actions)
             .render(&fonts.heading);
 
@@ -838,6 +958,16 @@ brew install pkg-config
             }
         }
     }
+    
+    /// Estimate how many lines text will wrap to given available width
+    fn estimate_wrapped_lines(&self, text: &str, available_width: f32, fonts: &SidebarFonts) -> usize {
+        // Get font metrics for accurate estimation
+        let font_metrics = fonts.body.metrics();
+        let avg_char_width = font_metrics.cell_height.get() as f32 * SUGGESTION_CHAR_WIDTH_MULTIPLIER;
+        
+        // Use the shared utility function (integer version)
+        crate::termwindow::box_model::estimate_wrapped_line_count(text, available_width, avg_char_width)
+    }
 
     pub fn handle_goal_save(&mut self) {
         if let Some(goal) = &mut self.current_goal {
@@ -1032,6 +1162,40 @@ brew install pkg-config
             None
         }
     }
+    
+    pub fn show_suggestion_modal(&mut self, suggestion: CurrentSuggestion) {
+        let modal = Modal {
+            id: "suggestion_modal".to_string(),
+            size: ModalSize::FillSidebar,
+            content: Box::new(SuggestionModal::new(suggestion)),
+            animation_state: crate::sidebar::components::modal::ModalAnimationState::Opening,
+            close_on_click_outside: true,
+            close_on_escape: true,
+            position: None,
+        };
+        self.modal_manager.show(modal);
+    }
+    
+    pub fn render_modals(&mut self, fonts: &SidebarFonts, window_height: f32) -> Vec<Element> {
+        // Get sidebar bounds
+        let sidebar_bounds = euclid::rect(
+            self.sidebar_x_position,
+            0.0,
+            self.width as f32,
+            window_height,
+        );
+        
+        // Get window bounds (we'll need to pass this from the parent)
+        // For now, use a reasonable default
+        let window_bounds = euclid::rect(
+            0.0,
+            0.0,
+            self.sidebar_x_position + self.width as f32 + 100.0, // Approximate window width
+            window_height,
+        );
+        
+        self.modal_manager.render(sidebar_bounds, window_bounds, fonts)
+    }
 }
 
 impl Sidebar for AiSidebar {
@@ -1072,6 +1236,58 @@ impl Sidebar for AiSidebar {
             event.coords.x,
             event.coords.y
         );
+
+        // Handle modal events first
+        if self.modal_manager.is_active() {
+            let sidebar_bounds = euclid::rect(
+                self.sidebar_x_position,
+                0.0,
+                self.width as f32,
+                1000.0, // Use a reasonable default height
+            );
+            if self.modal_manager.handle_mouse_event(event, sidebar_bounds) {
+                return Ok(true);
+            }
+        }
+        
+        // Check for "Show more" button click
+        if let WMEK::Press(MousePress::Left) = &event.kind {
+            // Check if we have a suggestion that needs expansion
+            if let Some(suggestion) = &self.current_suggestion {
+                // Check if this suggestion would have a "Show more" button
+                // Use conservative estimate - if content is long enough, assume it needs truncation
+                let content_length = suggestion.content.len();
+                let estimated_chars_per_line = 40; // Conservative estimate
+                let estimated_lines = (content_length / estimated_chars_per_line).max(1);
+                
+                if estimated_lines > 2 {
+                    // Check if click is within the suggestion card area
+                    // Rough bounds calculation:
+                    // Header: ~80px
+                    // Status chip: ~40px
+                    // Filter chips: ~40px
+                    // Goal card (if present): ~100px
+                    // Total before suggestion: ~260px
+                    
+                    let click_x = event.coords.x as f32;
+                    let click_y = event.coords.y as f32;
+                    
+                    // Focus on the button area (bottom right of suggestion card)
+                    let suggestion_top = 260.0;
+                    let suggestion_bottom = 360.0; // Fixed height card
+                    let button_area_left = self.sidebar_x_position + self.width as f32 - 120.0; // Right side
+                    let button_area_right = self.sidebar_x_position + self.width as f32 - 16.0;
+                    let button_area_top = suggestion_bottom - 40.0; // Bottom area where buttons are
+                    
+                    if click_x >= button_area_left && click_x <= button_area_right &&
+                       click_y >= button_area_top && click_y <= suggestion_bottom {
+                        log::info!("Show more button clicked, showing modal");
+                        self.show_suggestion_modal(suggestion.clone());
+                        return Ok(true);
+                    }
+                }
+            }
+        }
 
         // Log current bounds for debugging
         if let WMEK::Press(MousePress::Left) = &event.kind {
@@ -1184,6 +1400,13 @@ impl Sidebar for AiSidebar {
     }
 
     fn handle_key_event(&mut self, key: &KeyCode) -> Result<bool> {
+        // Handle modal keyboard events first
+        if self.modal_manager.is_active() {
+            if self.modal_manager.handle_key_event(*key, KeyModifiers::empty()) {
+                return Ok(true);
+            }
+        }
+        
         // Focus the chat input for now (in future, handle focus states)
         self.chat_input.focused = true;
 

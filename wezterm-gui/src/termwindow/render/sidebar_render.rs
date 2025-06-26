@@ -621,6 +621,9 @@ impl crate::TermWindow {
                 ai_sidebar.update_filter_chip_bounds(sidebar_x);
             }
             drop(sidebar_locked);
+            
+            // Render modals at z-index 20-24
+            self.render_sidebar_modals(&sidebar, sidebar_x, visible_width)?;
         }
 
         Ok(())
@@ -817,5 +820,73 @@ impl crate::TermWindow {
                 is_active,
             }
         }
+    }
+    
+    /// Render modals for the sidebar at z-index 20-24
+    fn render_sidebar_modals(
+        &mut self,
+        sidebar: &Arc<std::sync::Mutex<dyn crate::sidebar::Sidebar>>,
+        sidebar_x: f32,
+        sidebar_width: f32,
+    ) -> Result<()> {
+        let mut sidebar_locked = sidebar.lock().unwrap();
+        if let Some(ai_sidebar) = sidebar_locked
+            .as_any_mut()
+            .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+        {
+            // Get fonts
+            let heading_font = self.fonts.sidebar_heading_font()?;
+            let body_font = self.fonts.sidebar_body_font()?;
+            let code_font = self.fonts.sidebar_code_font()?;
+            
+            let fonts = crate::sidebar::SidebarFonts {
+                heading: heading_font.clone(),
+                body: body_font,
+                code: code_font,
+            };
+            
+            // Get modal elements
+            let modal_elements = ai_sidebar.render_modals(&fonts, self.dimensions.pixel_height as f32);
+            
+            // Render each modal element
+            for element in modal_elements {
+                // Compute the element with proper context
+                let mut computed = self.compute_element(
+                    &LayoutContext {
+                        width: DimensionContext {
+                            dpi: self.dimensions.dpi as f32,
+                            pixel_cell: self.render_metrics.cell_size.width as f32,
+                            pixel_max: self.dimensions.pixel_width as f32,
+                        },
+                        height: DimensionContext {
+                            dpi: self.dimensions.dpi as f32,
+                            pixel_cell: self.render_metrics.cell_size.height as f32,
+                            pixel_max: self.dimensions.pixel_height as f32,
+                        },
+                        bounds: euclid::rect(
+                            0.0,
+                            0.0,
+                            self.dimensions.pixel_width as f32,
+                            self.dimensions.pixel_height as f32,
+                        ),
+                        metrics: &self.render_metrics,
+                        gl_state: self.render_state.as_ref().unwrap(),
+                        zindex: 20, // Modal elements render at z-index 20+
+                    },
+                    &element,
+                )?;
+                
+                // No need to translate - modal positions are already absolute
+                
+                // Render the element
+                let gl_state = self.render_state.as_ref().unwrap();
+                self.render_element(&computed, gl_state, None)?;
+                
+                // Extract UI items for mouse handling
+                self.ui_items.extend(computed.ui_items());
+            }
+        }
+        
+        Ok(())
     }
 }
