@@ -618,7 +618,7 @@ impl crate::TermWindow {
                 .as_any_mut()
                 .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
             {
-                ai_sidebar.update_filter_chip_bounds(sidebar_x);
+                ai_sidebar.update_sidebar_position(sidebar_x);
             }
             drop(sidebar_locked);
 

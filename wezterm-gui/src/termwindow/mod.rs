@@ -162,6 +162,7 @@ pub enum UIItemType {
     Split(PositionedSplit),
     SidebarButton(crate::sidebar::SidebarPosition),
     Sidebar(crate::sidebar::SidebarPosition),
+    SidebarFilterChip(crate::sidebar::ai_sidebar::ActivityFilter),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

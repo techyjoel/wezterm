@@ -45,7 +45,8 @@ impl super::TermWindow {
             | UIItemType::ScrollThumb
             | UIItemType::Split(_)
             | UIItemType::SidebarButton(_)
-            | UIItemType::Sidebar(_) => {}
+            | UIItemType::Sidebar(_)
+            | UIItemType::SidebarFilterChip(_) => {}
         }
     }
 
@@ -58,7 +59,8 @@ impl super::TermWindow {
             | UIItemType::ScrollThumb
             | UIItemType::Split(_)
             | UIItemType::SidebarButton(_)
-            | UIItemType::Sidebar(_) => {}
+            | UIItemType::Sidebar(_)
+            | UIItemType::SidebarFilterChip(_) => {}
         }
     }
 
@@ -450,6 +452,9 @@ impl super::TermWindow {
             }
             UIItemType::Sidebar(position) => {
                 self.mouse_event_sidebar(position, event, context);
+            }
+            UIItemType::SidebarFilterChip(filter) => {
+                self.mouse_event_sidebar_filter_chip(filter, event, context);
             }
         }
     }
@@ -1212,6 +1217,30 @@ impl super::TermWindow {
             WMEK::Move => {}
             _ => {
                 context.invalidate();
+            }
+        }
+    }
+
+    pub fn mouse_event_sidebar_filter_chip(
+        &mut self,
+        filter: crate::sidebar::ai_sidebar::ActivityFilter,
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        if let WMEK::Press(MousePress::Left) = event.kind {
+            log::info!("Filter chip clicked via UIItem: {:?}", filter);
+
+            // Get the sidebar manager and update the filter
+            let sidebar_manager = self.sidebar_manager.borrow();
+            if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
+                let mut sidebar_locked = sidebar.lock().unwrap();
+                if let Some(ai_sidebar) = sidebar_locked
+                    .as_any_mut()
+                    .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+                {
+                    ai_sidebar.activity_filter = filter;
+                    context.invalidate();
+                }
             }
         }
     }

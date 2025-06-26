@@ -32,7 +32,7 @@ pub enum AgentMode {
     NeedsApproval,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActivityFilter {
     All,
     Commands,
@@ -105,7 +105,7 @@ pub struct AiSidebar {
     agent_mode: AgentMode,
     agent_mode_enabled: bool,
     high_risk_mode_enabled: bool,
-    activity_filter: ActivityFilter,
+    pub activity_filter: ActivityFilter,
 
     // Data
     pub current_goal: Option<CurrentGoal>,
@@ -334,6 +334,7 @@ brew install pkg-config
                     .with_size(ChipSize::Small)
                     .clickable(true)
                     .selected(is_selected)
+                    .with_item_type(crate::termwindow::UIItemType::SidebarFilterChip(filter))
                     .render(&fonts.body)
             })
             .collect();
@@ -1090,46 +1091,10 @@ brew install pkg-config
         }
     }
 
-    /// Update filter chip bounds with sidebar position offset
-    pub fn update_filter_chip_bounds(&mut self, sidebar_x: f32) {
+    /// Update sidebar position for mouse event handling
+    pub fn update_sidebar_position(&mut self, sidebar_x: f32) {
         // Store sidebar position for mouse event handling
         self.sidebar_x_position = sidebar_x;
-
-        // Clear and recalculate bounds with sidebar position
-        self.filter_chip_bounds.clear();
-
-        // These positions are relative to the sidebar's origin
-        let filters = vec![
-            ("All", ActivityFilter::All),
-            ("Commands", ActivityFilter::Commands),
-            ("Chat", ActivityFilter::Chat),
-            ("Suggestions", ActivityFilter::Suggestions),
-        ];
-
-        let base_x = 16.0; // left padding within sidebar
-        let base_y = 106.0; // Approximate Y position
-        let chip_height = 24.0;
-        let chip_spacing = 8.0;
-        let chip_widths = vec![35.0, 75.0, 40.0, 85.0];
-
-        let mut current_x = base_x + sidebar_x; // Add sidebar offset
-        for ((_, filter), width) in filters.iter().zip(chip_widths.iter()) {
-            let bounds = euclid::rect(current_x, base_y, *width, chip_height);
-            self.filter_chip_bounds.push((*filter, bounds));
-            current_x += width + chip_spacing;
-        }
-
-        log::debug!("Updated filter chip bounds with sidebar_x={}", sidebar_x);
-        for (filter, bounds) in &self.filter_chip_bounds {
-            log::debug!(
-                "  {:?}: x={}, y={}, w={}, h={}",
-                filter,
-                bounds.origin.x,
-                bounds.origin.y,
-                bounds.size.width,
-                bounds.size.height
-            );
-        }
     }
 
     /// Check which filter chip was clicked based on coordinates
@@ -1155,16 +1120,21 @@ brew install pkg-config
         }
 
         let x = relative_x - base_x;
-        if x < 35.0 {
+        log::debug!("Filter chip click: relative_x={}, x={}", relative_x, x);
+
+        // Updated measurements based on actual chip sizes
+        // Small chips have ~6px padding each side + text width
+        if x < 47.0 {
+            // "All" chip (~35px text + 12px padding)
             Some(ActivityFilter::All)
-        } else if x < 118.0 {
-            // 35 + 8 + 75
+        } else if x < 142.0 {
+            // 47 + 8 + 87 ("Commands" ~75px + 12px)
             Some(ActivityFilter::Commands)
-        } else if x < 166.0 {
-            // 118 + 8 + 40
+        } else if x < 202.0 {
+            // 142 + 8 + 52 ("Chat" ~40px + 12px)
             Some(ActivityFilter::Chat)
-        } else if x < 259.0 {
-            // 166 + 8 + 85
+        } else if x < 299.0 {
+            // 202 + 8 + 97 ("Suggestions" ~85px + 12px)
             Some(ActivityFilter::Suggestions)
         } else {
             None
@@ -1406,38 +1376,9 @@ impl Sidebar for AiSidebar {
             }
         }
 
-        // Check for filter chip clicks
-        match event.kind {
-            WMEK::Press(MousePress::Left) => {
-                log::info!(
-                    "Checking filter chip click at ({}, {}), sidebar_x={}",
-                    event.coords.x,
-                    event.coords.y,
-                    self.sidebar_x_position
-                );
-
-                if let Some(filter) = self.get_clicked_filter(event, self.sidebar_x_position) {
-                    log::info!("Filter chip clicked: {:?}", filter);
-                    self.activity_filter = filter;
-                    return Ok(true);
-                } else {
-                    log::debug!("No filter chip found at click position");
-                }
-
-                // Log unhandled clicks for debugging
-                log::info!(
-                    "Unhandled sidebar click at: ({}, {}), sidebar_x={}, width={}",
-                    event.coords.x,
-                    event.coords.y,
-                    self.sidebar_x_position,
-                    self.width
-                );
-
-                // Return false to indicate we didn't handle it
-                Ok(false)
-            }
-            _ => Ok(false),
-        }
+        // Filter chip clicks are now handled through UIItemType
+        // Just return false to let the UIItem system handle it
+        Ok(false)
     }
 
     fn handle_key_event(&mut self, key: &KeyCode) -> Result<bool> {

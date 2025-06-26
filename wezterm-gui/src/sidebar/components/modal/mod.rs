@@ -262,8 +262,24 @@ impl ModalManager {
             };
 
             if let Some(ref modal) = self.active_modal {
+                // Create a container for the modal content with proper bounds
                 let content_element = modal.content.render(&context);
-                elements.push(content_element.zindex(21));
+
+                // Wrap content in a positioned container
+                let positioned_content =
+                    Element::new(&fonts.body, ElementContent::Children(vec![content_element]))
+                        .display(DisplayType::Block)
+                        .min_width(Some(Dimension::Pixels(content_bounds.width())))
+                        .min_height(Some(Dimension::Pixels(content_bounds.height())))
+                        .margin(BoxDimension {
+                            left: Dimension::Pixels(content_bounds.min_x()),
+                            top: Dimension::Pixels(content_bounds.min_y()),
+                            right: Dimension::Pixels(0.0),
+                            bottom: Dimension::Pixels(0.0),
+                        })
+                        .zindex(21);
+
+                elements.push(positioned_content);
 
                 // Update content height
                 self.content_height = modal.content.get_content_height();
