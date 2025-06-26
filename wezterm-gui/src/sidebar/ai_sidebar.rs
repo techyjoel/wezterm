@@ -539,11 +539,13 @@ brew install pkg-config
                 .with_style(ChipStyle::Success)
                 .with_size(ChipSize::Medium)
                 .clickable(true)
+                .with_item_type(crate::termwindow::UIItemType::SuggestionRunButton)
                 .render(&fonts.body);
             let dismiss_btn = Chip::new("✕ Dismiss".to_string())
                 .with_style(ChipStyle::Default)
                 .with_size(ChipSize::Medium)
                 .clickable(true)
+                .with_item_type(crate::termwindow::UIItemType::SuggestionDismissButton)
                 .render(&fonts.body);
 
             left_actions.push(run_btn);
