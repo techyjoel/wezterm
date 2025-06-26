@@ -55,7 +55,7 @@ impl ModalContent for SuggestionModal {
         .max_width(Some(Dimension::Pixels(context.modal_bounds.width())))
         .padding(BoxDimension {
             left: Dimension::Pixels(0.0),
-            right: Dimension::Pixels(0.0),
+            right: Dimension::Pixels(20.0), // Add right padding to avoid scrollbar
             top: Dimension::Pixels(0.0),
             bottom: Dimension::Pixels(20.0),
         });
@@ -120,18 +120,25 @@ impl ModalContent for SuggestionModal {
                 });
 
         // Calculate content height (estimate based on line count and font metrics)
-        // This is a rough estimate - in a real implementation, we'd measure after rendering
         let line_height = context.fonts.body.metrics().cell_height.get() as f32;
-        let estimated_lines = (self.suggestion.content.len() as f32 / 60.0).ceil(); // Rough estimate
+        
+        // Count actual lines in the content (including markdown line breaks)
+        let line_count = self.suggestion.content.lines().count() as f32;
+        
+        // Add extra lines for markdown formatting (headers, code blocks, etc)
+        let markdown_overhead = self.suggestion.content.matches("##").count() as f32 * 1.5
+            + self.suggestion.content.matches("```").count() as f32 * 0.5;
+        
+        let total_lines = line_count + markdown_overhead;
+        
         let title_height = context.fonts.heading.metrics().cell_height.get() as f32;
         let button_height = if self.suggestion.has_action {
-            40.0
+            60.0 // More space for button container
         } else {
             0.0
         };
 
-        let estimated_height =
-            title_height + (estimated_lines * line_height) + button_height + 40.0;
+        let estimated_height = title_height + (total_lines * line_height) + button_height + 80.0; // More padding
         *self.content_height.lock().unwrap() = estimated_height;
 
         content_container

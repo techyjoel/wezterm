@@ -260,11 +260,12 @@ if clicked_more_link {
 
 **Implementation Notes**:
 - Suggestion cards fixed at 200px height (not 3 lines)
-- "Show more" button uses coordinate-based click detection (Y: 366-567px)
-- Modal buttons track bounds but don't populate them
-- Run/Dismiss buttons not currently rendered in modal (needs fix)
-- Text wrapping fixed by adding max_width constraints
-- Filter chips now use UIItemType pattern (documented in CLAUDE.md)
+- All buttons now use UIItemType pattern for accurate click detection
+- Run/Dismiss buttons successfully render in both card and modal
+- Modal button container fixed by using DisplayType::Block
+- Text wrapping works correctly with max_width constraints
+- Filter chips use UIItemType pattern (documented in CLAUDE.md)
+- Run/Dismiss buttons currently just close the modal (ready for backend)
 
 ### Phase 4: Event Handling & Polish (Days 6-7)
 
@@ -419,13 +420,21 @@ The modal overlay framework is now **fully functional** with the following capab
 
 ### Ready for Backend Integration
 
-The modal system displays content correctly but needs:
-- Fix Run/Dismiss buttons not rendering in suggestion modal
-- Wire up Run/Dismiss button actions (currently just log)
-- Convert "Show more" button to UIItemType pattern
-- Implement button bounds tracking in SuggestionModal
-- Add keyboard navigation (framework exists)
-- Add animations (currently instant transitions)
+The modal system is fully functional with all UI elements working correctly.
+
+**Completed ✅:**
+- Modal displays content with proper scrolling
+- All buttons (Show more, Run, Dismiss) use UIItemType pattern
+- Buttons have accurate click detection without manual bounds tracking
+- Text wrapping works properly within modal bounds
+- Modal can be closed via X button, clicking outside, or Escape key
+
+**Remaining Tasks:**
+- Wire up Run/Dismiss button actions to actual functionality
+- Add keyboard navigation (Tab between buttons, Enter to activate)
+- Add smooth animations (fade/scale effects)
+- Consider adding loading states for Run action
+- Add error handling for failed actions
 
 ### Troubleshooting Session Fixes
 
@@ -472,4 +481,29 @@ The modal system displays content correctly but needs:
    - Well-documented API
    - Follows existing patterns
 
-**Current Status**: Phases 1-3 complete, modal fully functional for display. Button actions need backend integration.
+**Current Status**: Phases 1-3 complete, modal system fully functional. All UI elements working correctly with proper click detection via UIItemType pattern.
+
+## Next Steps for Discussion
+
+### 1. Button Action Implementation
+The Run/Dismiss buttons currently just close the modal. We need to define:
+- **Run button**: What command should be executed? How to show progress/output?
+- **Dismiss button**: Should it remove the suggestion from the list? Just close modal?
+
+### 2. Keyboard Navigation (Phase 4)
+- Tab key to navigate between buttons
+- Enter/Space to activate focused button
+- Arrow keys for scrolling content
+- Visual focus indicators
+
+### 3. Visual Polish
+- Smooth fade/scale animations for modal appearance
+- Loading spinner or progress indicator for Run action
+- Success/error states after action completion
+- Button hover effects (currently using chip hover colors)
+
+### 4. Edge Cases
+- What happens if Run fails?
+- Should modal stay open after Run succeeds?
+- How to handle very long-running commands?
+- Should Dismiss remove suggestion permanently or just for session?
