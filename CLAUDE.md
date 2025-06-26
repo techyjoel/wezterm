@@ -73,7 +73,8 @@ The workflow you should use is:
   - Note partiallly-completed work that's done (and what's left to do), but do not check off partially-completed tasks
 
 ### Git commits
-   - Include "Created with AI assistance" in your git commit messages. DO NOT say anything else about AI like "co-authored" or anything else. DO NOT mention Claude.
+   - Include "Created with AI assistance" in your git commit messages.
+   - DO NOT say anything else about AI like "co-authored" or anything else. DO NOT mention Claude.
    - Don't use any emojii in git commit messages
 
 ## High-Level Architecture

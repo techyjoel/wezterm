@@ -621,7 +621,7 @@ impl crate::TermWindow {
                 ai_sidebar.update_filter_chip_bounds(sidebar_x);
             }
             drop(sidebar_locked);
-            
+
             // Render modals at z-index 20-24
             self.render_sidebar_modals(&sidebar, sidebar_x, visible_width)?;
         }
@@ -821,7 +821,7 @@ impl crate::TermWindow {
             }
         }
     }
-    
+
     /// Render modals for the sidebar at z-index 20-24
     fn render_sidebar_modals(
         &mut self,
@@ -838,16 +838,17 @@ impl crate::TermWindow {
             let heading_font = self.fonts.sidebar_heading_font()?;
             let body_font = self.fonts.sidebar_body_font()?;
             let code_font = self.fonts.sidebar_code_font()?;
-            
+
             let fonts = crate::sidebar::SidebarFonts {
                 heading: heading_font.clone(),
                 body: body_font,
                 code: code_font,
             };
-            
+
             // Get modal elements
-            let modal_elements = ai_sidebar.render_modals(&fonts, self.dimensions.pixel_height as f32);
-            
+            let modal_elements =
+                ai_sidebar.render_modals(&fonts, self.dimensions.pixel_height as f32);
+
             // Render each modal element
             for element in modal_elements {
                 // Compute the element with proper context
@@ -875,18 +876,18 @@ impl crate::TermWindow {
                     },
                     &element,
                 )?;
-                
+
                 // No need to translate - modal positions are already absolute
-                
+
                 // Render the element
                 let gl_state = self.render_state.as_ref().unwrap();
                 self.render_element(&computed, gl_state, None)?;
-                
+
                 // Extract UI items for mouse handling
                 self.ui_items.extend(computed.ui_items());
             }
         }
-        
+
         Ok(())
     }
 }

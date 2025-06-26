@@ -40,12 +40,12 @@ impl ModalAnimation {
         if let Some(start) = self.start_time {
             let elapsed = start.elapsed().as_millis() as f32;
             let progress = (elapsed / self.duration_ms as f32).min(1.0);
-            
+
             // Simple linear interpolation for now
             let opacity = progress;
             let scale = 0.95 + (0.05 * progress);
             let position_y = 20.0 * (1.0 - progress);
-            
+
             (opacity, scale, position_y)
         } else {
             (self.opacity, self.scale, self.position_y)

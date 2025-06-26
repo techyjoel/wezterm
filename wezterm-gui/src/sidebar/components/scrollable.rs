@@ -290,7 +290,7 @@ impl ScrollableContainer {
                 let lines = crate::termwindow::box_model::estimate_wrapped_lines(
                     text,
                     available_width,
-                    avg_char_width
+                    avg_char_width,
                 );
 
                 let text_height = lines * actual_line_height;
