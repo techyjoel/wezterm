@@ -30,16 +30,17 @@ impl ModalContent for SuggestionModal {
         let mut children = vec![];
         let padding = 20.0;
 
-        // Title
+        // Title with width constraint
         let title = Element::new(
             &context.fonts.heading,
-            ElementContent::Text(self.suggestion.title.clone()),
+            ElementContent::WrappedText(self.suggestion.title.clone()),
         )
         .colors(ElementColors {
             border: BorderColor::default(),
             bg: LinearRgba(0.0, 0.0, 0.0, 0.0).into(),
             text: LinearRgba(1.0, 1.0, 1.0, 0.9).into(),
         })
+        .max_width(Some(Dimension::Pixels(context.modal_bounds.width())))
         .padding(BoxDimension {
             left: Dimension::Pixels(0.0),
             right: Dimension::Pixels(0.0),
@@ -49,12 +50,13 @@ impl ModalContent for SuggestionModal {
 
         children.push(title);
 
-        // Render markdown content
+        // Render markdown content with width constraint
         let content = MarkdownRenderer::render_with_code_font(
             &self.suggestion.content,
             &context.fonts.body,
             &context.fonts.code,
         )
+        .max_width(Some(Dimension::Pixels(context.modal_bounds.width())))
         .padding(BoxDimension {
             left: Dimension::Pixels(0.0),
             right: Dimension::Pixels(0.0),
@@ -101,10 +103,11 @@ impl ModalContent for SuggestionModal {
             children.push(button_container);
         }
 
-        // Create scrollable content container
+        // Create scrollable content container with explicit width constraint
         let content_container =
             Element::new(&context.fonts.body, ElementContent::Children(children))
                 .display(DisplayType::Block)
+                .max_width(Some(Dimension::Pixels(context.modal_bounds.width())))
                 .padding(BoxDimension {
                     left: Dimension::Pixels(0.0),
                     right: Dimension::Pixels(0.0),

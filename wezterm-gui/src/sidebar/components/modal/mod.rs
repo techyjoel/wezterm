@@ -265,11 +265,12 @@ impl ModalManager {
                 // Create a container for the modal content with proper bounds
                 let content_element = modal.content.render(&context);
 
-                // Wrap content in a positioned container
+                // Wrap content in a positioned container with proper width constraints
                 let positioned_content =
                     Element::new(&fonts.body, ElementContent::Children(vec![content_element]))
                         .display(DisplayType::Block)
                         .min_width(Some(Dimension::Pixels(content_bounds.width())))
+                        .max_width(Some(Dimension::Pixels(content_bounds.width())))
                         .min_height(Some(Dimension::Pixels(content_bounds.height())))
                         .margin(BoxDimension {
                             left: Dimension::Pixels(content_bounds.min_x()),

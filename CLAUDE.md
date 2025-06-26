@@ -454,6 +454,29 @@ zindex: element.zindex + context.zindex,  // Elements inherit parent z-index
 
 ## Important Implementation Notes
 
+### Click Detection for UI Elements
+
+**Always use the UIItemType pattern** for clickable elements - WezTerm automatically tracks exact rendered bounds.
+
+1. Add variant to `UIItemType` enum in `termwindow/mod.rs`:
+   ```rust
+   UIItemType::MyButton(MyButtonData),
+   ```
+
+2. Set on Element during rendering:
+   ```rust
+   chip.with_item_type(UIItemType::MyButton(data))
+   ```
+
+3. Handle in `mouseevent.rs`:
+   ```rust
+   UIItemType::MyButton(data) => {
+       self.mouse_event_my_button(data, event, context);
+   }
+   ```
+
+Never manually track bounds or calculate click positions - the UIItem system handles this automatically.
+
 ### Window Resizing with Sidebars
 
 When implementing sidebars that expand the window width, it's critical to understand the resize flow:

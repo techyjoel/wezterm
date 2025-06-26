@@ -1,0 +1,159 @@
+15:12:01.528  DEBUG  wezterm_gui::sidebar::ai_sidebar                > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:01.539  DEBUG  wezterm_gui::sidebar::ai_sidebar                > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:01.547  DEBUG  wezterm_gui::sidebar::ai_sidebar                > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:01.584  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:01.636  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:01.644  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:01.654  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:02.221  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:02.553  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:02.594  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:02.798  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:02.940  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:03.458  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Commands
+15:12:03.459  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:03.808  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:04.087  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Chat
+15:12:04.094  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 16 items rendered
+15:12:04.365  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 16 items rendered
+15:12:04.903  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Suggestions
+15:12:04.903  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 0 items rendered
+15:12:05.729  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 0 items rendered
+15:12:06.160  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Chat
+15:12:06.175  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 16 items rendered
+15:12:06.912  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Chat
+15:12:06.925  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 16 items rendered
+15:12:07.156  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 16 items rendered
+15:12:07.511  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Commands
+15:12:07.512  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:08.348  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:08.860  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:08.895  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:09.153  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: All
+15:12:09.170  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:09.721  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:10.424  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Commands
+15:12:10.424  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:10.826  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:11.424  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Chat
+15:12:11.437  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 16 items rendered
+15:12:11.651  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 16 items rendered
+15:12:12.193  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Suggestions
+15:12:12.194  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 0 items rendered
+15:12:12.844  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 0 items rendered
+15:12:13.303  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Chat
+15:12:13.314  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 16 items rendered
+15:12:13.836  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 16 items rendered
+15:12:14.137  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Commands
+15:12:14.138  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:14.452  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:15.272  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: All
+15:12:15.291  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:15.430  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:15.488  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:15.528  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:15.572  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:15.682  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:15.889  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:16.296  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:16.681  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Suggestions
+15:12:16.682  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 0 items rendered
+15:12:17.636  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 0 items rendered
+15:12:18.023  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Chat
+15:12:18.032  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 16 items rendered
+15:12:18.282  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 16 items rendered
+15:12:18.695  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Commands
+15:12:18.696  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:18.963  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:19.640  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: All
+15:12:19.656  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:19.752  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:19.808  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:19.852  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:20.472  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Suggestions
+15:12:20.472  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 0 items rendered
+15:12:21.347  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 0 items rendered
+15:12:22.167  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Chat
+15:12:22.179  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 16 items rendered
+15:12:22.383  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 16 items rendered
+15:12:22.465  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 16 items rendered
+15:12:22.989  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 16 items rendered
+15:12:23.296  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Commands
+15:12:23.301  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:23.469  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:24.239  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: All
+15:12:24.251  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:24.445  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:24.519  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:24.568  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 24 items rendered
+15:12:25.303  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Suggestions
+15:12:25.304  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 0 items rendered
+15:12:25.776  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 0 items rendered
+15:12:25.967  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Chat
+15:12:25.975  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 16 items rendered
+15:12:26.280  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 16 items rendered
+15:12:26.632  INFO   wezterm_gui::termwindow::mouseevent              > Filter chip clicked via UIItem: Commands
+15:12:26.632  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:27.529  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:27.699  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:27.988  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:28.260  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:28.362  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:29.520  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Checking suggestion click: content_length=452, estimated_lines=11, needs_show_more=true
+15:12:29.520  INFO   wezterm_gui::sidebar::ai_sidebar                 > Show more button bounds check: click=(1666.0, 563.0), suggestion_top=366.0, suggestion_bottom=567.0, sidebar_x=1324.0
+15:12:29.520  INFO   wezterm_gui::sidebar::ai_sidebar                 > Show more button clicked, showing modal
+15:12:29.520  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:29.534  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:30.257  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:30.306  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:31.248  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:31.466  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:31.489  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:31.937  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:32.567  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Checking suggestion click: content_length=452, estimated_lines=11, needs_show_more=true
+15:12:32.567  INFO   wezterm_gui::sidebar::ai_sidebar                 > Show more button bounds check: click=(1619.0, 553.0), suggestion_top=366.0, suggestion_bottom=567.0, sidebar_x=1324.0
+15:12:32.567  INFO   wezterm_gui::sidebar::ai_sidebar                 > Show more button clicked, showing modal
+15:12:32.568  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:33.129  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:33.337  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:33.736  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:34.001  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:34.024  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:35.739  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:12:36.113  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:01.923  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:02.233  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:02.534  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:02.647  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:02.679  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:02.717  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:02.741  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:02.972  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:03.754  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Checking suggestion click: content_length=452, estimated_lines=11, needs_show_more=true
+15:20:03.754  INFO   wezterm_gui::sidebar::ai_sidebar                 > Show more button bounds check: click=(1587.0, 558.0), suggestion_top=366.0, suggestion_bottom=567.0, sidebar_x=1324.0
+15:20:03.755  INFO   wezterm_gui::sidebar::ai_sidebar                 > Show more button clicked, showing modal
+15:20:03.755  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:04.149  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:04.186  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:04.214  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:04.484  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:04.948  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:05.111  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:05.141  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:05.240  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:08.941  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:08.974  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:09.036  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:09.062  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:11.901  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:20:12.141  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:21:05.566  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:21:05.596  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:21:05.620  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:21:06.136  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:43:30.743  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:43:31.180  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:43:31.299  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:43:31.328  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:43:31.572  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
+15:43:32.552  DEBUG  wezterm_gui::sidebar::ai_sidebar                 > Rendering activity log: 24 items filtered, 8 items rendered
