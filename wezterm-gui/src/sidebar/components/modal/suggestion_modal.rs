@@ -10,8 +10,6 @@ use std::sync::Mutex;
 pub struct SuggestionModal {
     pub suggestion: CurrentSuggestion,
     content_height: Mutex<f32>,
-    run_button_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
-    dismiss_button_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
 }
 
 impl SuggestionModal {
@@ -19,8 +17,6 @@ impl SuggestionModal {
         Self {
             suggestion,
             content_height: Mutex::new(0.0),
-            run_button_bounds: None,
-            dismiss_button_bounds: None,
         }
     }
 }
@@ -74,7 +70,8 @@ impl ModalContent for SuggestionModal {
             let run_chip = Chip::new("▶ Run".to_string())
                 .with_style(ChipStyle::Success)
                 .with_size(ChipSize::Large)
-                .clickable(true);
+                .clickable(true)
+                .with_item_type(crate::termwindow::UIItemType::SuggestionRunButton);
             button_row.push(run_chip.render(&context.fonts.body));
 
             // Spacing between buttons
@@ -87,12 +84,13 @@ impl ModalContent for SuggestionModal {
             let dismiss_chip = Chip::new("✕ Dismiss".to_string())
                 .with_style(ChipStyle::Default)
                 .with_size(ChipSize::Large)
-                .clickable(true);
+                .clickable(true)
+                .with_item_type(crate::termwindow::UIItemType::SuggestionDismissButton);
             button_row.push(dismiss_chip.render(&context.fonts.body));
 
             let button_container =
                 Element::new(&context.fonts.body, ElementContent::Children(button_row))
-                    .display(DisplayType::Inline)
+                    .display(DisplayType::Block)
                     .padding(BoxDimension {
                         left: Dimension::Pixels(0.0),
                         right: Dimension::Pixels(0.0),
@@ -141,37 +139,10 @@ impl ModalContent for SuggestionModal {
 
     fn handle_event(&mut self, event: &ModalEvent) -> ModalEventResult {
         match event {
-            ModalEvent::Mouse(mouse_event) => {
-                use window::{MouseEventKind as WMEK, MousePress};
-
-                match &mouse_event.kind {
-                    WMEK::Press(MousePress::Left) => {
-                        let point = euclid::point2(
-                            mouse_event.coords.x as f32,
-                            mouse_event.coords.y as f32,
-                        );
-
-                        // Check button clicks if we have tracked their bounds
-                        if let Some(bounds) = self.run_button_bounds {
-                            if bounds.contains(point) {
-                                // Handle run action
-                                log::info!("Run button clicked for suggestion");
-                                return ModalEventResult::Close;
-                            }
-                        }
-
-                        if let Some(bounds) = self.dismiss_button_bounds {
-                            if bounds.contains(point) {
-                                // Handle dismiss action
-                                log::info!("Dismiss button clicked for suggestion");
-                                return ModalEventResult::Close;
-                            }
-                        }
-                    }
-                    _ => {}
-                }
+            ModalEvent::Mouse(_mouse_event) => {
+                // Button clicks are now handled via UIItemType
             }
-            ModalEvent::Key { key, mods } => {
+            ModalEvent::Key { key: _, mods: _ } => {
                 // Could add keyboard shortcuts here
             }
         }

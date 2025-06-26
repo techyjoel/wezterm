@@ -163,6 +163,9 @@ pub enum UIItemType {
     SidebarButton(crate::sidebar::SidebarPosition),
     Sidebar(crate::sidebar::SidebarPosition),
     SidebarFilterChip(crate::sidebar::ai_sidebar::ActivityFilter),
+    ShowMoreButton(String), // suggestion_id
+    SuggestionRunButton,
+    SuggestionDismissButton,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

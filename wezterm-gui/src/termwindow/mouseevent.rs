@@ -46,7 +46,10 @@ impl super::TermWindow {
             | UIItemType::Split(_)
             | UIItemType::SidebarButton(_)
             | UIItemType::Sidebar(_)
-            | UIItemType::SidebarFilterChip(_) => {}
+            | UIItemType::SidebarFilterChip(_)
+            | UIItemType::ShowMoreButton(_)
+            | UIItemType::SuggestionRunButton
+            | UIItemType::SuggestionDismissButton => {}
         }
     }
 
@@ -60,7 +63,10 @@ impl super::TermWindow {
             | UIItemType::Split(_)
             | UIItemType::SidebarButton(_)
             | UIItemType::Sidebar(_)
-            | UIItemType::SidebarFilterChip(_) => {}
+            | UIItemType::SidebarFilterChip(_)
+            | UIItemType::ShowMoreButton(_)
+            | UIItemType::SuggestionRunButton
+            | UIItemType::SuggestionDismissButton => {}
         }
     }
 
@@ -455,6 +461,15 @@ impl super::TermWindow {
             }
             UIItemType::SidebarFilterChip(filter) => {
                 self.mouse_event_sidebar_filter_chip(filter, event, context);
+            }
+            UIItemType::ShowMoreButton(suggestion_id) => {
+                self.mouse_event_show_more_button(suggestion_id, event, context);
+            }
+            UIItemType::SuggestionRunButton => {
+                self.mouse_event_suggestion_run_button(event, context);
+            }
+            UIItemType::SuggestionDismissButton => {
+                self.mouse_event_suggestion_dismiss_button(event, context);
             }
         }
     }
@@ -1239,6 +1254,79 @@ impl super::TermWindow {
                     .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
                 {
                     ai_sidebar.activity_filter = filter;
+                    context.invalidate();
+                }
+            }
+        }
+    }
+
+    pub fn mouse_event_show_more_button(
+        &mut self,
+        suggestion_id: String,
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        if let WMEK::Press(MousePress::Left) = event.kind {
+            log::info!("Show more button clicked via UIItem for suggestion: {}", suggestion_id);
+            
+            // Get the sidebar manager and show the modal
+            let sidebar_manager = self.sidebar_manager.borrow();
+            if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
+                let mut sidebar_locked = sidebar.lock().unwrap();
+                if let Some(ai_sidebar) = sidebar_locked
+                    .as_any_mut()
+                    .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+                {
+                    // Get the current suggestion
+                    if let Some(suggestion) = ai_sidebar.get_current_suggestion() {
+                        ai_sidebar.show_suggestion_modal(suggestion.clone());
+                        context.invalidate();
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn mouse_event_suggestion_run_button(
+        &mut self,
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        if let WMEK::Press(MousePress::Left) = event.kind {
+            log::info!("Run button clicked via UIItem");
+            // TODO: Implement actual run functionality
+            // For now, just close the modal
+            let sidebar_manager = self.sidebar_manager.borrow();
+            if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
+                let mut sidebar_locked = sidebar.lock().unwrap();
+                if let Some(ai_sidebar) = sidebar_locked
+                    .as_any_mut()
+                    .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+                {
+                    ai_sidebar.close_modal();
+                    context.invalidate();
+                }
+            }
+        }
+    }
+
+    pub fn mouse_event_suggestion_dismiss_button(
+        &mut self,
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        if let WMEK::Press(MousePress::Left) = event.kind {
+            log::info!("Dismiss button clicked via UIItem");
+            // TODO: Implement actual dismiss functionality (remove from suggestion list)
+            // For now, just close the modal
+            let sidebar_manager = self.sidebar_manager.borrow();
+            if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
+                let mut sidebar_locked = sidebar.lock().unwrap();
+                if let Some(ai_sidebar) = sidebar_locked
+                    .as_any_mut()
+                    .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+                {
+                    ai_sidebar.close_modal();
                     context.invalidate();
                 }
             }

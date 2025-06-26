@@ -271,7 +271,6 @@ impl ModalManager {
                         .display(DisplayType::Block)
                         .min_width(Some(Dimension::Pixels(content_bounds.width())))
                         .max_width(Some(Dimension::Pixels(content_bounds.width())))
-                        .min_height(Some(Dimension::Pixels(content_bounds.height())))
                         .margin(BoxDimension {
                             left: Dimension::Pixels(content_bounds.min_x()),
                             top: Dimension::Pixels(content_bounds.min_y()),

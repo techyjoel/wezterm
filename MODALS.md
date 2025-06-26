@@ -258,6 +258,14 @@ if clicked_more_link {
 - Button actions log to console (ready for backend integration)
 - Rough click detection based on Y coordinate (production would track exact bounds)
 
+**Implementation Notes**:
+- Suggestion cards fixed at 200px height (not 3 lines)
+- "Show more" button uses coordinate-based click detection (Y: 366-567px)
+- Modal buttons track bounds but don't populate them
+- Run/Dismiss buttons not currently rendered in modal (needs fix)
+- Text wrapping fixed by adding max_width constraints
+- Filter chips now use UIItemType pattern (documented in CLAUDE.md)
+
 ### Phase 4: Event Handling & Polish (Days 6-7)
 
 1. **Keyboard support**
@@ -409,14 +417,15 @@ The modal overlay framework is now **fully functional** with the following capab
    - Action buttons (Run/Dismiss)
    - Scrollable for long content
 
-### Ready for Production
+### Ready for Backend Integration
 
-The modal system is ready for backend integration with these remaining tasks:
-- Wire up actual Run/Dismiss button actions
-- Improve "more..." link click detection (track exact bounds)
-- Add keyboard navigation (arrow keys, tab)
-- Add smooth animations (fade/scale)
-- Persist modal state across sidebar toggles
+The modal system displays content correctly but needs:
+- Fix Run/Dismiss buttons not rendering in suggestion modal
+- Wire up Run/Dismiss button actions (currently just log)
+- Convert "Show more" button to UIItemType pattern
+- Implement button bounds tracking in SuggestionModal
+- Add keyboard navigation (framework exists)
+- Add animations (currently instant transitions)
 
 ### Troubleshooting Session Fixes
 
@@ -462,3 +471,5 @@ The modal system is ready for backend integration with these remaining tasks:
    - Clean separation of concerns
    - Well-documented API
    - Follows existing patterns
+
+**Current Status**: Phases 1-3 complete, modal fully functional for display. Button actions need backend integration.

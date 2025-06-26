@@ -560,6 +560,7 @@ brew install pkg-config
                 .with_style(ChipStyle::Info)
                 .with_size(ChipSize::Medium)
                 .clickable(true)
+                .with_item_type(crate::termwindow::UIItemType::ShowMoreButton("current".to_string()))
                 .render(&fonts.body);
             right_actions.push(show_more_btn);
         }
@@ -1154,6 +1155,14 @@ brew install pkg-config
         self.modal_manager.show(modal);
     }
 
+    pub fn close_modal(&mut self) {
+        self.modal_manager.close();
+    }
+
+    pub fn get_current_suggestion(&self) -> Option<&CurrentSuggestion> {
+        self.current_suggestion.as_ref()
+    }
+
     pub fn render_modals(&mut self, fonts: &SidebarFonts, window_height: f32) -> Vec<Element> {
         // Get sidebar bounds
         let sidebar_bounds = euclid::rect(
@@ -1229,65 +1238,7 @@ impl Sidebar for AiSidebar {
             }
         }
 
-        // Check for "Show more" button click
-        if let WMEK::Press(MousePress::Left) = &event.kind {
-            // Check if we have a suggestion that needs expansion
-            if let Some(suggestion) = &self.current_suggestion {
-                // Check if this suggestion would have a "Show more" button
-                // Use conservative estimate - if content is long enough, assume it needs truncation
-                let content_length = suggestion.content.len();
-                let estimated_chars_per_line = 40; // Conservative estimate
-                let estimated_lines = (content_length / estimated_chars_per_line).max(1);
-
-                log::debug!(
-                    "Checking suggestion click: content_length={}, estimated_lines={}, needs_show_more={}",
-                    content_length, estimated_lines, estimated_lines > 2
-                );
-
-                if estimated_lines > 2 {
-                    // Check if click is within the suggestion card area
-                    // Calculate actual bounds based on rendered positions
-                    let mut suggestion_top = 58.0 + 52.0 + 55.0; // Header + Status + Filters
-
-                    // Add goal card height if present
-                    if self.current_goal.is_some() {
-                        suggestion_top += 201.0;
-                    }
-
-                    // Suggestion card has fixed height of ~201px (matches goal card height)
-                    // This includes: title, 2 lines of content, padding, and button row
-                    let suggestion_bottom = suggestion_top + 201.0;
-
-                    let click_x = event.coords.x as f32;
-                    let click_y = event.coords.y as f32;
-
-                    log::info!(
-                        "Show more button bounds check: click=({:.1}, {:.1}), suggestion_top={:.1}, suggestion_bottom={:.1}, sidebar_x={:.1}",
-                        click_x, click_y, suggestion_top, suggestion_bottom, self.sidebar_x_position
-                    );
-
-                    // First check if click is within suggestion card Y range
-                    if click_y >= suggestion_top && click_y <= suggestion_bottom {
-                        // For now, accept any click within the suggestion card area
-                        // In production, we'd track exact button bounds
-                        log::info!("Click within suggestion card area, checking X bounds");
-
-                        // Check if click is within sidebar X bounds
-                        if click_x >= self.sidebar_x_position
-                            && click_x <= self.sidebar_x_position + self.width as f32
-                        {
-                            log::info!("Show more button clicked, showing modal");
-                            self.show_suggestion_modal(suggestion.clone());
-                            return Ok(true);
-                        } else {
-                            log::debug!("Click outside sidebar X bounds");
-                        }
-                    } else {
-                        log::debug!("Click outside suggestion Y bounds");
-                    }
-                }
-            }
-        }
+        // Show more button is now handled via UIItemType
 
         // Log current bounds for debugging
         if let WMEK::Press(MousePress::Left) = &event.kind {
