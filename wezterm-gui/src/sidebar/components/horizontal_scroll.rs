@@ -1,5 +1,7 @@
-//! Horizontal scrolling support for sidebar components
-//! Provides a reusable horizontal scrollbar implementation
+//! Horizontal scrolling support for code blocks in markdown
+//!
+//! Note: Despite the generic API, this is currently specific to code blocks
+//! due to the hardcoded UIItemType. Future work could make this truly reusable.
 
 use crate::color::LinearRgba;
 use crate::termwindow::box_model::{
@@ -21,7 +23,7 @@ pub struct HorizontalScrollConfig {
     pub track_opacity: f32,
     /// Opacity of the thumb when visible
     pub thumb_opacity: f32,
-    /// Opacity of the thumb when hovering
+    /// Opacity of the thumb when hovering (not currently used)
     pub thumb_hover_opacity: f32,
     /// Space between content and scrollbar
     pub scrollbar_margin: f32,

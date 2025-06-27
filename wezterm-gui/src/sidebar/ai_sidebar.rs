@@ -1438,6 +1438,15 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
         }
     }
 
+    /// Clear code block registry when content changes completely
+    pub fn clear_code_block_registry(&mut self) {
+        if let Some(ref registry) = self.code_block_registry {
+            if let Ok(mut reg) = registry.lock() {
+                reg.clear();
+            }
+        }
+    }
+
     pub fn render_modals(&mut self, fonts: &SidebarFonts, window_height: f32) -> Vec<Element> {
         // Get sidebar bounds
         let sidebar_bounds = euclid::rect(

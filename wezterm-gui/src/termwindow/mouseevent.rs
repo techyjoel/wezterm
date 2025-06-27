@@ -23,6 +23,9 @@ use wezterm_dynamic::ToDynamic;
 use wezterm_term::input::{MouseButton, MouseEventKind as TMEK};
 use wezterm_term::{ClickPosition, LastMouseClick, StableRowIndex};
 
+/// Horizontal scroll speed multiplier for mouse wheel events
+const HORIZONTAL_SCROLL_SPEED: f32 = 30.0;
+
 impl super::TermWindow {
     fn resolve_ui_item(&self, event: &MouseEvent) -> Option<UIItem> {
         let x = event.coords.x;
@@ -478,7 +481,7 @@ impl super::TermWindow {
                 self.mouse_event_suggestion_dismiss_button(event, context);
             }
             UIItemType::CodeBlockScrollbar(block_id) => {
-                self.mouse_event_code_block_scrollbar(block_id, event, context);
+                self.mouse_event_code_block_scrollbar(item, block_id, event, context);
             }
             UIItemType::CodeBlockContent(block_id) => {
                 self.mouse_event_code_block_content(block_id, event, context);
@@ -1353,6 +1356,7 @@ impl super::TermWindow {
 
     pub fn mouse_event_code_block_scrollbar(
         &mut self,
+        item: UIItem,
         block_id: String,
         event: MouseEvent,
         context: &dyn WindowOps,
@@ -1377,8 +1381,8 @@ impl super::TermWindow {
                         if let Some(container) = reg.get_mut(&block_id) {
                             match event.kind {
                                 WMEK::Press(MousePress::Left) => {
-                                    // Calculate relative position within scrollbar
-                                    let relative_x = event.coords.x as f32;
+                                    // Transform absolute screen coordinates to scrollbar-relative coordinates
+                                    let relative_x = (event.coords.x as f32) - (item.x as f32);
                                     let hit = hit_test_scrollbar(
                                         relative_x,
                                         0.0, // scrollbar starts at x=0 relative to its bounds
@@ -1417,6 +1421,25 @@ impl super::TermWindow {
                                     context.invalidate();
                                 }
                                 WMEK::Move => {
+                                    if container.dragging_scrollbar {
+                                        // Handle scrollbar dragging
+                                        if let (Some(drag_start_x), Some(drag_start_offset)) = 
+                                            (container.drag_start_x, container.drag_start_offset) 
+                                        {
+                                            let thumb_ratio = container.viewport_width / container.content_width;
+                                            let thumb_width = (container.viewport_width * thumb_ratio).max(30.0);
+                                            
+                                            let new_offset = calculate_drag_scroll(
+                                                drag_start_x,
+                                                event.coords.x as f32,
+                                                drag_start_offset,
+                                                container.viewport_width,
+                                                container.content_width,
+                                                thumb_width,
+                                            );
+                                            container.set_scroll_offset(new_offset);
+                                        }
+                                    }
                                     container.hovering_scrollbar = true;
                                     container.last_activity = Some(std::time::Instant::now());
                                     context.invalidate();
@@ -1470,14 +1493,16 @@ impl super::TermWindow {
                                 }
                                 WMEK::HorzWheel(delta) => {
                                     // Horizontal scrolling with mouse wheel
-                                    container.scroll_horizontal(delta as f32 * 30.0);
+                                    container
+                                        .scroll_horizontal(delta as f32 * HORIZONTAL_SCROLL_SPEED);
                                     context.invalidate();
                                 }
                                 WMEK::VertWheel(delta)
                                     if event.modifiers.contains(::window::Modifiers::SHIFT) =>
                                 {
                                     // Shift+vertical wheel -> horizontal scroll
-                                    container.scroll_horizontal(delta as f32 * 30.0);
+                                    container
+                                        .scroll_horizontal(delta as f32 * HORIZONTAL_SCROLL_SPEED);
                                     context.invalidate();
                                 }
                                 _ => {}

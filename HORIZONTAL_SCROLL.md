@@ -371,24 +371,39 @@ if let Some(focused_block) = self.get_focused_code_block() {
 
 3. **UIItemType Integration**: Following the existing pattern where UIItemType variants store the ID string directly, not wrapped in a struct. Code blocks are now tagged with `UIItemType::CodeBlockContent`.
 
-4. **Horizontal Scrollbar Implementation**: Created a reusable `horizontal_scroll` module instead of using `ScrollbarRenderer` directly. This provides a cleaner API specifically for horizontal scrolling with auto-hide behavior.
+4. **Horizontal Scrollbar Implementation**: Created a `horizontal_scroll` module instead of using `ScrollbarRenderer` directly. Note that despite the generic API, this module is currently specific to code blocks due to hardcoded UIItemType usage.
 
-5. **State Management**: Integrated `CodeBlockRegistry` into `AiSidebar` as an optional field. The registry is passed to `MarkdownRenderer` when rendering to maintain scroll state across renders.
+5. **State Management**: Integrated `CodeBlockRegistry` into `AiSidebar` using `Arc<Mutex>` for thread safety (required by the `Sidebar` trait). The registry is passed to `MarkdownRenderer` when rendering to maintain scroll state across renders.
 
 6. **Mouse Event Handling**: Implemented full mouse interaction including:
    - Scrollbar dragging handled through sidebar's existing drag detection
-   - Horizontal scrolling with mouse wheel (native and Shift+vertical)
+   - Horizontal scrolling with mouse wheel (native and Shift+vertical) with configurable speed constant
    - Click to focus with proper focus management
    - Hover state tracking for auto-hide behavior
+   - Note: Hit testing for scrollbar clicks currently assumes UIItem bounds, needs proper coordinate transformation
 
 7. **Auto-hide Behavior**: Implemented opacity animation based on hover state and activity. Scrollbars fade in/out smoothly with configurable timing.
 
 8. **Viewport Clipping**: Used negative left margin on content to implement horizontal scrolling, with a fixed-width viewport container that clips overflow.
 
+9. **Memory Management**: Added `clear_code_block_registry()` method to prevent unbounded memory growth. Note that cleanup of old entries when content changes is not yet implemented.
+
 ## Next Steps
 
-1. **Immediate**: Implement keyboard navigation (arrow keys, Home/End) for focused code blocks
-2. **Then**: Add copy button rendering above code blocks on hover
-3. **Then**: Extract actual code content for clipboard copy
-4. **Then**: Add visual feedback for copy action
-5. **Finally**: Polish animations and transitions
+1. **Immediate**: Implement automatic registry cleanup when content changes to prevent memory leaks
+2. **Then**: Implement keyboard navigation (arrow keys, Home/End) for focused code blocks
+3. **Then**: Add copy button rendering above code blocks on hover
+4. **Then**: Extract actual code content for clipboard copy (currently just placeholder)
+5. **Then**: Discuss with user ideas to add visual feedback for copy action and focus indicators
+6. **Then**: Make the horizontal_scroll module truly reusable by parameterizing UIItemType
+7. **Finally**: Polish animations and transitions
+
+## Known Issues
+
+1. **Coordinate Transformation**: ✅ FIXED - Updated `mouse_event_code_block_scrollbar` to receive the UIItem parameter and transform absolute screen coordinates to scrollbar-relative coordinates.
+
+2. **Memory Management**: While a `clear_code_block_registry()` method exists, automatic cleanup of old code blocks when content changes is not implemented, leading to potential memory growth over time.
+
+3. **Copy Button**: The copy button handler exists but only copies placeholder text. Actual code extraction from the markdown content is not implemented.
+
+4. **Reusability**: The `horizontal_scroll` module claims to be reusable but is currently hardcoded for code blocks due to the UIItemType usage.
