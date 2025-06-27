@@ -382,6 +382,7 @@ impl ModalManager {
                 fonts,
                 visible_height: self.visible_height,
                 scroll_offset: self.scroll_offset,
+                code_block_registry: None, // TODO: Pass registry from parent
             };
 
             if let Some(ref modal) = self.active_modal {

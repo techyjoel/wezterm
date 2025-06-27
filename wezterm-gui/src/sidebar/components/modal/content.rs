@@ -1,15 +1,17 @@
 use crate::sidebar::SidebarFonts;
+use crate::sidebar::components::markdown::CodeBlockRegistry;
 use crate::termwindow::box_model::Element;
 use termwiz::input::KeyCode;
 use wezterm_term::KeyModifiers;
 use window::RectF;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct ModalRenderContext<'a> {
     pub modal_bounds: RectF,
     pub fonts: &'a SidebarFonts,
     pub visible_height: f32,
     pub scroll_offset: f32,
+    pub code_block_registry: Option<CodeBlockRegistry>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

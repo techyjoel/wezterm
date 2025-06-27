@@ -569,7 +569,11 @@ impl crate::TermWindow {
                 // Render the activity log
                 let gl_state = self.render_state.as_ref().unwrap();
                 self.render_element(&activity_log_computed, gl_state, None)?;
-                log::debug!("Activity log rendered at z-index 10");
+                
+                // CRITICAL: Extract UI items from activity log for mouse handling
+                self.ui_items.extend(activity_log_computed.ui_items());
+                log::debug!("Activity log rendered at z-index 10 with {} UI items", 
+                    activity_log_computed.ui_items().len());
             }
 
             // Now get the main sidebar element

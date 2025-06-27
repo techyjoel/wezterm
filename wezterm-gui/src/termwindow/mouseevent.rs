@@ -1365,6 +1365,7 @@ impl super::TermWindow {
             calculate_drag_scroll, hit_test_scrollbar, ScrollbarHitTarget,
         };
 
+        log::debug!("mouse_event_code_block_scrollbar called for block_id={}, event={:?}", block_id, event.kind);
         context.set_cursor(Some(MouseCursor::Arrow));
 
         // Get the sidebar and its code block registry
@@ -1459,6 +1460,7 @@ impl super::TermWindow {
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
+        log::debug!("mouse_event_code_block_content called for block_id={}, event={:?}", block_id, event.kind);
         context.set_cursor(Some(MouseCursor::Text));
 
         // Get the sidebar and its code block registry

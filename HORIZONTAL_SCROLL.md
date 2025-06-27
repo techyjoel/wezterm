@@ -1,8 +1,50 @@
 # Horizontal Scrolling for Code Blocks - Implementation Status 🔄
 
-## Current Status: NOT WORKING
+## Current Status: PARTIALLY FUNCTIONAL WITH CRITICAL ISSUES
 
-The horizontal scrolling feature has been fully implemented in code but is not functioning at runtime. The scrollbars do not appear and scrolling functionality is not active.
+Horizontal scrolling infrastructure is in place but core functionality is broken:
+
+### Working Features ✅
+- **Scrollbars appear when needed** (mostly - some borderline cases missed)
+- **UIItems properly extracted** - Mouse events fire in activity log
+- **Copy button always visible** above code blocks
+- **Thumb moves** when dragging (but content doesn't scroll)
+
+### Critical Issues 🔴
+
+1. **Scrolling Implementation Partially Working**:
+   - Content scrolls in activity log with thumb drag and shift+wheel ✅
+   - Suggestion modal shows NO horizontal scrollbars at all ❌
+   - Vertical scrolling broken when mouse over code blocks ❌
+
+2. **Clipping/Overflow Will Be Issue**:
+   - Once scrolling works, content will overflow onto terminal area due to z-layer architecture
+   - Need proper viewport clipping to prevent content appearing over terminal
+   - **Root cause**: "Cut-a-hole" pattern doesn't work for horizontal scrolling unless z-index of scrolled content is below the terminal area background.
+
+3. **Modal Issues**:
+   - NO horizontal scrollbars appear in suggestion modal at all ❌
+   - Vertical scrolling only works outside markdown area (in padding) ❌
+   - **Root cause**: Modal not using code block registry
+
+4. **Scrollbar Styling Still Wrong** ❌:
+   - Still "chunky" and styled incorrectly
+   - Thumb is not positioned within the scrollbar track
+   - Does NOT match vertical scrollbar appearance
+
+5. **Code Block Width Calculation Still Broken** ❌:
+   - Borderline content does NOT show horizontal scrollbars
+   - 5px buffer not sufficient or not working properly
+
+6. **Mouse Wheel Behavior**:
+   - Currently captures ALL scroll events when mouse is over a code block, though scroll bar only moves when shift is pressed
+   - Should only capture scroll events when Shift is pressed
+   - Non-shift scroll should pass through for vertical scrolling
+
+7. **Text Selection Disabled**:
+   - Text cursor appears but can't select text
+   - Affects all sidebar content (goals, suggestions, activity log, code blocks)
+   - Likely due to UIItem event handling blocking selection
 
 ## Implemented Features (In Code)
 
@@ -18,7 +60,7 @@ The horizontal scrolling feature has been fully implemented in code but is not f
 ## Overview
 Implement horizontal scrolling for code blocks in the markdown renderer to handle long lines without wrapping, preserving code formatting and readability.
 
-## Architecture
+## Architecture Concepts that were used during implementation
 
 ### 1. Code Block Container Component
 Create a new `CodeBlockContainer` struct that manages:
@@ -28,24 +70,6 @@ Create a new `CodeBlockContainer` struct that manages:
 - Mouse interaction state
 - Scrollbar visibility and hover state
 - Focus state for keyboard navigation
-
-```rust
-// In markdown.rs or new file code_block.rs
-pub struct CodeBlockContainer {
-    id: String,
-    content_width: f32,
-    viewport_width: f32,
-    scroll_offset: f32,
-    hovering_scrollbar: bool,
-    hovering_content: bool,
-    dragging_scrollbar: bool,
-    drag_start_x: Option<f32>,
-    drag_start_offset: Option<f32>,
-    has_focus: bool,
-    scrollbar_opacity: f32,
-    last_activity: Option<Instant>,
-}
-```
 
 ### 2. Rendering Strategy
 Use **relative z-index layering** within the current rendering context:
@@ -59,104 +83,19 @@ Layer Stack (relative to parent z-index):
 ```
 
 ### 3. Content Measurement
-Before rendering, measure all code lines to find the maximum width:
-
-```rust
-fn measure_code_block_width(
-    lines: &[String], 
-    font: &Rc<LoadedFont>
-) -> f32 {
-    lines.iter()
-        .map(|line| {
-            // Use font metrics to calculate pixel width
-            let cells = unicode_column_width(line, None);
-            cells as f32 * font.metrics().cell_width.get()
-        })
-        .max()
-        .unwrap_or(0.0)
-}
-```
+Before rendering, measure all code lines to find the maximum width
 
 ### 4. Scrollbar Implementation
 
 #### Shared Hover/Activity Behavior
-Create a shared trait for auto-hiding scrollbars:
-
-```rust
-trait AutoHideScrollbar {
-    fn update_visibility(&mut self, delta_time: f32) {
-        const FADE_IN_TIME: f32 = 0.15;
-        const FADE_OUT_TIME: f32 = 0.3;
-        const HIDE_DELAY: f32 = 1.5;
-        
-        if self.is_active() {
-            // Fade in
-            self.set_opacity(
-                (self.opacity() + delta_time / FADE_IN_TIME).min(1.0)
-            );
-            self.set_last_activity(Some(Instant::now()));
-        } else if let Some(last) = self.last_activity() {
-            let elapsed = last.elapsed().as_secs_f32();
-            if elapsed > HIDE_DELAY {
-                // Fade out
-                self.set_opacity(
-                    (self.opacity() - delta_time / FADE_OUT_TIME).max(0.0)
-                );
-            }
-        }
-    }
-    
-    fn is_active(&self) -> bool;
-    fn opacity(&self) -> f32;
-    fn set_opacity(&mut self, opacity: f32);
-    fn last_activity(&self) -> Option<Instant>;
-    fn set_last_activity(&mut self, time: Option<Instant>);
-}
-```
+Create a shared trait for auto-hiding scrollbars
 
 #### Horizontal Scrollbar Rendering
-Leverage the existing `ScrollbarRenderer` in horizontal mode:
-
-```rust
-// In highlight_code_block method
-let scrollbar = ScrollbarRenderer::new_horizontal(
-    code_container.viewport_width,
-    6.0, // scrollbar height (thinner than vertical)
-);
-scrollbar.update(
-    code_container.content_width,
-    code_container.viewport_width,
-    code_container.scroll_offset,
-);
-```
+Leverage the existing `ScrollbarRenderer` in horizontal mode
 
 ### 5. Copy Button Implementation
 
-Add a copy button that appears just above the code block:
-
-```rust
-// Render copy button positioned above the code block at top-right
-if code_container.hovering_content {
-    let copy_button = Element::new(font, ElementContent::Text("📋".to_string()))
-        .colors(ElementColors {
-            bg: LinearRgba(0.2, 0.2, 0.2, 0.8).into(),
-            text: LinearRgba(0.9, 0.9, 0.9, 1.0).into(),
-            ..Default::default()
-        })
-        .padding(BoxDimension::new(Dimension::Pixels(4.0)))
-        .border(BoxDimension::new(Dimension::Pixels(1.0)))
-        .colors(ElementColors {
-            border: BorderColor::new(LinearRgba(0.4, 0.4, 0.4, 0.5)),
-            ..Default::default()
-        })
-        .with_item_type(UIItemType::CodeBlockCopyButton(id.clone()))
-        .margin(BoxDimension {
-            bottom: Dimension::Pixels(4.0), // Space between button and code block
-            ..Default::default()
-        })
-        .display(DisplayType::Block); // Render as separate block above code
-}
-```
+Add a copy button that appears just above the code block
 
 ### 6. Rendering Flow
 
@@ -182,26 +121,6 @@ if code_container.hovering_content {
 
 ### 7. Mouse Event Handling
 
-```rust
-// In sidebar mouse event handler
-if let Some(code_block) = self.find_code_block_at_position(mouse_pos) {
-    // Update hover state
-    code_block.hovering_content = true;
-    
-    // Handle horizontal wheel events
-    if let MouseEventKind::HorzWheel(delta) = event.kind {
-        code_block.scroll_horizontal(delta * 30.0);
-        return true;
-    }
-    
-    // Handle click for focus
-    if let MouseEventKind::Press(MousePress::Left) = event.kind {
-        code_block.has_focus = true;
-        // Clear focus from other code blocks
-    }
-}
-```
-
 ### 8. Keyboard Support
 
 When a code block has focus:
@@ -209,35 +128,6 @@ When a code block has focus:
 - **Home/End**: Jump to start/end of longest line
 - **Shift+Wheel**: Convert vertical wheel to horizontal scroll
 - **Escape**: Clear focus
-
-```rust
-// In keyboard event handler
-if let Some(focused_block) = self.get_focused_code_block() {
-    match key {
-        KeyCode::LeftArrow => {
-            focused_block.scroll_horizontal(-50.0);
-            return true;
-        }
-        KeyCode::RightArrow => {
-            focused_block.scroll_horizontal(50.0);
-            return true;
-        }
-        KeyCode::Home => {
-            focused_block.scroll_offset = 0.0;
-            return true;
-        }
-        KeyCode::End => {
-            focused_block.scroll_offset = focused_block.max_scroll();
-            return true;
-        }
-        KeyCode::Escape => {
-            focused_block.has_focus = false;
-            return true;
-        }
-        _ => {}
-    }
-}
-```
 
 ### 9. Integration Points
 
@@ -260,44 +150,7 @@ if let Some(focused_block) = self.get_focused_code_block() {
      UIItemType::CodeBlockCopyButton(String), // ID
      ```
 
-### 10. Implementation Phases
-
-**Phase 1: Basic Structure**
-- Create CodeBlockContainer struct
-- Implement width measurement
-- Basic rendering without scrolling
-- Generate unique IDs for code blocks
-
-**Phase 2: Scrollbar Rendering**
-- Integrate with existing scrollbar style
-- Implement auto-hide behavior
-- Share visibility logic with sidebar scrollbar
-- Position below code content
-
-**Phase 3: Mouse Interaction**
-- Horizontal wheel scrolling
-- Scrollbar dragging
-- Click to focus
-- Hover state tracking
-
-**Phase 4: Copy Button**
-- Add copy button on hover
-- Implement clipboard integration
-- Visual feedback on copy
-
-**Phase 5: Keyboard Support**
-- Focus management
-- Arrow key scrolling
-- Home/End navigation
-- Shift+wheel for horizontal scroll
-
-**Phase 6: Polish**
-- Smooth scrolling animation
-- Focus indicators
-- Ensure proper cleanup
-- Performance optimization
-
-### 11. Visual Design
+### 10. Visual Design
 
 - **Scrollbar**: Match sidebar style (thin, semi-transparent)
 - **Auto-hide**: Fade in on hover/activity, fade out after 1.5s
@@ -305,7 +158,7 @@ if let Some(focused_block) = self.get_focused_code_block() {
 - **Focus indicator**: Subtle border highlight when focused
 - **Overflow indicator**: Gradient fade on right edge when scrollable
 
-### 12. Technical Considerations
+### 11. Technical Considerations
 
 1. **Performance**: Cache measured widths to avoid recalculation
 2. **Memory**: Clean up containers when content changes
@@ -313,7 +166,7 @@ if let Some(focused_block) = self.get_focused_code_block() {
 4. **Accessibility**: Ensure keyboard navigation is discoverable
 5. **Edge cases**: Handle empty code blocks, very long lines
 
-### 13. Success Criteria
+### 12. Success Criteria
 
 1. Long code lines don't overflow the sidebar
 2. Horizontal scrolling is smooth and responsive
@@ -404,79 +257,85 @@ if let Some(focused_block) = self.get_focused_code_block() {
 
 9. **Memory Management**: Added `clear_code_block_registry()` method and integrated automatic cleanup when activity log content changes to prevent unbounded memory growth.
 
-## Completed Features
-
-All planned features have been successfully implemented:
-
-1. **Horizontal Scrolling**: Code blocks now scroll horizontally with auto-hide scrollbars
-2. **Mouse Interaction**: Full support for clicking, dragging, and wheel scrolling
-3. **Keyboard Navigation**: Arrow keys, Home/End, and Escape for focused code blocks
-4. **Copy Functionality**: Copy button with visual feedback and actual code extraction
-5. **Visual Polish**: Focus indicators and smooth animations
-6. **Memory Management**: Automatic cleanup when content changes
-7. **Reusability**: The horizontal_scroll module is now parameterized for use by other components
-
-## Troubleshooting Steps
-
-### Most Likely Issues (in order of probability)
-
-1. **Viewport Width Calculation Issue**
-   - Problem: The viewport width might be too large, preventing scrollbar from appearing
-   - Issue: Code block padding (12px each side) wasn't being subtracted from max_width
-   - Fixed: Now subtracting 24px from max_width for actual viewport
-   - Debug: Added logging to show viewport calculation
-
-2. **Opacity Never Increases Above 0**
-   - Problem: The scrollbar opacity starts at 0 and never increases
-   - Test: Temporarily forcing opacity to 1.0 when scrollbar is needed
-   - Debug: Added logging to show opacity values
-
-3. **Content Width vs Available Width**
-   - Problem: The markdown renderer receives a max_width that's already the full sidebar width minus margins
-   - User confirmed: Code IS long enough to exceed visible viewport
-   - Mouse events ARE working (vertical scroll stops on hover)
-
-3. **Registry Not Being Preserved Between Renders**
-   - Problem: Code block state might be recreated on each render, losing scroll state
-   - Check: Registry is passed to markdown renderer, but state preservation needs verification
-
-4. **Mouse Events Not Reaching Code Blocks**
-   - Problem: UIItem registration or hit testing might be failing
-   - Check: Code blocks are tagged with UIItemType::CodeBlockContent
-   - Debug: Need to verify UIItems are being created with correct bounds
-
-5. **Scrollbar Rendering Skipped**
-   - Problem: The condition `if scrollbar_opacity > 0.01` might always be false
-   - Check: opacity animation timing and hover detection
-   - Debug: May need to force initial visibility for testing
-
 ## Debug Actions Taken
 
 1. Added `update_code_block_opacity(0.016)` call in sidebar render
 2. Added debug logging for code block measurements and opacity
 3. Added a very long line to mock data to ensure scrolling is needed
-4. Fixed compilation errors (Float import, borrow checker issues)
 5. Adjusted viewport width calculation to account for code block padding (24px)
 6. Temporarily forcing scrollbar opacity to 1.0 when needed (for testing)
-7. **CRITICAL FIX**: Discovered scrollbar was being rendered inside the padded code block container
-   - Scrollbar was likely hidden by padding constraints or positioned outside visible area
-   - Restructured rendering to place scrollbar outside the padded container
-   - Made scrollbar bright red/green for visibility testing
+7. Discovered scrollbar was being rendered inside the padded code block container
+   - Scrollbar was potentially hidden by padding constraints or positioned outside visible area
+   - Restructured rendering to place scrollbar outside the padded container (which user later disliked)
 8. Added extensive debug logging to track element creation and structure
 
 ## Latest Changes
 
-- Separated scrollbar from code content in the element hierarchy
-- Scrollbar now renders as a sibling to the code block, not inside it
-- Code block padding (12px) no longer affects scrollbar positioning
-- Added bright colors (red track, green thumb) for debugging visibility
+- Reverted to rendering scrollbar inside code block container
+- Fixed element stacking with track and thumb
+- Discovered scrollbar sometimes renders but with major issues
 
-## Next Debugging Steps
+## Root Cause Analysis of some issues
 
-1. **Test with WEZTERM_LOG=debug**: Run to see if scrollbar elements are being created
-2. **Look for red/green scrollbar**: Should be highly visible if rendering
-3. **Check console output** for:
-   - "Scrollbar check: opacity=X, needs_scrollbar=true, rendering=true"
-   - "Scrollbar element created and added to elements vector"
-   - "create_horizontal_scroll_container returning 2 elements"
-4. **If still not visible**: May need to adjust z-index or check parent element clipping
+### **Width Calculation Issues**
+- Viewport width may be calculated incorrectly
+- Content width measurement might not account for all factors
+- The padding adjustment may be applied incorrectly
+- Max_width propagation through the element tree could be broken
+
+### **Element Structure Problems**  
+- Track and thumb layering isn't working correctly
+- The negative margin approach for thumb positioning fails
+
+### **Event Handling Breakdown**
+- UIItemType registration for scrollbar might not have correct bounds
+- Mouse events aren't reaching the code block handlers
+- Registry lookup might be failing (container not found)
+- Event propagation blocked by parent elements
+
+### **Context-Specific Problems**
+- Activity log vs suggestion modal have different event handling
+- Different max_width values in different contexts
+- Parent container differences affecting child rendering
+
+## Fixes Applied (What Actually Works)
+
+1. **UIItem extraction fixed** - Added `self.ui_items.extend(activity_log_computed.ui_items())` ✅
+2. **Copy button always visible** - Changed from hover-only to always visible ✅
+3. **Scrolling works in activity log** - Thumb drag and shift+wheel functional ✅
+
+## Failed Fixes (Need Rework)
+
+1. **Scrollbar styling** - Still wrong despite changes ❌
+2. **Width calculation** - Buffer not working for borderline cases ❌
+3. **Modal integration** - No horizontal scrollbars at all ❌
+4. **Vertical scroll capture** - Still broken when over code blocks ❌
+
+
+## Priority Fix Order (Remaining Issues)
+
+1. **Test Scrolling Implementation** ✅ FIXED
+   - Verify that content now scrolls with thumb movement
+   - Check that scroll offset is properly applied
+   - Ensure smooth scrolling experience
+
+2. **Fix Clipping/Overflow** (CRITICAL - Next Priority)
+   - Content will likely overflow onto terminal area
+   - Need proper viewport clipping at render level
+   - May require implementing scissor rect or modifying z-layer approach
+
+3. **Fix Modal Scrolling** (CRITICAL)
+   - Modal needs to use render_with_registry
+   - Fix vertical scrolling in modal
+   - Ensure proper event capture
+
+4. **Fix Mouse Wheel Behavior** (Medium Priority)
+   - Currently captures all scroll events over code blocks
+   - Should only capture horizontal scroll when Shift is pressed
+   - Requires architectural changes to UI item event handling
+
+5. **Enable Text Selection** (Complex - Lower Priority)
+   - Currently blocked by UI item event handling
+   - Affects all sidebar content, not just code blocks
+   - Investigate UIItem event handling
+   - May need to selectively disable event capture

@@ -21,7 +21,7 @@
 
 use crate::color::LinearRgba;
 use crate::termwindow::box_model::{
-    BoxDimension, DisplayType, Element, ElementColors, ElementContent,
+    BoxDimension, DisplayType, Element, ElementColors, ElementContent, Float,
 };
 use crate::termwindow::UIItemType;
 use config::Dimension;
@@ -73,16 +73,34 @@ pub fn create_horizontal_scroll_container(
     let needs_scrollbar = content_width > viewport_width;
 
     if needs_scrollbar {
-        // Create scrollable content with negative margin for offset
-        let scrollable_content = Element::new(font, ElementContent::Children(content))
-            .margin(BoxDimension {
+        // Create a clipping container first
+        let mut inner_content = Vec::new();
+        
+        // Add each line with proper width constraints
+        for mut line_element in content.into_iter() {
+            // Ensure each line doesn't wrap by setting a large min width
+            line_element = line_element
+                .min_width(Some(Dimension::Pixels(content_width)))
+                .display(DisplayType::Block);
+            inner_content.push(line_element);
+        }
+        
+        // Wrap all content in a container that will be shifted
+        let mut content_container = Element::new(font, ElementContent::Children(inner_content))
+            .min_width(Some(Dimension::Pixels(content_width)))
+            .display(DisplayType::Block);
+        
+        // Apply negative left margin to shift content based on scroll offset
+        if scroll_offset > 0.0 {
+            content_container = content_container.margin(BoxDimension {
                 left: Dimension::Pixels(-scroll_offset),
                 ..Default::default()
-            })
-            .display(DisplayType::Block);
-
-        // Wrap in viewport container that clips overflow
-        let viewport = Element::new(font, ElementContent::Children(vec![scrollable_content]))
+            });
+        }
+        
+        // Create viewport that enforces width constraints and should clip overflow
+        // Add overflow hidden style hint (though box model may not support it)
+        let viewport = Element::new(font, ElementContent::Children(vec![content_container]))
             .min_width(Some(Dimension::Pixels(viewport_width)))
             .max_width(Some(Dimension::Pixels(viewport_width)))
             .display(DisplayType::Block);
@@ -90,26 +108,13 @@ pub fn create_horizontal_scroll_container(
         elements.push(viewport);
 
         // Only render scrollbar if opacity > 0
+        let should_render_scrollbar = scrollbar_opacity > 0.01;
         log::debug!("Scrollbar check: opacity={}, needs_scrollbar={}, rendering={}", 
-            scrollbar_opacity, needs_scrollbar, scrollbar_opacity > 0.01);
-        if scrollbar_opacity > 0.01 {
-            // Create scrollbar track
-            let track = Element::new(font, ElementContent::Text(String::new()))
-                .colors(ElementColors {
-                    bg: LinearRgba::with_components(
-                        1.0,  // TEMPORARY: Bright red for debugging
-                        0.0,
-                        0.0,
-                        1.0,  // TEMPORARY: Full opacity for debugging
-                    )
-                    .into(),
-                    ..Default::default()
-                })
-                .min_width(Some(Dimension::Pixels(viewport_width)))
-                .min_height(Some(Dimension::Pixels(config.scrollbar_height)))
-                .display(DisplayType::Block)
-                .item_type(scrollbar_ui_item);
-
+            scrollbar_opacity, needs_scrollbar, should_render_scrollbar);
+        if should_render_scrollbar {
+            // Use standard scrollbar height to match vertical scrollbar
+            let scrollbar_height = config.scrollbar_height; // Should be 6.0
+            
             // Calculate thumb geometry
             let thumb_ratio = viewport_width / content_width;
             let thumb_width = (viewport_width * thumb_ratio).max(config.min_thumb_width);
@@ -120,37 +125,51 @@ pub fn create_horizontal_scroll_container(
                 0.0
             };
             let thumb_offset = (viewport_width - thumb_width) * scroll_ratio;
+            
+            log::debug!(
+                "Scrollbar geometry: viewport={:.1}, content={:.1}, thumb_width={:.1}, thumb_offset={:.1}, scroll_offset={:.1}",
+                viewport_width, content_width, thumb_width, thumb_offset, scroll_offset
+            );
 
-            // Create scrollbar thumb
-            let thumb = Element::new(font, ElementContent::Text(String::new()))
+            // Create scrollbar with thumb inside track
+            let mut track_children = Vec::new();
+            
+            // Add thumb as child of track with proper positioning
+            if thumb_width > 0.0 && viewport_width > 0.0 {
+                let scrollbar_thumb = Element::new(font, ElementContent::Text(String::new()))
+                    .colors(ElementColors {
+                        bg: LinearRgba::with_components(0.5, 0.5, 0.5, config.thumb_opacity * scrollbar_opacity).into(),
+                        ..Default::default()
+                    })
+                    .min_width(Some(Dimension::Pixels(thumb_width)))
+                    .min_height(Some(Dimension::Pixels(scrollbar_height)))
+                    .margin(BoxDimension {
+                        left: Dimension::Pixels(thumb_offset),
+                        ..Default::default()
+                    })
+                    .display(DisplayType::Block);
+                
+                track_children.push(scrollbar_thumb);
+            }
+            
+            // Create scrollbar track with thumb as child
+            let scrollbar_track = Element::new(font, ElementContent::Children(track_children))
                 .colors(ElementColors {
-                    bg: LinearRgba::with_components(
-                        0.0,  // TEMPORARY: Bright green for debugging
-                        1.0,
-                        0.0,
-                        1.0,  // TEMPORARY: Full opacity for debugging
-                    )
-                    .into(),
+                    bg: LinearRgba::with_components(0.15, 0.15, 0.15, config.track_opacity * scrollbar_opacity).into(),
                     ..Default::default()
                 })
-                .min_width(Some(Dimension::Pixels(thumb_width)))
-                .min_height(Some(Dimension::Pixels(config.scrollbar_height)))
-                .margin(BoxDimension {
-                    left: Dimension::Pixels(thumb_offset),
-                    ..Default::default()
-                })
-                .display(DisplayType::Block);
-
-            // Stack track and thumb
-            let scrollbar = Element::new(font, ElementContent::Children(vec![track, thumb]))
-                .display(DisplayType::Block)
+                .min_width(Some(Dimension::Pixels(viewport_width)))
+                .min_height(Some(Dimension::Pixels(scrollbar_height)))
                 .margin(BoxDimension {
                     top: Dimension::Pixels(config.scrollbar_margin),
                     ..Default::default()
-                });
+                })
+                .display(DisplayType::Block)
+                .item_type(scrollbar_ui_item.clone());
+                
+            elements.push(scrollbar_track);
 
-            elements.push(scrollbar);
-            log::debug!("Scrollbar element created and added to elements vector");
+            log::debug!("Scrollbar elements created: track + thumb");
         }
     } else {
         // No scrolling needed, return content as-is

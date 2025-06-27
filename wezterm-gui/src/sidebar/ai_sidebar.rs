@@ -899,6 +899,8 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
                     // Need to add width constraint for proper text wrapping
                     let sidebar_width = self.width as f32;
                     let content_width = sidebar_width - 52.0; // Account for margins and padding
+                    log::debug!("Rendering markdown in activity log: sidebar_width={}, content_width={}", 
+                        sidebar_width, content_width);
 
                     // Use registry if available for horizontal scrolling support
                     if let Some(ref registry) = self.code_block_registry {

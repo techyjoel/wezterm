@@ -498,30 +498,42 @@ impl MarkdownRenderer {
         // Measure the maximum line width
         let content_width = measure_code_block_width(&lines_for_measurement, font);
         
-        // Account for code block padding (12px on each side)
-        let code_block_padding = 24.0;
-        let available_width = max_width.map(|w| w - code_block_padding);
+        // Get the actual available width for code content
+        // Note: max_width is the sidebar width, we need to account for:
+        // - Code block padding: 12px each side = 24px
+        // - Code block border: 1px each side = 2px  
+        // - Sidebar margins/padding
+        let code_block_chrome = 26.0; // padding + border
+        let available_width = max_width.map(|w| {
+            let adjusted = w - code_block_chrome;
+            log::debug!("Width calc: max_width={}, chrome={}, available={}", w, code_block_chrome, adjusted);
+            adjusted
+        });
         let viewport_width = available_width.unwrap_or(content_width);
 
         // Create or update container for tracking scroll state
         let mut container = CodeBlockContainer::new(block_id.clone(), viewport_width);
-        let needs_scrollbar = container.update_content_width(content_width);
+        // Add a larger buffer (20px) to content width to catch borderline cases
+        // This ensures scrollbars appear for content that's even slightly wider
+        let needs_scrollbar = container.update_content_width(content_width + 20.0);
         container.raw_code = code.to_string();
         container.language = language.map(|s| s.to_string());
         
-        // TEMPORARY: Force scrollbar visibility for debugging
+        // Force scrollbar visibility if needed
         if needs_scrollbar {
             container.scrollbar_opacity = 1.0;
         }
         
         log::debug!(
-            "Code block {}: content_width={}, viewport_width={}, max_width={:?}, needs_scrollbar={}, opacity={}",
+            "Code block {}: content_width={:.1}, viewport_width={:.1}, max_width={:?}, needs_scrollbar={}, first_line_preview='{}'",
             block_id,
             content_width,
             viewport_width,
             max_width,
             needs_scrollbar,
-            container.scrollbar_opacity
+            lines_for_measurement.first().map(|l| {
+                if l.len() > 50 { &l[..50] } else { l }
+            }).unwrap_or("")
         );
 
         // Update registry if available
@@ -560,19 +572,8 @@ impl MarkdownRenderer {
         log::debug!("Code block {} got {} elements from horizontal scroll container", 
             block_id, elements.len());
 
-        // Separate content and scrollbar if we have multiple elements
-        let (code_content, scrollbar_element) = if elements.len() > 1 && needs_scrollbar {
-            // We have viewport + scrollbar
-            let viewport = elements[0].clone();
-            let scrollbar = elements[1].clone();
-            (viewport, Some(scrollbar))
-        } else {
-            // No scrollbar, just content
-            (Element::new(font, ElementContent::Children(elements)), None)
-        };
-        
-        // Wrap content in a code block container with padding
-        let mut code_block_content = Element::new(font, ElementContent::Children(vec![code_content]))
+        // Wrap all elements (including scrollbar) in the code block container
+        let mut code_block = Element::new(font, ElementContent::Children(elements))
             .colors(ElementColors {
                 bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),
                 border: BorderColor::new(LinearRgba::with_components(0.2, 0.2, 0.25, 0.5)),
@@ -580,6 +581,11 @@ impl MarkdownRenderer {
             })
             .padding(BoxDimension::new(Dimension::Pixels(12.0)))
             .border(BoxDimension::new(Dimension::Pixels(1.0)))
+            .margin(BoxDimension {
+                top: Dimension::Pixels(8.0),
+                bottom: Dimension::Pixels(8.0),
+                ..Default::default()
+            })
             .display(DisplayType::Block)
             .item_type(crate::termwindow::UIItemType::CodeBlockContent(
                 block_id.clone(),
@@ -587,7 +593,7 @@ impl MarkdownRenderer {
 
         // Add focus indicator
         if container.has_focus {
-            code_block_content = code_block_content
+            code_block = code_block
                 .border(BoxDimension::new(Dimension::Pixels(2.0)))
                 .colors(ElementColors {
                     bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),
@@ -595,73 +601,47 @@ impl MarkdownRenderer {
                     ..Default::default()
                 });
         }
+
+        // Add a copy button above the code block (always visible)
+        // Check if we should show success state
+        let show_success = container.copy_success_time
+            .map(|time| time.elapsed().as_secs_f32() < 2.0)
+            .unwrap_or(false);
         
-        // Create final element structure
-        let code_block = if let Some(scrollbar) = scrollbar_element {
-            // Stack code block and scrollbar vertically
-            Element::new(font, ElementContent::Children(vec![code_block_content, scrollbar]))
-                .margin(BoxDimension {
-                    top: Dimension::Pixels(8.0),
-                    bottom: Dimension::Pixels(8.0),
-                    ..Default::default()
-                })
-                .display(DisplayType::Block)
+        let button_text = if show_success {
+            "✅ Copied!".to_string()
         } else {
-            // Just the code block with margins
-            code_block_content
-                .margin(BoxDimension {
-                    top: Dimension::Pixels(8.0),
-                    bottom: Dimension::Pixels(8.0),
-                    ..Default::default()
-                })
+            "📋 Copy".to_string()
         };
+        
+        let copy_button = Element::new(font, ElementContent::Text(button_text))
+            .colors(ElementColors {
+                bg: LinearRgba::with_components(0.2, 0.2, 0.25, 0.9).into(),
+                text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
+                border: BorderColor::new(LinearRgba::with_components(0.3, 0.3, 0.35, 0.8)),
+                ..Default::default()
+            })
+            .hover_colors(Some(ElementColors {
+                bg: LinearRgba::with_components(0.25, 0.25, 0.3, 0.95).into(),
+                text: LinearRgba::with_components(1.0, 1.0, 1.0, 1.0).into(),
+                border: BorderColor::new(LinearRgba::with_components(0.4, 0.4, 0.45, 0.9)),
+                ..Default::default()
+            }))
+            .padding(BoxDimension {
+                left: Dimension::Pixels(8.0),
+                right: Dimension::Pixels(8.0),
+                top: Dimension::Pixels(4.0),
+                bottom: Dimension::Pixels(4.0),
+            })
+            .border(BoxDimension::new(Dimension::Pixels(1.0)))
+            .float(Float::Right)
+            .display(DisplayType::Block)
+            .item_type(crate::termwindow::UIItemType::CodeBlockCopyButton(
+                block_id.clone(),
+            ));
 
-        // If hovering, add a copy button above the code block
-        if container.hovering_content {
-            // Check if we should show success state
-            let show_success = container.copy_success_time
-                .map(|time| time.elapsed().as_secs_f32() < 2.0)
-                .unwrap_or(false);
-            
-            let button_text = if show_success {
-                "✅ Copied!".to_string()
-            } else {
-                "📋 Copy".to_string()
-            };
-            
-            let copy_button = Element::new(font, ElementContent::Text(button_text))
-                .colors(ElementColors {
-                    bg: LinearRgba::with_components(0.2, 0.2, 0.25, 0.9).into(),
-                    text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
-                    border: BorderColor::new(LinearRgba::with_components(0.3, 0.3, 0.35, 0.8)),
-                    ..Default::default()
-                })
-                .hover_colors(Some(ElementColors {
-                    bg: LinearRgba::with_components(0.25, 0.25, 0.3, 0.95).into(),
-                    text: LinearRgba::with_components(1.0, 1.0, 1.0, 1.0).into(),
-                    border: BorderColor::new(LinearRgba::with_components(0.4, 0.4, 0.45, 0.9)),
-                    ..Default::default()
-                }))
-                .padding(BoxDimension {
-                    left: Dimension::Pixels(8.0),
-                    right: Dimension::Pixels(8.0),
-                    top: Dimension::Pixels(4.0),
-                    bottom: Dimension::Pixels(4.0),
-                })
-                .border(BoxDimension::new(Dimension::Pixels(1.0)))
-                .float(Float::Right)
-                .display(DisplayType::Block)
-                .item_type(crate::termwindow::UIItemType::CodeBlockCopyButton(
-                    block_id.clone(),
-                ));
-
-            // Create a wrapper that includes both the copy button and the code block
-            let wrapper = Element::new(font, ElementContent::Children(vec![copy_button, code_block]))
-                .display(DisplayType::Block);
-            
-            wrapper
-        } else {
-            code_block
-        }
+        // Create a wrapper that includes both the copy button and the code block
+        Element::new(font, ElementContent::Children(vec![copy_button, code_block]))
+            .display(DisplayType::Block)
     }
 }
