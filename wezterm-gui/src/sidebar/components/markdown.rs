@@ -270,7 +270,7 @@ impl MarkdownRenderer {
                 );
 
                 line_parts.push(
-                    Element::new(font, ElementContent::WrappedText(text.to_string())).colors(
+                    Element::new(font, ElementContent::Text(text.to_string())).colors(
                         ElementColors {
                             text: color.into(),
                             ..Default::default()
@@ -289,14 +289,24 @@ impl MarkdownRenderer {
 
         // If no lines were highlighted, fall back to plain text
         if line_elements.is_empty() {
-            line_elements.push(
-                Element::new(font, ElementContent::WrappedText(code.to_string()))
-                    .colors(ElementColors {
-                        text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
-                        ..Default::default()
-                    })
-                    .display(DisplayType::Block),
-            );
+            // Split code into lines and render each as a separate block element
+            for line in code.lines() {
+                line_elements.push(
+                    Element::new(font, ElementContent::Text(line.to_string()))
+                        .colors(ElementColors {
+                            text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
+                            ..Default::default()
+                        })
+                        .display(DisplayType::Block),
+                );
+            }
+            // Handle case where code is empty or has no lines
+            if line_elements.is_empty() {
+                line_elements.push(
+                    Element::new(font, ElementContent::Text(String::new()))
+                        .display(DisplayType::Block),
+                );
+            }
         }
 
         // Wrap in a code block container
