@@ -332,9 +332,13 @@ if let Some(focused_block) = self.get_focused_code_block() {
   - Created stub methods for each interaction type
   - Set appropriate cursors (Arrow for scrollbar/button, Text for content)
 - ✅ Verified `ScrollbarRenderer` supports horizontal mode via `new_horizontal()`
+- ✅ Code blocks now tagged with `UIItemType::CodeBlockContent` for interaction
+- ✅ Added NaN protection in width measurement
+- ✅ Creating CodeBlockContainer instances (not yet used for state management)
 - 🔲 TODO: Actually render the scrollbar in code blocks
 - 🔲 TODO: Implement shared auto-hide behavior
 - 🔲 TODO: Position scrollbar below code content
+- 🔲 TODO: Implement viewport clipping for scrolled content
 
 ### Phase 3: Mouse Interaction 🔲 NOT STARTED
 - 🔲 Horizontal wheel scrolling
@@ -360,15 +364,17 @@ if let Some(focused_block) = self.get_focused_code_block() {
 
 ## Implementation Differences/Notes
 
-1. **Width Measurement**: Using `unicode_column_width` from termwiz instead of a custom implementation, which is more accurate for terminal rendering.
+1. **Width Measurement**: Using `unicode_column_width` from termwiz instead of a custom implementation, which is more accurate for terminal rendering. Added NaN protection in the fold operation.
 
 2. **Renderer Structure**: Made `MarkdownRenderer` methods require `&mut self` to support the code block counter. This allows generating unique IDs without external state.
 
-3. **UIItemType Integration**: Following the existing pattern where UIItemType variants store the ID string directly, not wrapped in a struct.
+3. **UIItemType Integration**: Following the existing pattern where UIItemType variants store the ID string directly, not wrapped in a struct. Code blocks are now tagged with `UIItemType::CodeBlockContent`.
 
 4. **ScrollbarRenderer**: The existing `ScrollbarRenderer` already supports horizontal mode perfectly, so we can reuse it directly rather than creating a custom implementation.
 
 5. **Mouse Event Stubs**: Added placeholder implementations that log actions and set appropriate cursors. These will be fleshed out in Phase 3.
+
+6. **State Management**: After review, decided against a global registry approach. Instead, will integrate state management directly into the sidebar components in the next phase.
 
 ## Next Steps
 

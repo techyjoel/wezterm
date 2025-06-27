@@ -323,7 +323,13 @@ fn measure_code_block_width(lines: &[&str], font: &Rc<LoadedFont>) -> f32 {
             let width = unicode_column_width(line, None) as f32;
             width * font.metrics().cell_width.get() as f32
         })
-        .fold(0.0_f32, |max, width| max.max(width))
+        .fold(0.0_f32, |max, width| {
+            if width.is_finite() && width > max {
+                width
+            } else {
+                max
+            }
+        })
 }
 
 impl MarkdownRenderer {
@@ -416,11 +422,17 @@ impl MarkdownRenderer {
         let content_width = measure_code_block_width(&lines_for_measurement, font);
         let viewport_width = max_width.unwrap_or(content_width);
         
+        // Create container for tracking scroll state
+        let _container = CodeBlockContainer::new(block_id.clone(), viewport_width);
+        let _needs_scrollbar = content_width > viewport_width;
+        
         // For now, just render normally without scrolling
-        // TODO: Implement horizontal scrolling in Phase 2
+        // TODO: In next phase, implement actual scrolling with clipping/viewport
+        // TODO: Add scrollbar rendering when needs_scrollbar is true
+        // TODO: Register UIItemType for mouse interaction
 
         // Wrap in a code block container
-        Element::new(font, ElementContent::Children(line_elements))
+        let mut code_block = Element::new(font, ElementContent::Children(line_elements))
             .colors(ElementColors {
                 bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),
                 border: BorderColor::new(LinearRgba::with_components(0.2, 0.2, 0.25, 0.5)),
@@ -434,5 +446,8 @@ impl MarkdownRenderer {
                 ..Default::default()
             })
             .display(DisplayType::Block)
+            .item_type(crate::termwindow::UIItemType::CodeBlockContent(block_id));
+            
+        code_block
     }
 }
