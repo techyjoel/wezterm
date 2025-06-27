@@ -140,6 +140,11 @@ impl ModalContent for SuggestionModal {
 
         let estimated_height = title_height + (total_lines * line_height) + button_height + 80.0; // More padding
         *self.content_height.lock().unwrap() = estimated_height;
+        
+        log::debug!(
+            "SuggestionModal content height calculation: title_height={}, line_count={}, markdown_overhead={}, total_lines={}, line_height={}, button_height={}, estimated_height={}",
+            title_height, line_count, markdown_overhead, total_lines, line_height, button_height, estimated_height
+        );
 
         content_container
     }

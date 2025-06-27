@@ -157,7 +157,13 @@ impl ModalManager {
             }
 
             // Update visible height for scrolling
-            self.visible_height = modal_bounds.height() - 40.0; // Account for padding
+            self.visible_height = modal_bounds.height() - 60.0; // Account for header and padding
+            log::debug!(
+                "Modal bounds: width={}, height={}, visible_height={}",
+                modal_bounds.width(),
+                modal_bounds.height(),
+                self.visible_height
+            );
 
             // Render modal container with shadow at z-index 21
             let shadow_color = LinearRgba(0.0, 0.0, 0.0, 0.3 * opacity);
@@ -182,17 +188,103 @@ impl ModalManager {
                     .zindex(21),
             );
 
-            // Modal background - solid mid-gray with border
+            // Modal background with cut-a-hole pattern
+            // We'll render the background in sections, leaving a hole for the scrollable content
+            let content_area_top = modal_bounds.min_y() + 40.0; // Header height
+            let content_area_bottom = modal_bounds.max_y() - 20.0; // Bottom padding
+            let content_area_left = modal_bounds.min_x() + 20.0;
+            let content_area_right = modal_bounds.max_x() - 20.0;
+            
+            let bg_color = LinearRgba(0.2, 0.2, 0.2, 1.0);
+            let border_color = LinearRgba(0.4, 0.4, 0.4, 1.0);
+            
+            // Top section (header area) at z-index 22
             elements.push(
                 Element::new(&fonts.body, ElementContent::Text(String::new()))
                     .colors(ElementColors {
-                        border: BorderColor::new(LinearRgba(0.4, 0.4, 0.4, 1.0)),
-                        bg: LinearRgba(0.2, 0.2, 0.2, 1.0).into(), // Solid mid-gray background
-                        text: LinearRgba(1.0, 1.0, 1.0, 1.0).into(),
+                        bg: bg_color.into(),
+                        ..Default::default()
                     })
                     .display(DisplayType::Block)
-                    .min_width(Some(Dimension::Pixels(modal_bounds.width() as f32)))
-                    .min_height(Some(Dimension::Pixels(modal_bounds.height() as f32)))
+                    .min_width(Some(Dimension::Pixels(modal_bounds.width())))
+                    .min_height(Some(Dimension::Pixels(content_area_top - modal_bounds.min_y())))
+                    .margin(BoxDimension {
+                        left: Dimension::Pixels(modal_bounds.min_x()),
+                        top: Dimension::Pixels(modal_bounds.min_y()),
+                        right: Dimension::Pixels(0.0),
+                        bottom: Dimension::Pixels(0.0),
+                    })
+                    .zindex(22),
+            );
+            
+            // Bottom section at z-index 22
+            elements.push(
+                Element::new(&fonts.body, ElementContent::Text(String::new()))
+                    .colors(ElementColors {
+                        bg: bg_color.into(),
+                        ..Default::default()
+                    })
+                    .display(DisplayType::Block)
+                    .min_width(Some(Dimension::Pixels(modal_bounds.width())))
+                    .min_height(Some(Dimension::Pixels(modal_bounds.max_y() - content_area_bottom)))
+                    .margin(BoxDimension {
+                        left: Dimension::Pixels(modal_bounds.min_x()),
+                        top: Dimension::Pixels(content_area_bottom),
+                        right: Dimension::Pixels(0.0),
+                        bottom: Dimension::Pixels(0.0),
+                    })
+                    .zindex(22),
+            );
+            
+            // Left edge at z-index 22
+            elements.push(
+                Element::new(&fonts.body, ElementContent::Text(String::new()))
+                    .colors(ElementColors {
+                        bg: bg_color.into(),
+                        ..Default::default()
+                    })
+                    .display(DisplayType::Block)
+                    .min_width(Some(Dimension::Pixels(content_area_left - modal_bounds.min_x())))
+                    .min_height(Some(Dimension::Pixels(content_area_bottom - content_area_top)))
+                    .margin(BoxDimension {
+                        left: Dimension::Pixels(modal_bounds.min_x()),
+                        top: Dimension::Pixels(content_area_top),
+                        right: Dimension::Pixels(0.0),
+                        bottom: Dimension::Pixels(0.0),
+                    })
+                    .zindex(22),
+            );
+            
+            // Right edge (includes scrollbar area) at z-index 22
+            elements.push(
+                Element::new(&fonts.body, ElementContent::Text(String::new()))
+                    .colors(ElementColors {
+                        bg: bg_color.into(),
+                        ..Default::default()
+                    })
+                    .display(DisplayType::Block)
+                    .min_width(Some(Dimension::Pixels(modal_bounds.max_x() - content_area_right)))
+                    .min_height(Some(Dimension::Pixels(content_area_bottom - content_area_top)))
+                    .margin(BoxDimension {
+                        left: Dimension::Pixels(content_area_right),
+                        top: Dimension::Pixels(content_area_top),
+                        right: Dimension::Pixels(0.0),
+                        bottom: Dimension::Pixels(0.0),
+                    })
+                    .zindex(22),
+            );
+            
+            // Modal border at z-index 22 (same as frame sections)
+            elements.push(
+                Element::new(&fonts.body, ElementContent::Text(String::new()))
+                    .colors(ElementColors {
+                        border: BorderColor::new(border_color),
+                        bg: LinearRgba(0.0, 0.0, 0.0, 0.0).into(), // Transparent
+                        ..Default::default()
+                    })
+                    .display(DisplayType::Block)
+                    .min_width(Some(Dimension::Pixels(modal_bounds.width())))
+                    .min_height(Some(Dimension::Pixels(modal_bounds.height())))
                     .border(BoxDimension::new(Dimension::Pixels(1.0)))
                     .margin(BoxDimension {
                         left: Dimension::Pixels(modal_bounds.min_x()),
@@ -200,7 +292,7 @@ impl ModalManager {
                         right: Dimension::Pixels(0.0),
                         bottom: Dimension::Pixels(0.0),
                     })
-                    .zindex(21),
+                    .zindex(22),
             );
 
             // Render close button with proper positioning
@@ -208,7 +300,7 @@ impl ModalManager {
             let close_button_x = modal_bounds.max_x() - close_button_size - 8.0;
             let close_button_y = modal_bounds.min_y() + 8.0;
 
-            // Close button background
+            // Close button background at z-index 22 (same as frame)
             elements.push(
                 Element::new(&fonts.body, ElementContent::Text(String::new()))
                     .colors(ElementColors {
@@ -228,7 +320,7 @@ impl ModalManager {
                     .zindex(22),
             );
 
-            // Close button X text
+            // Close button X text at z-index 22 (same as frame)
             elements.push(
                 Element::new(&fonts.heading, ElementContent::Text("X".to_string()))
                     .colors(ElementColors {
@@ -254,6 +346,25 @@ impl ModalManager {
                 modal_bounds.height() - 60.0,
             );
 
+            // Add content area background at z-index 20 (lowest layer, will show through the hole)
+            elements.push(
+                Element::new(&fonts.body, ElementContent::Text(String::new()))
+                    .colors(ElementColors {
+                        bg: bg_color.into(),
+                        ..Default::default()
+                    })
+                    .display(DisplayType::Block)
+                    .min_width(Some(Dimension::Pixels(content_bounds.width())))
+                    .min_height(Some(Dimension::Pixels(content_bounds.height())))
+                    .margin(BoxDimension {
+                        left: Dimension::Pixels(content_bounds.min_x()),
+                        top: Dimension::Pixels(content_bounds.min_y()),
+                        right: Dimension::Pixels(0.0),
+                        bottom: Dimension::Pixels(0.0),
+                    })
+                    .zindex(20),
+            );
+
             let context = ModalRenderContext {
                 modal_bounds: content_bounds,
                 fonts,
@@ -266,6 +377,7 @@ impl ModalManager {
                 let content_element = modal.content.render(&context);
 
                 // Wrap content in a positioned container with proper width constraints
+                // Use z-index 21 so it renders on top of the content background (20) but below the modal frame (22)
                 let positioned_content =
                     Element::new(&fonts.body, ElementContent::Children(vec![content_element]))
                         .display(DisplayType::Block)
@@ -285,7 +397,13 @@ impl ModalManager {
                 self.content_height = modal.content.get_content_height();
             }
 
-            // Render scrollbar if needed at z-index 24
+            // Render scrollbar if needed at z-index 23 (above everything else)
+            log::debug!(
+                "Modal scrollbar check: content_height={}, visible_height={}, should_show={}",
+                self.content_height,
+                self.visible_height,
+                self.content_height > self.visible_height
+            );
             if self.content_height > self.visible_height {
                 let scrollbar_elements = self.render_scrollbar(modal_bounds, fonts);
                 elements.extend(scrollbar_elements);
@@ -371,7 +489,7 @@ impl ModalManager {
             right: Dimension::Pixels(0.0),
             bottom: Dimension::Pixels(0.0),
         })
-        .zindex(24);
+        .zindex(23);
 
         elements.push(track_container);
 
@@ -399,7 +517,7 @@ impl ModalManager {
                 bottom: Dimension::Pixels(0.0),
             })
             .display(DisplayType::Block)
-            .zindex(24);
+            .zindex(23);
 
         elements.push(thumb_element);
 

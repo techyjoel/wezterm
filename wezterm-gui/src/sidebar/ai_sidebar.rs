@@ -174,10 +174,143 @@ impl AiSidebar {
             edit_text: String::new(),
         });
 
-        // Set a current suggestion with longer text to test wrapping
+        // Set a current suggestion with very long content to test scrolling
+        let test_content = r#"It looks like the linker couldn't find OpenSSL. This is a common issue when building projects that depend on OpenSSL for cryptographic functionality. Let me provide a comprehensive guide to resolving this issue.
+
+## Quick Solution
+
+Run the following command to install OpenSSL:
+
+```bash
+brew install openssl@3
+```
+
+## If That Doesn't Work
+
+You may need to set environment variables to help the build system find OpenSSL:
+
+```bash
+export PKG_CONFIG_PATH="/opt/homebrew/opt/openssl@3/lib/pkgconfig"
+export LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib"
+export CPPFLAGS="-I/opt/homebrew/opt/openssl@3/include"
+```
+
+## Common Issues
+
+1. **Wrong OpenSSL version**: Some projects require openssl@1.1 instead of openssl@3
+2. **Multiple OpenSSL installations**: Check `brew list | grep openssl` to see all versions
+3. **Architecture mismatch**: On M1 Macs, ensure you're using the right architecture
+4. **Missing pkg-config**: Install with `brew install pkg-config`
+5. **Incorrect paths**: Verify paths with `brew --prefix openssl@3`
+
+## Detailed Troubleshooting Steps
+
+### Step 1: Check Current Installation
+First, let's check what OpenSSL versions you have installed:
+
+```bash
+brew list | grep openssl
+ls -la /opt/homebrew/opt/ | grep openssl
+which openssl
+openssl version
+```
+
+### Step 2: Clean Installation
+If you have conflicts, clean up first:
+
+```bash
+brew uninstall --ignore-dependencies openssl@3
+brew uninstall --ignore-dependencies openssl@1.1
+brew cleanup
+```
+
+### Step 3: Fresh Install
+Install the required version:
+
+```bash
+brew install openssl@3
+brew link openssl@3 --force
+```
+
+### Step 4: Verify Installation
+Check that everything is properly installed:
+
+```bash
+brew test openssl@3
+pkg-config --libs openssl
+```
+
+### Step 5: Configure Your Shell
+Add these to your shell configuration file (~/.zshrc or ~/.bashrc):
+
+```bash
+# OpenSSL Configuration
+export PATH="/opt/homebrew/opt/openssl@3/bin:$PATH"
+export LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib"
+export CPPFLAGS="-I/opt/homebrew/opt/openssl@3/include"
+export PKG_CONFIG_PATH="/opt/homebrew/opt/openssl@3/lib/pkgconfig"
+```
+
+### Step 6: Alternative Solutions
+
+#### Using MacPorts
+If Homebrew doesn't work, try MacPorts:
+
+```bash
+sudo port install openssl
+sudo port select --set openssl openssl3
+```
+
+#### Building from Source
+As a last resort, build OpenSSL from source:
+
+```bash
+wget https://www.openssl.org/source/openssl-3.0.7.tar.gz
+tar -xf openssl-3.0.7.tar.gz
+cd openssl-3.0.7
+./config --prefix=/usr/local/openssl --openssldir=/usr/local/openssl
+make
+sudo make install
+```
+
+## Platform-Specific Notes
+
+### macOS Monterey and Later
+Apple has deprecated OpenSSL in favor of their own crypto libraries. You may need to:
+
+1. Disable System Integrity Protection (not recommended)
+2. Use a different crypto library
+3. Explicitly specify OpenSSL paths in your build configuration
+
+### M1/M2 Mac Considerations
+On Apple Silicon, paths differ:
+- Intel: `/usr/local/opt/openssl@3`
+- Apple Silicon: `/opt/homebrew/opt/openssl@3`
+
+## Related Issues
+- libssl-dev on Linux: `sudo apt-get install libssl-dev`
+- Windows: Use vcpkg or download prebuilt binaries
+- Docker: Add `RUN apk add --no-cache openssl-dev` to Dockerfile
+
+This should resolve most OpenSSL-related build issues. If problems persist, check your project's specific requirements.
+
+If you're still having issues:
+
+1. Clean your build directory: `make clean`
+2. Check your PATH: `echo $PATH`
+3. Verify OpenSSL installation: `brew info openssl@3`
+4. Try linking manually: `brew link openssl@3 --force`
+
+## References
+
+- [Homebrew OpenSSL Formula](https://formulae.brew.sh/formula/openssl@3)
+- [Common macOS linking issues](https://github.com/openssl/openssl/issues)
+
+This should resolve your OpenSSL linking error. If problems persist, check your project's specific build documentation."#;
+
         self.current_suggestion = Some(CurrentSuggestion {
             title: "Install missing dependency".to_string(),
-            content: "It looks like the linker couldn't find OpenSSL. This is a common issue when building projects that depend on OpenSSL for cryptographic functionality. You'll need to install OpenSSL using Homebrew. Run the following command: `brew install openssl@3` and then rerun `make`. If the issue persists, you may need to set environment variables like PKG_CONFIG_PATH=/opt/homebrew/opt/openssl@3/lib/pkgconfig to help the build system find the OpenSSL libraries.".to_string(),
+            content: test_content.to_string(),
             has_action: true,
             action_type: Some("run".to_string()),
         });
@@ -201,21 +334,26 @@ impl AiSidebar {
             timestamp: now - Duration::from_secs(30),
         });
 
-        // Add AI response with markdown
+        // Add AI response with long markdown content to test text wrapping
         self.activity_log.push(ActivityItem::Chat {
             id: "chat2".to_string(),
-            message: r#"I see you're getting an **OpenSSL error**. This is a common issue when building projects. Here's how to fix it:
+            message: r#"I see you're getting an **OpenSSL error**. This is a very common issue when building projects that depend on OpenSSL for cryptographic functionality. Let me provide you with a comprehensive guide to resolve this issue on macOS.
 
-## Solution
+## Quick Solution (Try This First)
+
+The fastest way to resolve this is usually:
 
 1. First, check if OpenSSL is installed:
    ```bash
    brew list openssl
+   brew list | grep openssl
    ```
 
 2. If not installed, run:
    ```bash
-   brew install openssl
+   brew install openssl@3
+   # or for older projects:
+   brew install openssl@1.1
    ```
 
 3. Then set the environment variables:
@@ -228,11 +366,85 @@ impl AiSidebar {
 
 4. Try running `make` again.
 
-### Alternative Solution
-If the above doesn't work, you might need to install `pkg-config`:
+## Detailed Troubleshooting
+
+If the quick solution doesn't work, here are more comprehensive steps:
+
+### Step 1: Verify Your System
+First, let's understand your environment:
 ```bash
+# Check macOS version
+sw_vers -productVersion
+
+# Check architecture (Intel vs Apple Silicon)
+uname -m
+
+# Check Homebrew installation
+brew --version
+brew config
+```
+
+### Step 2: Clean Up Existing Installations
+Sometimes conflicts arise from multiple OpenSSL installations:
+```bash
+# List all OpenSSL installations
+brew list | grep openssl
+ls -la /usr/local/opt/ | grep openssl
+ls -la /opt/homebrew/opt/ | grep openssl
+
+# If you have conflicts, uninstall all versions
+brew uninstall --ignore-dependencies openssl@3
+brew uninstall --ignore-dependencies openssl@1.1
+brew uninstall --ignore-dependencies openssl
+```
+
+### Step 3: Install the Correct Version
+Different projects require different OpenSSL versions:
+```bash
+# For modern projects (OpenSSL 3.x)
+brew install openssl@3
+
+# For older projects (OpenSSL 1.1)
+brew install openssl@1.1
+
+# Force link if needed
+brew link openssl@3 --force
+```
+
+### Step 4: Configure pkg-config
+The pkg-config tool helps compilers find libraries:
+```bash
+# Install pkg-config if missing
 brew install pkg-config
-```"#.to_string(),
+
+# Verify it can find OpenSSL
+pkg-config --modversion openssl
+pkg-config --libs openssl
+pkg-config --cflags openssl
+```
+
+### Alternative Solution
+If the above doesn't work, you might need to:
+```bash
+# Install pkg-config
+brew install pkg-config
+
+# Or try using the system's built-in LibreSSL
+export LDFLAGS="-L/usr/lib"
+export CPPFLAGS="-I/usr/include"
+```
+
+## Platform-Specific Considerations
+
+### Apple Silicon (M1/M2) Macs
+Paths differ on Apple Silicon:
+- Intel Macs: `/usr/local/opt/openssl`
+- Apple Silicon: `/opt/homebrew/opt/openssl`
+
+### macOS Ventura and Later
+Apple has deprecated OpenSSL in favor of their own crypto libraries, which can cause additional complications.
+
+This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.to_string(),
             is_user: false,
             timestamp: now - Duration::from_secs(20),
         });
@@ -671,7 +883,11 @@ brew install pkg-config
                     )
                 } else {
                     // AI messages use markdown rendering with code font support
+                    // Need to add width constraint for proper text wrapping
+                    let sidebar_width = self.width as f32;
+                    let content_width = sidebar_width - 52.0; // Account for margins and padding
                     MarkdownRenderer::render_with_code_font(message, &fonts.body, &fonts.code)
+                        .max_width(Some(Dimension::Pixels(content_width)))
                 };
 
                 Element::new(&fonts.body, ElementContent::Children(vec![content]))
@@ -702,14 +918,20 @@ brew install pkg-config
                         ..Default::default()
                     })
             }
-            ActivityItem::Suggestion { title, content, .. } => Card::new()
-                .with_title(format!("Past: {}", title))
-                .with_content(vec![MarkdownRenderer::render_with_code_font(
-                    content,
-                    &fonts.body,
-                    &fonts.code,
-                )])
-                .render(&fonts.heading),
+            ActivityItem::Suggestion { title, content, .. } => {
+                // Add width constraint for proper text wrapping
+                let sidebar_width = self.width as f32;
+                let content_width = sidebar_width - 52.0; // Account for margins and padding
+                Card::new()
+                    .with_title(format!("Past: {}", title))
+                    .with_content(vec![MarkdownRenderer::render_with_code_font(
+                        content,
+                        &fonts.body,
+                        &fonts.code,
+                    )
+                    .max_width(Some(Dimension::Pixels(content_width)))])
+                    .render(&fonts.heading)
+            }
             ActivityItem::Goal { text, .. } => {
                 Element::new(&fonts.body, ElementContent::Text(format!("Goal: {}", text)))
                     .colors(ElementColors {
