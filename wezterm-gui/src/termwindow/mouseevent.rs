@@ -443,36 +443,36 @@ impl super::TermWindow {
         context: &dyn WindowOps,
     ) {
         self.last_ui_item.replace(item.clone());
-        match item.item_type {
-            UIItemType::TabBar(item) => {
-                self.mouse_event_tab_bar(item, event, context);
+        match &item.item_type {
+            UIItemType::TabBar(tab_item) => {
+                self.mouse_event_tab_bar(tab_item.clone(), event, context);
             }
             UIItemType::AboveScrollThumb => {
-                self.mouse_event_above_scroll_thumb(item, pane, event, context);
+                self.mouse_event_above_scroll_thumb(item.clone(), pane, event, context);
             }
             UIItemType::ScrollThumb => {
-                self.mouse_event_scroll_thumb(item, pane, event, context);
+                self.mouse_event_scroll_thumb(item.clone(), pane, event, context);
             }
             UIItemType::BelowScrollThumb => {
-                self.mouse_event_below_scroll_thumb(item, pane, event, context);
+                self.mouse_event_below_scroll_thumb(item.clone(), pane, event, context);
             }
             UIItemType::Split(split) => {
-                self.mouse_event_split(item, split, event, context);
+                self.mouse_event_split(item.clone(), split.clone(), event, context);
             }
             UIItemType::CloseTab(idx) => {
-                self.mouse_event_close_tab(idx, event, context);
+                self.mouse_event_close_tab(*idx, event, context);
             }
             UIItemType::SidebarButton(position) => {
-                self.mouse_event_sidebar_button(position, event, context);
+                self.mouse_event_sidebar_button(*position, event, context);
             }
             UIItemType::Sidebar(position) => {
-                self.mouse_event_sidebar(position, event, context);
+                self.mouse_event_sidebar(*position, event, context);
             }
             UIItemType::SidebarFilterChip(filter) => {
-                self.mouse_event_sidebar_filter_chip(filter, event, context);
+                self.mouse_event_sidebar_filter_chip(*filter, event, context);
             }
             UIItemType::ShowMoreButton(suggestion_id) => {
-                self.mouse_event_show_more_button(suggestion_id, event, context);
+                self.mouse_event_show_more_button(suggestion_id.clone(), event, context);
             }
             UIItemType::SuggestionRunButton => {
                 self.mouse_event_suggestion_run_button(event, context);
@@ -481,13 +481,13 @@ impl super::TermWindow {
                 self.mouse_event_suggestion_dismiss_button(event, context);
             }
             UIItemType::CodeBlockScrollbar(block_id) => {
-                self.mouse_event_code_block_scrollbar(item, block_id, event, context);
+                self.mouse_event_code_block_scrollbar(item.clone(), block_id.clone(), event, context);
             }
             UIItemType::CodeBlockContent(block_id) => {
-                self.mouse_event_code_block_content(block_id, event, context);
+                self.mouse_event_code_block_content(block_id.clone(), event, context);
             }
             UIItemType::CodeBlockCopyButton(block_id) => {
-                self.mouse_event_code_block_copy_button(block_id, event, context);
+                self.mouse_event_code_block_copy_button(block_id.clone(), event, context);
             }
         }
     }

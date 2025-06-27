@@ -6,7 +6,7 @@ use crate::sidebar::components::horizontal_scroll::{
     create_horizontal_scroll_container, HorizontalScrollConfig,
 };
 use crate::termwindow::box_model::{
-    BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent,
+    BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent, Float,
 };
 use crate::termwindow::render::scrollbar_renderer::ScrollbarRenderer;
 use config::Dimension;
@@ -601,7 +601,7 @@ impl MarkdownRenderer {
                     bottom: Dimension::Pixels(4.0),
                 })
                 .border(BoxDimension::new(Dimension::Pixels(1.0)))
-                .float(Some(Float::Right))
+                .float(Float::Right)
                 .display(DisplayType::Block)
                 .item_type(crate::termwindow::UIItemType::CodeBlockCopyButton(
                     block_id.clone(),

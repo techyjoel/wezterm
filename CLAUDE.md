@@ -63,18 +63,19 @@ The workflow you should use is:
 4. Create a branch if doing any notable work (feature or other material change)
 5. Once in agreement on the proposed work, implement the change
 6. Run auto-format of code
-7. Run a type check and then a release mode build to test if changes compile successfully
+7. You MUST run a type check and then a release mode build to test if changes compile successfully before proceeding
 9. If you made GUI changes then prompt the user to run the build to test it (since you won't be able to see the graphic results). DO NOT move on to further steps until this step is complete.
 10. Git add and commit (only after succesfully compiling and testing). Then if on a branch, git push (if not then the user will push when desired)
 11. Update TASKS.md (if it is in use)
   - Check off tasks that are fully complete
+  - Note partiallly-completed work that's done (and what's left to do), but do not check off partially-completed tasks
   - Correct the task items to reflect the as-built conditions (i.e. re-word things or add things so the task list reflects the new codebase)
   - Add implementation details that have been built which will need to be referenced for future tasks
-  - Note partiallly-completed work that's done (and what's left to do), but do not check off partially-completed tasks
 
 ### Git commits
    - Include "Created with AI assistance" in your git commit messages.
-   - DO NOT say anything else about AI like "co-authored" or anything else. DO NOT mention Claude.
+   - DO NOT say anything else about AI like "co-authored" or anything else. 
+   - DO NOT mention Claude.
    - Don't use any emojii in git commit messages
 
 ## High-Level Architecture
