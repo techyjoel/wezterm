@@ -453,6 +453,16 @@ impl ModalManager {
         let scrollbar_height = self.visible_height;
         let scrollbar_y = modal_bounds.min_y() + 40.0;
 
+        log::debug!(
+            "Modal scrollbar positioning: modal_bounds=({}, {}, {}, {}), scrollbar_x={}, scrollbar_y={}",
+            modal_bounds.min_x(),
+            modal_bounds.min_y(),
+            modal_bounds.max_x(),
+            modal_bounds.max_y(),
+            scrollbar_x,
+            scrollbar_y
+        );
+
         // Calculate thumb size and position
         let thumb_height = (self.visible_height / self.content_height) * scrollbar_height;
         let thumb_height = thumb_height.max(30.0).min(scrollbar_height); // Minimum thumb size
@@ -484,8 +494,8 @@ impl ModalManager {
             ]),
         )
         .margin(BoxDimension {
-            left: Dimension::Pixels(scrollbar_x - modal_bounds.min_x()),
-            top: Dimension::Pixels(scrollbar_y - modal_bounds.min_y()),
+            left: Dimension::Pixels(scrollbar_x),
+            top: Dimension::Pixels(scrollbar_y),
             right: Dimension::Pixels(0.0),
             bottom: Dimension::Pixels(0.0),
         })
@@ -511,8 +521,8 @@ impl ModalManager {
             .min_width(Some(Dimension::Pixels(scrollbar_width)))
             .min_height(Some(Dimension::Pixels(thumb_height)))
             .margin(BoxDimension {
-                left: Dimension::Pixels(scrollbar_x - modal_bounds.min_x()),
-                top: Dimension::Pixels(thumb_y - modal_bounds.min_y()),
+                left: Dimension::Pixels(scrollbar_x),
+                top: Dimension::Pixels(thumb_y),
                 right: Dimension::Pixels(0.0),
                 bottom: Dimension::Pixels(0.0),
             })
