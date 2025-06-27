@@ -322,40 +322,41 @@ if let Some(focused_block) = self.get_focused_code_block() {
 - ✅ Added new public method `render_with_width()` for width-aware rendering
 - ✅ Collected lines for measurement in `highlight_code_block`
 
-### Phase 2: Scrollbar Rendering 🔄 IN PROGRESS
+### Phase 2: Scrollbar Rendering ✅ COMPLETED
 - ✅ Added UIItemType variants:
   - `CodeBlockScrollbar(String)`
   - `CodeBlockContent(String)`
   - `CodeBlockCopyButton(String)`
 - ✅ Updated mouse event handling in `mouseevent.rs`:
   - Added match arms for new UIItemType variants
-  - Created stub methods for each interaction type
+  - Created full implementations for each interaction type
   - Set appropriate cursors (Arrow for scrollbar/button, Text for content)
 - ✅ Verified `ScrollbarRenderer` supports horizontal mode via `new_horizontal()`
 - ✅ Code blocks now tagged with `UIItemType::CodeBlockContent` for interaction
 - ✅ Added NaN protection in width measurement
-- ✅ Creating CodeBlockContainer instances (not yet used for state management)
-- 🔲 TODO: Actually render the scrollbar in code blocks
-- 🔲 TODO: Implement shared auto-hide behavior
-- 🔲 TODO: Position scrollbar below code content
-- 🔲 TODO: Implement viewport clipping for scrolled content
+- ✅ Creating CodeBlockContainer instances with proper state management
+- ✅ Actually render the scrollbar in code blocks using `horizontal_scroll` helper
+- ✅ Implemented shared auto-hide behavior with opacity animation
+- ✅ Position scrollbar below code content with proper spacing
+- ✅ Implemented viewport clipping for scrolled content using negative margin
 
-### Phase 3: Mouse Interaction 🔲 NOT STARTED
-- 🔲 Horizontal wheel scrolling
-- 🔲 Scrollbar dragging
-- 🔲 Click to focus
-- 🔲 Hover state tracking
+### Phase 3: Mouse Interaction ✅ COMPLETED
+- ✅ Horizontal wheel scrolling (both native horizontal and Shift+vertical)
+- ✅ Scrollbar dragging with proper drag offset calculation
+- ✅ Click to focus (clears focus from other code blocks)
+- ✅ Hover state tracking for both content and scrollbar
 
-### Phase 4: Copy Button 🔲 NOT STARTED
-- 🔲 Render copy button above code block
-- 🔲 Implement clipboard integration
-- 🔲 Visual feedback on copy
+### Phase 4: Copy Button 🔄 PARTIALLY COMPLETED
+- 🔲 TODO: Render copy button above code block on hover
+- ✅ Implemented clipboard integration (placeholder for now)
+- 🔲 TODO: Extract actual code content from markdown
+- 🔲 TODO: Visual feedback on copy
 
-### Phase 5: Keyboard Support 🔲 NOT STARTED
-- 🔲 Focus management
-- 🔲 Arrow key scrolling
-- 🔲 Home/End navigation
-- 🔲 Shift+wheel for horizontal scroll
+### Phase 5: Keyboard Support 🔄 PARTIALLY COMPLETED
+- ✅ Focus management (click to focus, maintains focus state)
+- 🔲 TODO: Arrow key scrolling when focused
+- 🔲 TODO: Home/End navigation when focused
+- ✅ Shift+wheel for horizontal scroll (already implemented)
 
 ### Phase 6: Polish 🔲 NOT STARTED
 - 🔲 Smooth scrolling animation
@@ -370,15 +371,24 @@ if let Some(focused_block) = self.get_focused_code_block() {
 
 3. **UIItemType Integration**: Following the existing pattern where UIItemType variants store the ID string directly, not wrapped in a struct. Code blocks are now tagged with `UIItemType::CodeBlockContent`.
 
-4. **ScrollbarRenderer**: The existing `ScrollbarRenderer` already supports horizontal mode perfectly, so we can reuse it directly rather than creating a custom implementation.
+4. **Horizontal Scrollbar Implementation**: Created a reusable `horizontal_scroll` module instead of using `ScrollbarRenderer` directly. This provides a cleaner API specifically for horizontal scrolling with auto-hide behavior.
 
-5. **Mouse Event Stubs**: Added placeholder implementations that log actions and set appropriate cursors. These will be fleshed out in Phase 3.
+5. **State Management**: Integrated `CodeBlockRegistry` into `AiSidebar` as an optional field. The registry is passed to `MarkdownRenderer` when rendering to maintain scroll state across renders.
 
-6. **State Management**: After review, decided against a global registry approach. Instead, will integrate state management directly into the sidebar components in the next phase.
+6. **Mouse Event Handling**: Implemented full mouse interaction including:
+   - Scrollbar dragging handled through sidebar's existing drag detection
+   - Horizontal scrolling with mouse wheel (native and Shift+vertical)
+   - Click to focus with proper focus management
+   - Hover state tracking for auto-hide behavior
+
+7. **Auto-hide Behavior**: Implemented opacity animation based on hover state and activity. Scrollbars fade in/out smoothly with configurable timing.
+
+8. **Viewport Clipping**: Used negative left margin on content to implement horizontal scrolling, with a fixed-width viewport container that clips overflow.
 
 ## Next Steps
 
-1. **Immediate**: Implement actual scrollbar rendering in `highlight_code_block` method
-2. **Then**: Create a registry in the sidebar to track CodeBlockContainers
-3. **Then**: Wire up mouse interactions to update scroll state
-4. **Finally**: Add copy button and keyboard support
+1. **Immediate**: Implement keyboard navigation (arrow keys, Home/End) for focused code blocks
+2. **Then**: Add copy button rendering above code blocks on hover
+3. **Then**: Extract actual code content for clipboard copy
+4. **Then**: Add visual feedback for copy action
+5. **Finally**: Polish animations and transitions

@@ -2,9 +2,13 @@
 //! Converts markdown text to Elements with proper styling
 
 use crate::color::LinearRgba;
+use crate::sidebar::components::horizontal_scroll::{
+    create_horizontal_scroll_container, HorizontalScrollConfig,
+};
 use crate::termwindow::box_model::{
     BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent,
 };
+use crate::termwindow::render::scrollbar_renderer::ScrollbarRenderer;
 use config::Dimension;
 use pulldown_cmark::{Event, HeadingLevel, Parser, Tag};
 use std::collections::HashMap;
@@ -52,18 +56,68 @@ impl CodeBlockContainer {
         }
     }
 
+    /// Update content width and return whether scrollbar is needed
+    pub fn update_content_width(&mut self, width: f32) -> bool {
+        self.content_width = width;
+        self.needs_scrollbar()
+    }
+
     pub fn max_scroll(&self) -> f32 {
         (self.content_width - self.viewport_width).max(0.0)
     }
 
     pub fn scroll_horizontal(&mut self, delta: f32) {
-        self.scroll_offset = (self.scroll_offset - delta)
-            .clamp(0.0, self.max_scroll());
+        let new_offset = self.scroll_offset - delta;
+        self.set_scroll_offset(new_offset);
+    }
+
+    /// Set scroll offset with bounds checking
+    pub fn set_scroll_offset(&mut self, offset: f32) {
+        self.scroll_offset = offset.clamp(0.0, self.max_scroll());
         self.last_activity = Some(Instant::now());
     }
 
     pub fn needs_scrollbar(&self) -> bool {
         self.content_width > self.viewport_width
+    }
+
+    /// Update hover state and return whether state changed
+    pub fn update_hover_state(&mut self, hovering_content: bool, hovering_scrollbar: bool) -> bool {
+        let old_hovering = self.hovering_content || self.hovering_scrollbar;
+        self.hovering_content = hovering_content;
+        self.hovering_scrollbar = hovering_scrollbar;
+        let new_hovering = self.hovering_content || self.hovering_scrollbar;
+
+        if new_hovering {
+            self.last_activity = Some(Instant::now());
+        }
+
+        old_hovering != new_hovering
+    }
+
+    /// Update scrollbar opacity based on hover and activity
+    pub fn update_opacity(&mut self, delta_time: f32) {
+        const FADE_IN_TIME: f32 = 0.15;
+        const FADE_OUT_TIME: f32 = 0.3;
+        const HIDE_DELAY: f32 = 1.5;
+
+        let is_active = self.hovering_content
+            || self.hovering_scrollbar
+            || self.dragging_scrollbar
+            || self.has_focus;
+
+        if is_active {
+            // Fade in
+            self.scrollbar_opacity = (self.scrollbar_opacity + delta_time / FADE_IN_TIME).min(1.0);
+            self.last_activity = Some(Instant::now());
+        } else if let Some(last) = self.last_activity {
+            let elapsed = last.elapsed().as_secs_f32();
+            if elapsed > HIDE_DELAY {
+                // Fade out
+                self.scrollbar_opacity =
+                    (self.scrollbar_opacity - delta_time / FADE_OUT_TIME).max(0.0);
+            }
+        }
     }
 }
 
@@ -75,6 +129,8 @@ pub struct MarkdownRenderer {
     syntax_set: SyntaxSet,
     theme_set: ThemeSet,
     code_block_counter: usize,
+    /// Optional registry for tracking code block containers
+    code_block_registry: Option<Arc<Mutex<HashMap<String, CodeBlockContainer>>>>,
 }
 
 impl MarkdownRenderer {
@@ -84,6 +140,7 @@ impl MarkdownRenderer {
             syntax_set: SyntaxSet::load_defaults_newlines(),
             theme_set: ThemeSet::load_defaults(),
             code_block_counter: 0,
+            code_block_registry: None,
         }
     }
     /// Render markdown text to an Element tree
@@ -101,7 +158,7 @@ impl MarkdownRenderer {
         let mut renderer = Self::new();
         renderer.render_markdown(text, font, Some(code_font), None)
     }
-    
+
     /// Render markdown text with a specific code font and max width
     pub fn render_with_width(
         text: &str,
@@ -110,6 +167,19 @@ impl MarkdownRenderer {
         max_width: Option<f32>,
     ) -> Element {
         let mut renderer = Self::new();
+        renderer.render_markdown(text, font, Some(code_font), max_width)
+    }
+
+    /// Render markdown text with a code block registry for state management
+    pub fn render_with_registry(
+        text: &str,
+        font: &Rc<LoadedFont>,
+        code_font: &Rc<LoadedFont>,
+        max_width: Option<f32>,
+        registry: Arc<Mutex<HashMap<String, CodeBlockContainer>>>,
+    ) -> Element {
+        let mut renderer = Self::new();
+        renderer.code_block_registry = Some(registry);
         renderer.render_markdown(text, font, Some(code_font), max_width)
     }
 
@@ -228,11 +298,11 @@ impl MarkdownRenderer {
                         // Render code block with syntax highlighting
                         // Use code font if provided, otherwise use regular font
                         let code_render_font = code_font.unwrap_or(&font);
-                        
+
                         // Generate unique ID for this code block
                         self.code_block_counter += 1;
                         let block_id = format!("code_block_{}", self.code_block_counter);
-                        
+
                         let highlighted_element = self.highlight_code_block(
                             &code_block_content,
                             code_block_lang.as_deref(),
@@ -317,8 +387,9 @@ enum TextEmphasis {
 /// Measure the maximum width of code lines
 fn measure_code_block_width(lines: &[&str], font: &Rc<LoadedFont>) -> f32 {
     use termwiz::cell::unicode_column_width;
-    
-    lines.iter()
+
+    lines
+        .iter()
         .map(|line| {
             let width = unicode_column_width(line, None) as f32;
             width * font.metrics().cell_width.get() as f32
@@ -369,7 +440,7 @@ impl MarkdownRenderer {
                 );
 
                 line_parts.push(
-                    Element::new(font, ElementContent::WrappedText(text.to_string())).colors(
+                    Element::new(font, ElementContent::Text(text.to_string())).colors(
                         ElementColors {
                             text: color.into(),
                             ..Default::default()
@@ -387,7 +458,7 @@ impl MarkdownRenderer {
                         part
                     })
                     .collect();
-                
+
                 // Create a block container for the line that allows its inline children to wrap
                 let combined_element = Element::new(font, ElementContent::Children(inline_parts))
                     .display(DisplayType::Block);
@@ -401,7 +472,7 @@ impl MarkdownRenderer {
             for line in code.lines() {
                 lines_for_measurement.push(line);
                 line_elements.push(
-                    Element::new(font, ElementContent::WrappedText(line.to_string()))
+                    Element::new(font, ElementContent::Text(line.to_string()))
                         .colors(ElementColors {
                             text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
                             ..Default::default()
@@ -417,22 +488,49 @@ impl MarkdownRenderer {
                 );
             }
         }
-        
+
         // Measure the maximum line width
         let content_width = measure_code_block_width(&lines_for_measurement, font);
         let viewport_width = max_width.unwrap_or(content_width);
-        
-        // Create container for tracking scroll state
-        let _container = CodeBlockContainer::new(block_id.clone(), viewport_width);
-        let _needs_scrollbar = content_width > viewport_width;
-        
-        // For now, just render normally without scrolling
-        // TODO: In next phase, implement actual scrolling with clipping/viewport
-        // TODO: Add scrollbar rendering when needs_scrollbar is true
-        // TODO: Register UIItemType for mouse interaction
+
+        // Create or update container for tracking scroll state
+        let mut container = CodeBlockContainer::new(block_id.clone(), viewport_width);
+        let needs_scrollbar = container.update_content_width(content_width);
+
+        // Update registry if available
+        if let Some(ref registry) = self.code_block_registry {
+            if let Ok(mut reg) = registry.lock() {
+                // Preserve existing scroll state if container exists
+                if let Some(existing) = reg.get(&block_id) {
+                    container.scroll_offset = existing.scroll_offset;
+                    container.hovering_content = existing.hovering_content;
+                    container.hovering_scrollbar = existing.hovering_scrollbar;
+                    container.dragging_scrollbar = existing.dragging_scrollbar;
+                    container.drag_start_x = existing.drag_start_x;
+                    container.drag_start_offset = existing.drag_start_offset;
+                    container.has_focus = existing.has_focus;
+                    container.scrollbar_opacity = existing.scrollbar_opacity;
+                    container.last_activity = existing.last_activity;
+                }
+                reg.insert(block_id.clone(), container.clone());
+            }
+        }
+
+        // Use the horizontal scroll helper to create scrollable content
+        let scroll_config = HorizontalScrollConfig::default();
+        let elements = create_horizontal_scroll_container(
+            font,
+            line_elements,
+            viewport_width,
+            content_width,
+            container.scroll_offset,
+            container.scrollbar_opacity,
+            &scroll_config,
+            block_id.clone(),
+        );
 
         // Wrap in a code block container
-        let mut code_block = Element::new(font, ElementContent::Children(line_elements))
+        let code_block = Element::new(font, ElementContent::Children(elements))
             .colors(ElementColors {
                 bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),
                 border: BorderColor::new(LinearRgba::with_components(0.2, 0.2, 0.25, 0.5)),
@@ -446,8 +544,10 @@ impl MarkdownRenderer {
                 ..Default::default()
             })
             .display(DisplayType::Block)
-            .item_type(crate::termwindow::UIItemType::CodeBlockContent(block_id));
-            
+            .item_type(crate::termwindow::UIItemType::CodeBlockContent(
+                block_id.clone(),
+            ));
+
         code_block
     }
 }

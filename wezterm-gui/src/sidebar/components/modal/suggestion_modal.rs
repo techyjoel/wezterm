@@ -124,16 +124,16 @@ impl ModalContent for SuggestionModal {
 
         // Calculate content height (estimate based on line count and font metrics)
         let line_height = context.fonts.body.metrics().cell_height.get() as f32;
-        
+
         // Count actual lines in the content (including markdown line breaks)
         let line_count = self.suggestion.content.lines().count() as f32;
-        
+
         // Add extra lines for markdown formatting (headers, code blocks, etc)
         let markdown_overhead = self.suggestion.content.matches("##").count() as f32 * 1.5
             + self.suggestion.content.matches("```").count() as f32 * 0.5;
-        
+
         let total_lines = line_count + markdown_overhead;
-        
+
         let title_height = context.fonts.heading.metrics().cell_height.get() as f32;
         let button_height = if self.suggestion.has_action {
             60.0 // More space for button container
@@ -143,7 +143,7 @@ impl ModalContent for SuggestionModal {
 
         let estimated_height = title_height + (total_lines * line_height) + button_height + 80.0; // More padding
         *self.content_height.lock().unwrap() = estimated_height;
-        
+
         log::debug!(
             "SuggestionModal content height calculation: title_height={}, line_count={}, markdown_overhead={}, total_lines={}, line_height={}, button_height={}, estimated_height={}",
             title_height, line_count, markdown_overhead, total_lines, line_height, button_height, estimated_height

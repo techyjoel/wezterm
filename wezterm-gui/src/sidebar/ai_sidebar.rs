@@ -1,3 +1,4 @@
+use super::components::markdown::{CodeBlockContainer, CodeBlockRegistry};
 use super::components::{
     Card, CardState, Chip, ChipSize, ChipStyle, MarkdownRenderer, Modal, ModalContent,
     ModalManager, ModalSize, MultilineTextInput, ScrollableContainer, ScrollbarInfo,
@@ -12,7 +13,9 @@ use crate::termwindow::render::scrollbar_renderer::{ScrollbarOrientation, Scroll
 use crate::termwindow::UIItemType;
 use anyhow::Result;
 use config::{Dimension, DimensionContext};
+use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use termwiz::input::KeyCode;
 use wezterm_font::{FontConfiguration, LoadedFont};
@@ -136,6 +139,9 @@ pub struct AiSidebar {
 
     // Modal management
     modal_manager: ModalManager,
+
+    // Code block registry for horizontal scrolling
+    pub code_block_registry: Option<CodeBlockRegistry>,
 }
 
 impl AiSidebar {
@@ -160,6 +166,7 @@ impl AiSidebar {
             more_link_bounds: None,
             sidebar_x_position: 0.0,
             modal_manager: ModalManager::new(),
+            code_block_registry: Some(Arc::new(Mutex::new(HashMap::new()))),
         }
     }
 
@@ -774,7 +781,9 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
                 .with_style(ChipStyle::Info)
                 .with_size(ChipSize::Medium)
                 .clickable(true)
-                .with_item_type(crate::termwindow::UIItemType::ShowMoreButton("current".to_string()))
+                .with_item_type(crate::termwindow::UIItemType::ShowMoreButton(
+                    "current".to_string(),
+                ))
                 .render(&fonts.body);
             right_actions.push(show_more_btn);
         }
@@ -886,8 +895,25 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
                     // Need to add width constraint for proper text wrapping
                     let sidebar_width = self.width as f32;
                     let content_width = sidebar_width - 52.0; // Account for margins and padding
-                    MarkdownRenderer::render_with_code_font(message, &fonts.body, &fonts.code)
-                        .max_width(Some(Dimension::Pixels(content_width)))
+
+                    // Use registry if available for horizontal scrolling support
+                    if let Some(ref registry) = self.code_block_registry {
+                        MarkdownRenderer::render_with_registry(
+                            message,
+                            &fonts.body,
+                            &fonts.code,
+                            Some(content_width),
+                            Arc::clone(registry),
+                        )
+                    } else {
+                        MarkdownRenderer::render_with_width(
+                            message,
+                            &fonts.body,
+                            &fonts.code,
+                            Some(content_width),
+                        )
+                    }
+                    .max_width(Some(Dimension::Pixels(content_width)))
                 };
 
                 Element::new(&fonts.body, ElementContent::Children(vec![content]))
@@ -922,14 +948,28 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
                 // Add width constraint for proper text wrapping
                 let sidebar_width = self.width as f32;
                 let content_width = sidebar_width - 52.0; // Account for margins and padding
-                Card::new()
-                    .with_title(format!("Past: {}", title))
-                    .with_content(vec![MarkdownRenderer::render_with_code_font(
+                let markdown_content = if let Some(ref registry) = self.code_block_registry {
+                    MarkdownRenderer::render_with_registry(
                         content,
                         &fonts.body,
                         &fonts.code,
+                        Some(content_width),
+                        Arc::clone(registry),
                     )
-                    .max_width(Some(Dimension::Pixels(content_width)))])
+                } else {
+                    MarkdownRenderer::render_with_width(
+                        content,
+                        &fonts.body,
+                        &fonts.code,
+                        Some(content_width),
+                    )
+                };
+
+                Card::new()
+                    .with_title(format!("Past: {}", title))
+                    .with_content(vec![
+                        markdown_content.max_width(Some(Dimension::Pixels(content_width)))
+                    ])
                     .render(&fonts.heading)
             }
             ActivityItem::Goal { text, .. } => {
@@ -1387,6 +1427,17 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
         self.current_suggestion.as_ref()
     }
 
+    /// Update code block opacity for auto-hide scrollbars
+    pub fn update_code_block_opacity(&mut self, delta_time: f32) {
+        if let Some(ref registry) = self.code_block_registry {
+            if let Ok(mut reg) = registry.lock() {
+                for (_, container) in reg.iter_mut() {
+                    container.update_opacity(delta_time);
+                }
+            }
+        }
+    }
+
     pub fn render_modals(&mut self, fonts: &SidebarFonts, window_height: f32) -> Vec<Element> {
         // Get sidebar bounds
         let sidebar_bounds = euclid::rect(
@@ -1459,6 +1510,61 @@ impl Sidebar for AiSidebar {
             );
             if self.modal_manager.handle_mouse_event(event, sidebar_bounds) {
                 return Ok(true);
+            }
+        }
+
+        // Handle code block dragging
+        if let Some(ref registry) = self.code_block_registry {
+            if let Ok(mut reg) = registry.lock() {
+                // Check if any code block is being dragged
+                for (block_id, container) in reg.iter_mut() {
+                    if container.dragging_scrollbar {
+                        use crate::sidebar::components::horizontal_scroll::calculate_drag_scroll;
+
+                        match event.kind {
+                            WMEK::Release(MousePress::Left) => {
+                                container.dragging_scrollbar = false;
+                                container.drag_start_x = None;
+                                container.drag_start_offset = None;
+                                return Ok(true);
+                            }
+                            WMEK::Move => {
+                                if let (Some(start_x), Some(start_offset)) =
+                                    (container.drag_start_x, container.drag_start_offset)
+                                {
+                                    // Calculate thumb width
+                                    let thumb_ratio =
+                                        container.viewport_width / container.content_width;
+                                    let thumb_width =
+                                        (container.viewport_width * thumb_ratio).max(30.0);
+
+                                    let new_offset = calculate_drag_scroll(
+                                        start_x,
+                                        event.coords.x as f32,
+                                        start_offset,
+                                        container.viewport_width,
+                                        container.content_width,
+                                        thumb_width,
+                                    );
+
+                                    container.set_scroll_offset(new_offset);
+                                    return Ok(true);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                // Update hover states when mouse leaves
+                if matches!(event.kind, WMEK::Move) {
+                    // Clear hover states for all code blocks
+                    // The UIItem system will set the appropriate ones
+                    for (_, container) in reg.iter_mut() {
+                        container.hovering_content = false;
+                        container.hovering_scrollbar = false;
+                    }
+                }
             }
         }
 

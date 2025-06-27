@@ -1282,8 +1282,11 @@ impl super::TermWindow {
         context: &dyn WindowOps,
     ) {
         if let WMEK::Press(MousePress::Left) = event.kind {
-            log::info!("Show more button clicked via UIItem for suggestion: {}", suggestion_id);
-            
+            log::info!(
+                "Show more button clicked via UIItem for suggestion: {}",
+                suggestion_id
+            );
+
             // Get the sidebar manager and show the modal
             let sidebar_manager = self.sidebar_manager.borrow();
             if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
@@ -1354,8 +1357,77 @@ impl super::TermWindow {
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
-        // TODO: Implement scrollbar interaction
+        use crate::sidebar::components::horizontal_scroll::{
+            calculate_drag_scroll, hit_test_scrollbar, ScrollbarHitTarget,
+        };
+
         context.set_cursor(Some(MouseCursor::Arrow));
+
+        // Get the sidebar and its code block registry
+        let sidebar_manager = self.sidebar_manager.borrow();
+        if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
+            let mut sidebar_locked = sidebar.lock().unwrap();
+            if let Some(ai_sidebar) = sidebar_locked
+                .as_any_mut()
+                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+            {
+                // Access the code block registry through the sidebar
+                if let Some(ref mut registry) = ai_sidebar.code_block_registry {
+                    if let Ok(mut reg) = registry.lock() {
+                        if let Some(container) = reg.get_mut(&block_id) {
+                            match event.kind {
+                                WMEK::Press(MousePress::Left) => {
+                                    // Calculate relative position within scrollbar
+                                    let relative_x = event.coords.x as f32;
+                                    let hit = hit_test_scrollbar(
+                                        relative_x,
+                                        0.0, // scrollbar starts at x=0 relative to its bounds
+                                        container.viewport_width,
+                                        container.content_width,
+                                        container.scroll_offset,
+                                        30.0, // min thumb width
+                                    );
+
+                                    match hit {
+                                        ScrollbarHitTarget::Thumb => {
+                                            container.dragging_scrollbar = true;
+                                            container.drag_start_x = Some(event.coords.x as f32);
+                                            container.drag_start_offset =
+                                                Some(container.scroll_offset);
+                                        }
+                                        ScrollbarHitTarget::BeforeThumb => {
+                                            // Page left
+                                            container
+                                                .scroll_horizontal(-container.viewport_width * 0.8);
+                                        }
+                                        ScrollbarHitTarget::AfterThumb => {
+                                            // Page right
+                                            container
+                                                .scroll_horizontal(container.viewport_width * 0.8);
+                                        }
+                                        _ => {}
+                                    }
+                                    container.last_activity = Some(std::time::Instant::now());
+                                    context.invalidate();
+                                }
+                                WMEK::Release(MousePress::Left) => {
+                                    container.dragging_scrollbar = false;
+                                    container.drag_start_x = None;
+                                    container.drag_start_offset = None;
+                                    context.invalidate();
+                                }
+                                WMEK::Move => {
+                                    container.hovering_scrollbar = true;
+                                    container.last_activity = Some(std::time::Instant::now());
+                                    context.invalidate();
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     pub fn mouse_event_code_block_content(
@@ -1364,8 +1436,57 @@ impl super::TermWindow {
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
-        // TODO: Implement content interaction (focus, horizontal scroll)
         context.set_cursor(Some(MouseCursor::Text));
+
+        // Get the sidebar and its code block registry
+        let sidebar_manager = self.sidebar_manager.borrow();
+        if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
+            let mut sidebar_locked = sidebar.lock().unwrap();
+            if let Some(ai_sidebar) = sidebar_locked
+                .as_any_mut()
+                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+            {
+                if let Some(ref mut registry) = ai_sidebar.code_block_registry {
+                    if let Ok(mut reg) = registry.lock() {
+                        if let Some(container) = reg.get_mut(&block_id) {
+                            match event.kind {
+                                WMEK::Press(MousePress::Left) => {
+                                    // Set focus to this code block
+                                    container.has_focus = true;
+                                    container.last_activity = Some(std::time::Instant::now());
+
+                                    // Clear focus from all other blocks
+                                    for (id, other_container) in reg.iter_mut() {
+                                        if id != &block_id {
+                                            other_container.has_focus = false;
+                                        }
+                                    }
+                                    context.invalidate();
+                                }
+                                WMEK::Move => {
+                                    container.hovering_content = true;
+                                    container.last_activity = Some(std::time::Instant::now());
+                                    context.invalidate();
+                                }
+                                WMEK::HorzWheel(delta) => {
+                                    // Horizontal scrolling with mouse wheel
+                                    container.scroll_horizontal(delta as f32 * 30.0);
+                                    context.invalidate();
+                                }
+                                WMEK::VertWheel(delta)
+                                    if event.modifiers.contains(::window::Modifiers::SHIFT) =>
+                                {
+                                    // Shift+vertical wheel -> horizontal scroll
+                                    container.scroll_horizontal(delta as f32 * 30.0);
+                                    context.invalidate();
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     pub fn mouse_event_code_block_copy_button(
@@ -1374,14 +1495,30 @@ impl super::TermWindow {
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
-        // TODO: Implement copy to clipboard
         context.set_cursor(Some(MouseCursor::Arrow));
-        
+
         match event.kind {
             WMEK::Press(MousePress::Left) => {
                 log::info!("Copy code block: {}", block_id);
-                // TODO: Get code content and copy to clipboard
-                context.invalidate();
+
+                // Get the sidebar to access the code content
+                let sidebar_manager = self.sidebar_manager.borrow();
+                if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
+                    let sidebar_locked = sidebar.lock().unwrap();
+                    if let Some(ai_sidebar) = sidebar_locked
+                        .as_any()
+                        .downcast_ref::<crate::sidebar::ai_sidebar::AiSidebar>(
+                    ) {
+                        // Extract code block content from the current activity log
+                        // For now, we'll just show a placeholder message
+                        // TODO: Implement proper code extraction from markdown
+                        self.copy_to_clipboard(
+                            config::keyassignment::ClipboardCopyDestination::ClipboardAndPrimarySelection,
+                            "Code block copied!".to_string()
+                        );
+                        context.invalidate();
+                    }
+                }
             }
             _ => {}
         }

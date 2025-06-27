@@ -194,10 +194,10 @@ impl ModalManager {
             let content_area_bottom = modal_bounds.max_y() - 20.0; // Bottom padding
             let content_area_left = modal_bounds.min_x() + 20.0;
             let content_area_right = modal_bounds.max_x() - 20.0;
-            
+
             let bg_color = LinearRgba(0.2, 0.2, 0.2, 1.0);
             let border_color = LinearRgba(0.4, 0.4, 0.4, 1.0);
-            
+
             // Top section (header area) at z-index 22
             elements.push(
                 Element::new(&fonts.body, ElementContent::Text(String::new()))
@@ -207,7 +207,9 @@ impl ModalManager {
                     })
                     .display(DisplayType::Block)
                     .min_width(Some(Dimension::Pixels(modal_bounds.width())))
-                    .min_height(Some(Dimension::Pixels(content_area_top - modal_bounds.min_y())))
+                    .min_height(Some(Dimension::Pixels(
+                        content_area_top - modal_bounds.min_y(),
+                    )))
                     .margin(BoxDimension {
                         left: Dimension::Pixels(modal_bounds.min_x()),
                         top: Dimension::Pixels(modal_bounds.min_y()),
@@ -216,7 +218,7 @@ impl ModalManager {
                     })
                     .zindex(22),
             );
-            
+
             // Bottom section at z-index 22
             elements.push(
                 Element::new(&fonts.body, ElementContent::Text(String::new()))
@@ -226,7 +228,9 @@ impl ModalManager {
                     })
                     .display(DisplayType::Block)
                     .min_width(Some(Dimension::Pixels(modal_bounds.width())))
-                    .min_height(Some(Dimension::Pixels(modal_bounds.max_y() - content_area_bottom)))
+                    .min_height(Some(Dimension::Pixels(
+                        modal_bounds.max_y() - content_area_bottom,
+                    )))
                     .margin(BoxDimension {
                         left: Dimension::Pixels(modal_bounds.min_x()),
                         top: Dimension::Pixels(content_area_bottom),
@@ -235,7 +239,7 @@ impl ModalManager {
                     })
                     .zindex(22),
             );
-            
+
             // Left edge at z-index 22
             elements.push(
                 Element::new(&fonts.body, ElementContent::Text(String::new()))
@@ -244,8 +248,12 @@ impl ModalManager {
                         ..Default::default()
                     })
                     .display(DisplayType::Block)
-                    .min_width(Some(Dimension::Pixels(content_area_left - modal_bounds.min_x())))
-                    .min_height(Some(Dimension::Pixels(content_area_bottom - content_area_top)))
+                    .min_width(Some(Dimension::Pixels(
+                        content_area_left - modal_bounds.min_x(),
+                    )))
+                    .min_height(Some(Dimension::Pixels(
+                        content_area_bottom - content_area_top,
+                    )))
                     .margin(BoxDimension {
                         left: Dimension::Pixels(modal_bounds.min_x()),
                         top: Dimension::Pixels(content_area_top),
@@ -254,7 +262,7 @@ impl ModalManager {
                     })
                     .zindex(22),
             );
-            
+
             // Right edge (includes scrollbar area) at z-index 22
             elements.push(
                 Element::new(&fonts.body, ElementContent::Text(String::new()))
@@ -263,8 +271,12 @@ impl ModalManager {
                         ..Default::default()
                     })
                     .display(DisplayType::Block)
-                    .min_width(Some(Dimension::Pixels(modal_bounds.max_x() - content_area_right)))
-                    .min_height(Some(Dimension::Pixels(content_area_bottom - content_area_top)))
+                    .min_width(Some(Dimension::Pixels(
+                        modal_bounds.max_x() - content_area_right,
+                    )))
+                    .min_height(Some(Dimension::Pixels(
+                        content_area_bottom - content_area_top,
+                    )))
                     .margin(BoxDimension {
                         left: Dimension::Pixels(content_area_right),
                         top: Dimension::Pixels(content_area_top),
@@ -273,7 +285,7 @@ impl ModalManager {
                     })
                     .zindex(22),
             );
-            
+
             // Modal border at z-index 22 (same as frame sections)
             elements.push(
                 Element::new(&fonts.body, ElementContent::Text(String::new()))
