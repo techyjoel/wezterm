@@ -49,7 +49,10 @@ impl super::TermWindow {
             | UIItemType::SidebarFilterChip(_)
             | UIItemType::ShowMoreButton(_)
             | UIItemType::SuggestionRunButton
-            | UIItemType::SuggestionDismissButton => {}
+            | UIItemType::SuggestionDismissButton
+            | UIItemType::CodeBlockScrollbar(_)
+            | UIItemType::CodeBlockContent(_)
+            | UIItemType::CodeBlockCopyButton(_) => {}
         }
     }
 
@@ -66,7 +69,10 @@ impl super::TermWindow {
             | UIItemType::SidebarFilterChip(_)
             | UIItemType::ShowMoreButton(_)
             | UIItemType::SuggestionRunButton
-            | UIItemType::SuggestionDismissButton => {}
+            | UIItemType::SuggestionDismissButton
+            | UIItemType::CodeBlockScrollbar(_)
+            | UIItemType::CodeBlockContent(_)
+            | UIItemType::CodeBlockCopyButton(_) => {}
         }
     }
 
@@ -470,6 +476,15 @@ impl super::TermWindow {
             }
             UIItemType::SuggestionDismissButton => {
                 self.mouse_event_suggestion_dismiss_button(event, context);
+            }
+            UIItemType::CodeBlockScrollbar(block_id) => {
+                self.mouse_event_code_block_scrollbar(block_id, event, context);
+            }
+            UIItemType::CodeBlockContent(block_id) => {
+                self.mouse_event_code_block_content(block_id, event, context);
+            }
+            UIItemType::CodeBlockCopyButton(block_id) => {
+                self.mouse_event_code_block_copy_button(block_id, event, context);
             }
         }
     }
@@ -1330,6 +1345,45 @@ impl super::TermWindow {
                     context.invalidate();
                 }
             }
+        }
+    }
+
+    pub fn mouse_event_code_block_scrollbar(
+        &mut self,
+        block_id: String,
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        // TODO: Implement scrollbar interaction
+        context.set_cursor(Some(MouseCursor::Arrow));
+    }
+
+    pub fn mouse_event_code_block_content(
+        &mut self,
+        block_id: String,
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        // TODO: Implement content interaction (focus, horizontal scroll)
+        context.set_cursor(Some(MouseCursor::Text));
+    }
+
+    pub fn mouse_event_code_block_copy_button(
+        &mut self,
+        block_id: String,
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        // TODO: Implement copy to clipboard
+        context.set_cursor(Some(MouseCursor::Arrow));
+        
+        match event.kind {
+            WMEK::Press(MousePress::Left) => {
+                log::info!("Copy code block: {}", block_id);
+                // TODO: Get code content and copy to clipboard
+                context.invalidate();
+            }
+            _ => {}
         }
     }
 }

@@ -166,6 +166,9 @@ pub enum UIItemType {
     ShowMoreButton(String), // suggestion_id
     SuggestionRunButton,
     SuggestionDismissButton,
+    CodeBlockScrollbar(String), // code_block_id
+    CodeBlockContent(String), // code_block_id
+    CodeBlockCopyButton(String), // code_block_id
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

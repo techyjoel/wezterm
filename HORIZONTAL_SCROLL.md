@@ -307,3 +307,72 @@ if let Some(focused_block) = self.get_focused_code_block() {
 5. Keyboard navigation is intuitive
 6. No performance impact on markdown rendering
 7. Visual style matches existing sidebar components
+
+## Implementation Status
+
+### Phase 1: Basic Structure ✅ COMPLETED
+- ✅ Created `CodeBlockContainer` struct with all required fields
+- ✅ Implemented width measurement using `unicode_column_width` (from termwiz)
+- ✅ Added `CodeBlockRegistry` type alias (Arc<Mutex<HashMap<String, CodeBlockContainer>>>)
+- ✅ Updated `MarkdownRenderer` to:
+  - Track code block counter for unique IDs
+  - Accept optional `max_width` parameter
+  - Generate unique IDs for each code block (format: "code_block_{counter}")
+  - Pass viewport width to code block rendering
+- ✅ Added new public method `render_with_width()` for width-aware rendering
+- ✅ Collected lines for measurement in `highlight_code_block`
+
+### Phase 2: Scrollbar Rendering 🔄 IN PROGRESS
+- ✅ Added UIItemType variants:
+  - `CodeBlockScrollbar(String)`
+  - `CodeBlockContent(String)`
+  - `CodeBlockCopyButton(String)`
+- ✅ Updated mouse event handling in `mouseevent.rs`:
+  - Added match arms for new UIItemType variants
+  - Created stub methods for each interaction type
+  - Set appropriate cursors (Arrow for scrollbar/button, Text for content)
+- ✅ Verified `ScrollbarRenderer` supports horizontal mode via `new_horizontal()`
+- 🔲 TODO: Actually render the scrollbar in code blocks
+- 🔲 TODO: Implement shared auto-hide behavior
+- 🔲 TODO: Position scrollbar below code content
+
+### Phase 3: Mouse Interaction 🔲 NOT STARTED
+- 🔲 Horizontal wheel scrolling
+- 🔲 Scrollbar dragging
+- 🔲 Click to focus
+- 🔲 Hover state tracking
+
+### Phase 4: Copy Button 🔲 NOT STARTED
+- 🔲 Render copy button above code block
+- 🔲 Implement clipboard integration
+- 🔲 Visual feedback on copy
+
+### Phase 5: Keyboard Support 🔲 NOT STARTED
+- 🔲 Focus management
+- 🔲 Arrow key scrolling
+- 🔲 Home/End navigation
+- 🔲 Shift+wheel for horizontal scroll
+
+### Phase 6: Polish 🔲 NOT STARTED
+- 🔲 Smooth scrolling animation
+- 🔲 Focus indicators
+- 🔲 Cleanup and optimization
+
+## Implementation Differences/Notes
+
+1. **Width Measurement**: Using `unicode_column_width` from termwiz instead of a custom implementation, which is more accurate for terminal rendering.
+
+2. **Renderer Structure**: Made `MarkdownRenderer` methods require `&mut self` to support the code block counter. This allows generating unique IDs without external state.
+
+3. **UIItemType Integration**: Following the existing pattern where UIItemType variants store the ID string directly, not wrapped in a struct.
+
+4. **ScrollbarRenderer**: The existing `ScrollbarRenderer` already supports horizontal mode perfectly, so we can reuse it directly rather than creating a custom implementation.
+
+5. **Mouse Event Stubs**: Added placeholder implementations that log actions and set appropriate cursors. These will be fleshed out in Phase 3.
+
+## Next Steps
+
+1. **Immediate**: Implement actual scrollbar rendering in `highlight_code_block` method
+2. **Then**: Create a registry in the sidebar to track CodeBlockContainers
+3. **Then**: Wire up mouse interactions to update scroll state
+4. **Finally**: Add copy button and keyboard support
