@@ -7,17 +7,74 @@ use crate::termwindow::box_model::{
 };
 use config::Dimension;
 use pulldown_cmark::{Event, HeadingLevel, Parser, Tag};
+use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Style, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 use wezterm_font::LoadedFont;
 
+/// Container for managing horizontal scrolling in code blocks
+#[derive(Debug, Clone)]
+pub struct CodeBlockContainer {
+    pub id: String,
+    pub content_width: f32,
+    pub viewport_width: f32,
+    pub scroll_offset: f32,
+    pub hovering_scrollbar: bool,
+    pub hovering_content: bool,
+    pub dragging_scrollbar: bool,
+    pub drag_start_x: Option<f32>,
+    pub drag_start_offset: Option<f32>,
+    pub has_focus: bool,
+    pub scrollbar_opacity: f32,
+    pub last_activity: Option<Instant>,
+}
+
+impl CodeBlockContainer {
+    pub fn new(id: String, viewport_width: f32) -> Self {
+        Self {
+            id,
+            content_width: 0.0,
+            viewport_width,
+            scroll_offset: 0.0,
+            hovering_scrollbar: false,
+            hovering_content: false,
+            dragging_scrollbar: false,
+            drag_start_x: None,
+            drag_start_offset: None,
+            has_focus: false,
+            scrollbar_opacity: 0.0,
+            last_activity: None,
+        }
+    }
+
+    pub fn max_scroll(&self) -> f32 {
+        (self.content_width - self.viewport_width).max(0.0)
+    }
+
+    pub fn scroll_horizontal(&mut self, delta: f32) {
+        self.scroll_offset = (self.scroll_offset - delta)
+            .clamp(0.0, self.max_scroll());
+        self.last_activity = Some(Instant::now());
+    }
+
+    pub fn needs_scrollbar(&self) -> bool {
+        self.content_width > self.viewport_width
+    }
+}
+
+/// Registry for tracking active code block containers
+pub type CodeBlockRegistry = Arc<Mutex<HashMap<String, CodeBlockContainer>>>;
+
 /// Markdown renderer that converts markdown text to Elements
 pub struct MarkdownRenderer {
     syntax_set: SyntaxSet,
     theme_set: ThemeSet,
+    code_block_counter: usize,
 }
 
 impl MarkdownRenderer {
@@ -26,12 +83,13 @@ impl MarkdownRenderer {
         Self {
             syntax_set: SyntaxSet::load_defaults_newlines(),
             theme_set: ThemeSet::load_defaults(),
+            code_block_counter: 0,
         }
     }
     /// Render markdown text to an Element tree
     pub fn render(text: &str, font: &Rc<LoadedFont>) -> Element {
-        let renderer = Self::new();
-        renderer.render_markdown(text, font, None)
+        let mut renderer = Self::new();
+        renderer.render_markdown(text, font, None, None)
     }
 
     /// Render markdown text with a specific code font
@@ -40,16 +98,28 @@ impl MarkdownRenderer {
         font: &Rc<LoadedFont>,
         code_font: &Rc<LoadedFont>,
     ) -> Element {
-        let renderer = Self::new();
-        renderer.render_markdown(text, font, Some(code_font))
+        let mut renderer = Self::new();
+        renderer.render_markdown(text, font, Some(code_font), None)
+    }
+    
+    /// Render markdown text with a specific code font and max width
+    pub fn render_with_width(
+        text: &str,
+        font: &Rc<LoadedFont>,
+        code_font: &Rc<LoadedFont>,
+        max_width: Option<f32>,
+    ) -> Element {
+        let mut renderer = Self::new();
+        renderer.render_markdown(text, font, Some(code_font), max_width)
     }
 
     /// Internal render method
     fn render_markdown(
-        &self,
+        &mut self,
         text: &str,
         font: &Rc<LoadedFont>,
         code_font: Option<&Rc<LoadedFont>>,
+        max_width: Option<f32>,
     ) -> Element {
         let parser = Parser::new(text);
         let mut elements = Vec::new();
@@ -158,10 +228,17 @@ impl MarkdownRenderer {
                         // Render code block with syntax highlighting
                         // Use code font if provided, otherwise use regular font
                         let code_render_font = code_font.unwrap_or(&font);
+                        
+                        // Generate unique ID for this code block
+                        self.code_block_counter += 1;
+                        let block_id = format!("code_block_{}", self.code_block_counter);
+                        
                         let highlighted_element = self.highlight_code_block(
                             &code_block_content,
                             code_block_lang.as_deref(),
                             code_render_font,
+                            max_width,
+                            block_id,
                         );
                         elements.push(highlighted_element);
                         code_block_content.clear();
@@ -237,6 +314,18 @@ enum TextEmphasis {
     Link(String),
 }
 
+/// Measure the maximum width of code lines
+fn measure_code_block_width(lines: &[&str], font: &Rc<LoadedFont>) -> f32 {
+    use termwiz::cell::unicode_column_width;
+    
+    lines.iter()
+        .map(|line| {
+            let width = unicode_column_width(line, None) as f32;
+            width * font.metrics().cell_width.get() as f32
+        })
+        .fold(0.0_f32, |max, width| max.max(width))
+}
+
 impl MarkdownRenderer {
     /// Highlight a code block with syntax highlighting
     fn highlight_code_block(
@@ -244,6 +333,8 @@ impl MarkdownRenderer {
         code: &str,
         language: Option<&str>,
         font: &Rc<LoadedFont>,
+        max_width: Option<f32>,
+        block_id: String,
     ) -> Element {
         // Try to find syntax for the language
         let syntax = language
@@ -255,9 +346,11 @@ impl MarkdownRenderer {
         let mut highlighter = HighlightLines::new(syntax, theme);
 
         let mut line_elements = Vec::new();
+        let mut lines_for_measurement = Vec::new();
 
         // Process each line with syntax highlighting
         for line in LinesWithEndings::from(code) {
+            lines_for_measurement.push(line);
             let ranges = highlighter.highlight_line(line, &self.syntax_set).unwrap();
             let mut line_parts = Vec::new();
 
@@ -270,7 +363,7 @@ impl MarkdownRenderer {
                 );
 
                 line_parts.push(
-                    Element::new(font, ElementContent::Text(text.to_string())).colors(
+                    Element::new(font, ElementContent::WrappedText(text.to_string())).colors(
                         ElementColors {
                             text: color.into(),
                             ..Default::default()
@@ -280,10 +373,19 @@ impl MarkdownRenderer {
             }
 
             if !line_parts.is_empty() {
-                line_elements.push(
-                    Element::new(font, ElementContent::Children(line_parts))
-                        .display(DisplayType::Block),
-                );
+                // Ensure all parts display inline so they flow together on wrapping
+                let inline_parts: Vec<Element> = line_parts
+                    .into_iter()
+                    .map(|mut part| {
+                        part.display = DisplayType::Inline;
+                        part
+                    })
+                    .collect();
+                
+                // Create a block container for the line that allows its inline children to wrap
+                let combined_element = Element::new(font, ElementContent::Children(inline_parts))
+                    .display(DisplayType::Block);
+                line_elements.push(combined_element);
             }
         }
 
@@ -291,8 +393,9 @@ impl MarkdownRenderer {
         if line_elements.is_empty() {
             // Split code into lines and render each as a separate block element
             for line in code.lines() {
+                lines_for_measurement.push(line);
                 line_elements.push(
-                    Element::new(font, ElementContent::Text(line.to_string()))
+                    Element::new(font, ElementContent::WrappedText(line.to_string()))
                         .colors(ElementColors {
                             text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
                             ..Default::default()
@@ -308,6 +411,13 @@ impl MarkdownRenderer {
                 );
             }
         }
+        
+        // Measure the maximum line width
+        let content_width = measure_code_block_width(&lines_for_measurement, font);
+        let viewport_width = max_width.unwrap_or(content_width);
+        
+        // For now, just render normally without scrolling
+        // TODO: Implement horizontal scrolling in Phase 2
 
         // Wrap in a code block container
         Element::new(font, ElementContent::Children(line_elements))
