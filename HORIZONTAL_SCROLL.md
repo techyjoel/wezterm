@@ -458,11 +458,25 @@ All planned features have been successfully implemented:
 4. Fixed compilation errors (Float import, borrow checker issues)
 5. Adjusted viewport width calculation to account for code block padding (24px)
 6. Temporarily forcing scrollbar opacity to 1.0 when needed (for testing)
+7. **CRITICAL FIX**: Discovered scrollbar was being rendered inside the padded code block container
+   - Scrollbar was likely hidden by padding constraints or positioned outside visible area
+   - Restructured rendering to place scrollbar outside the padded container
+   - Made scrollbar bright red/green for visibility testing
+8. Added extensive debug logging to track element creation and structure
+
+## Latest Changes
+
+- Separated scrollbar from code content in the element hierarchy
+- Scrollbar now renders as a sibling to the code block, not inside it
+- Code block padding (12px) no longer affects scrollbar positioning
+- Added bright colors (red track, green thumb) for debugging visibility
 
 ## Next Debugging Steps
 
-1. **Force Scrollbar Visibility**: Temporarily set initial opacity to 1.0 to verify rendering
-2. **Add More Logging**: Log mouse events, hover state changes, and UIItem creation
-3. **Verify Registry Persistence**: Check if containers maintain state between renders
-4. **Test with WEZTERM_LOG=debug**: Run with debug logging to see the new log messages
-5. **Check Element Bounds**: Verify code blocks have proper width constraints
+1. **Test with WEZTERM_LOG=debug**: Run to see if scrollbar elements are being created
+2. **Look for red/green scrollbar**: Should be highly visible if rendering
+3. **Check console output** for:
+   - "Scrollbar check: opacity=X, needs_scrollbar=true, rendering=true"
+   - "Scrollbar element created and added to elements vector"
+   - "create_horizontal_scroll_container returning 2 elements"
+4. **If still not visible**: May need to adjust z-index or check parent element clipping

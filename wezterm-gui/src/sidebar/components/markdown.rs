@@ -556,9 +556,23 @@ impl MarkdownRenderer {
             &scroll_config,
             crate::termwindow::UIItemType::CodeBlockScrollbar(block_id.clone()),
         );
+        
+        log::debug!("Code block {} got {} elements from horizontal scroll container", 
+            block_id, elements.len());
 
-        // Wrap in a code block container
-        let mut code_block = Element::new(font, ElementContent::Children(elements))
+        // Separate content and scrollbar if we have multiple elements
+        let (code_content, scrollbar_element) = if elements.len() > 1 && needs_scrollbar {
+            // We have viewport + scrollbar
+            let viewport = elements[0].clone();
+            let scrollbar = elements[1].clone();
+            (viewport, Some(scrollbar))
+        } else {
+            // No scrollbar, just content
+            (Element::new(font, ElementContent::Children(elements)), None)
+        };
+        
+        // Wrap content in a code block container with padding
+        let mut code_block_content = Element::new(font, ElementContent::Children(vec![code_content]))
             .colors(ElementColors {
                 bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),
                 border: BorderColor::new(LinearRgba::with_components(0.2, 0.2, 0.25, 0.5)),
@@ -566,11 +580,6 @@ impl MarkdownRenderer {
             })
             .padding(BoxDimension::new(Dimension::Pixels(12.0)))
             .border(BoxDimension::new(Dimension::Pixels(1.0)))
-            .margin(BoxDimension {
-                top: Dimension::Pixels(8.0),
-                bottom: Dimension::Pixels(8.0),
-                ..Default::default()
-            })
             .display(DisplayType::Block)
             .item_type(crate::termwindow::UIItemType::CodeBlockContent(
                 block_id.clone(),
@@ -578,7 +587,7 @@ impl MarkdownRenderer {
 
         // Add focus indicator
         if container.has_focus {
-            code_block = code_block
+            code_block_content = code_block_content
                 .border(BoxDimension::new(Dimension::Pixels(2.0)))
                 .colors(ElementColors {
                     bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),
@@ -586,6 +595,26 @@ impl MarkdownRenderer {
                     ..Default::default()
                 });
         }
+        
+        // Create final element structure
+        let code_block = if let Some(scrollbar) = scrollbar_element {
+            // Stack code block and scrollbar vertically
+            Element::new(font, ElementContent::Children(vec![code_block_content, scrollbar]))
+                .margin(BoxDimension {
+                    top: Dimension::Pixels(8.0),
+                    bottom: Dimension::Pixels(8.0),
+                    ..Default::default()
+                })
+                .display(DisplayType::Block)
+        } else {
+            // Just the code block with margins
+            code_block_content
+                .margin(BoxDimension {
+                    top: Dimension::Pixels(8.0),
+                    bottom: Dimension::Pixels(8.0),
+                    ..Default::default()
+                })
+        };
 
         // If hovering, add a copy button above the code block
         if container.hovering_content {

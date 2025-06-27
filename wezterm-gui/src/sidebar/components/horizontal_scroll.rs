@@ -90,15 +90,17 @@ pub fn create_horizontal_scroll_container(
         elements.push(viewport);
 
         // Only render scrollbar if opacity > 0
+        log::debug!("Scrollbar check: opacity={}, needs_scrollbar={}, rendering={}", 
+            scrollbar_opacity, needs_scrollbar, scrollbar_opacity > 0.01);
         if scrollbar_opacity > 0.01 {
             // Create scrollbar track
             let track = Element::new(font, ElementContent::Text(String::new()))
                 .colors(ElementColors {
                     bg: LinearRgba::with_components(
-                        0.15,
-                        0.15,
-                        0.17,
-                        config.track_opacity * scrollbar_opacity,
+                        1.0,  // TEMPORARY: Bright red for debugging
+                        0.0,
+                        0.0,
+                        1.0,  // TEMPORARY: Full opacity for debugging
                     )
                     .into(),
                     ..Default::default()
@@ -123,10 +125,10 @@ pub fn create_horizontal_scroll_container(
             let thumb = Element::new(font, ElementContent::Text(String::new()))
                 .colors(ElementColors {
                     bg: LinearRgba::with_components(
-                        0.5,
-                        0.5,
-                        0.55,
-                        config.thumb_opacity * scrollbar_opacity,
+                        0.0,  // TEMPORARY: Bright green for debugging
+                        1.0,
+                        0.0,
+                        1.0,  // TEMPORARY: Full opacity for debugging
                     )
                     .into(),
                     ..Default::default()
@@ -148,12 +150,14 @@ pub fn create_horizontal_scroll_container(
                 });
 
             elements.push(scrollbar);
+            log::debug!("Scrollbar element created and added to elements vector");
         }
     } else {
         // No scrolling needed, return content as-is
         elements.extend(content);
     }
 
+    log::debug!("create_horizontal_scroll_container returning {} elements", elements.len());
     elements
 }
 
