@@ -1,7 +1,23 @@
-//! Horizontal scrolling support for code blocks in markdown
+//! Horizontal scrolling support for sidebar components
 //!
-//! Note: Despite the generic API, this is currently specific to code blocks
-//! due to the hardcoded UIItemType. Future work could make this truly reusable.
+//! This module provides a reusable horizontal scrolling container that can be used
+//! by any component needing horizontal scroll functionality. The scrollbar_ui_item
+//! parameter allows callers to specify their own UIItemType for mouse interaction.
+//!
+//! # Example
+//!
+//! ```no_run
+//! let scrollable_content = create_horizontal_scroll_container(
+//!     font,
+//!     content_elements,
+//!     viewport_width,
+//!     content_width,
+//!     scroll_offset,
+//!     scrollbar_opacity,
+//!     &config,
+//!     UIItemType::MyCustomScrollbar(item_id),
+//! );
+//! ```
 
 use crate::color::LinearRgba;
 use crate::termwindow::box_model::{
@@ -51,7 +67,7 @@ pub fn create_horizontal_scroll_container(
     scroll_offset: f32,
     scrollbar_opacity: f32,
     config: &HorizontalScrollConfig,
-    item_id: String,
+    scrollbar_ui_item: UIItemType,
 ) -> Vec<Element> {
     let mut elements = Vec::new();
     let needs_scrollbar = content_width > viewport_width;
@@ -90,7 +106,7 @@ pub fn create_horizontal_scroll_container(
                 .min_width(Some(Dimension::Pixels(viewport_width)))
                 .min_height(Some(Dimension::Pixels(config.scrollbar_height)))
                 .display(DisplayType::Block)
-                .item_type(UIItemType::CodeBlockScrollbar(item_id.clone()));
+                .item_type(scrollbar_ui_item);
 
             // Calculate thumb geometry
             let thumb_ratio = viewport_width / content_width;

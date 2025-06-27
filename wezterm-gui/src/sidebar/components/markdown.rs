@@ -36,6 +36,9 @@ pub struct CodeBlockContainer {
     pub has_focus: bool,
     pub scrollbar_opacity: f32,
     pub last_activity: Option<Instant>,
+    pub raw_code: String,
+    pub language: Option<String>,
+    pub copy_success_time: Option<Instant>,
 }
 
 impl CodeBlockContainer {
@@ -53,6 +56,9 @@ impl CodeBlockContainer {
             has_focus: false,
             scrollbar_opacity: 0.0,
             last_activity: None,
+            raw_code: String::new(),
+            language: None,
+            copy_success_time: None,
         }
     }
 
@@ -496,6 +502,8 @@ impl MarkdownRenderer {
         // Create or update container for tracking scroll state
         let mut container = CodeBlockContainer::new(block_id.clone(), viewport_width);
         let needs_scrollbar = container.update_content_width(content_width);
+        container.raw_code = code.to_string();
+        container.language = language.map(|s| s.to_string());
 
         // Update registry if available
         if let Some(ref registry) = self.code_block_registry {
@@ -511,6 +519,7 @@ impl MarkdownRenderer {
                     container.has_focus = existing.has_focus;
                     container.scrollbar_opacity = existing.scrollbar_opacity;
                     container.last_activity = existing.last_activity;
+                    container.copy_success_time = existing.copy_success_time;
                 }
                 reg.insert(block_id.clone(), container.clone());
             }
@@ -526,11 +535,11 @@ impl MarkdownRenderer {
             container.scroll_offset,
             container.scrollbar_opacity,
             &scroll_config,
-            block_id.clone(),
+            crate::termwindow::UIItemType::CodeBlockScrollbar(block_id.clone()),
         );
 
         // Wrap in a code block container
-        let code_block = Element::new(font, ElementContent::Children(elements))
+        let mut code_block = Element::new(font, ElementContent::Children(elements))
             .colors(ElementColors {
                 bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),
                 border: BorderColor::new(LinearRgba::with_components(0.2, 0.2, 0.25, 0.5)),
@@ -548,6 +557,63 @@ impl MarkdownRenderer {
                 block_id.clone(),
             ));
 
-        code_block
+        // Add focus indicator
+        if container.has_focus {
+            code_block = code_block
+                .border(BoxDimension::new(Dimension::Pixels(2.0)))
+                .colors(ElementColors {
+                    bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),
+                    border: BorderColor::new(LinearRgba::with_components(0.3, 0.5, 0.8, 0.8)),
+                    ..Default::default()
+                });
+        }
+
+        // If hovering, add a copy button above the code block
+        if container.hovering_content {
+            // Check if we should show success state
+            let show_success = container.copy_success_time
+                .map(|time| time.elapsed().as_secs_f32() < 2.0)
+                .unwrap_or(false);
+            
+            let button_text = if show_success {
+                "✅ Copied!".to_string()
+            } else {
+                "📋 Copy".to_string()
+            };
+            
+            let copy_button = Element::new(font, ElementContent::Text(button_text))
+                .colors(ElementColors {
+                    bg: LinearRgba::with_components(0.2, 0.2, 0.25, 0.9).into(),
+                    text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
+                    border: BorderColor::new(LinearRgba::with_components(0.3, 0.3, 0.35, 0.8)),
+                    ..Default::default()
+                })
+                .hover_colors(Some(ElementColors {
+                    bg: LinearRgba::with_components(0.25, 0.25, 0.3, 0.95).into(),
+                    text: LinearRgba::with_components(1.0, 1.0, 1.0, 1.0).into(),
+                    border: BorderColor::new(LinearRgba::with_components(0.4, 0.4, 0.45, 0.9)),
+                    ..Default::default()
+                }))
+                .padding(BoxDimension {
+                    left: Dimension::Pixels(8.0),
+                    right: Dimension::Pixels(8.0),
+                    top: Dimension::Pixels(4.0),
+                    bottom: Dimension::Pixels(4.0),
+                })
+                .border(BoxDimension::new(Dimension::Pixels(1.0)))
+                .float(Some(Float::Right))
+                .display(DisplayType::Block)
+                .item_type(crate::termwindow::UIItemType::CodeBlockCopyButton(
+                    block_id.clone(),
+                ));
+
+            // Create a wrapper that includes both the copy button and the code block
+            let wrapper = Element::new(font, ElementContent::Children(vec![copy_button, code_block]))
+                .display(DisplayType::Block);
+            
+            wrapper
+        } else {
+            code_block
+        }
     }
 }

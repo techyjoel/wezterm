@@ -1532,16 +1532,29 @@ impl super::TermWindow {
                     let sidebar_locked = sidebar.lock().unwrap();
                     if let Some(ai_sidebar) = sidebar_locked
                         .as_any()
-                        .downcast_ref::<crate::sidebar::ai_sidebar::AiSidebar>(
-                    ) {
-                        // Extract code block content from the current activity log
-                        // For now, we'll just show a placeholder message
-                        // TODO: Implement proper code extraction from markdown
-                        self.copy_to_clipboard(
-                            config::keyassignment::ClipboardCopyDestination::ClipboardAndPrimarySelection,
-                            "Code block copied!".to_string()
-                        );
-                        context.invalidate();
+                        .downcast_ref::<crate::sidebar::ai_sidebar::AiSidebar>()
+                    {
+                        // Get the code block registry
+                        if let Some(ref registry) = ai_sidebar.code_block_registry {
+                            if let Ok(mut reg) = registry.lock() {
+                                if let Some(container) = reg.get_mut(&block_id) {
+                                    // Copy the raw code content
+                                    self.copy_to_clipboard(
+                                        config::keyassignment::ClipboardCopyDestination::ClipboardAndPrimarySelection,
+                                        container.raw_code.clone()
+                                    );
+                                    
+                                    // Set copy success time for visual feedback
+                                    container.copy_success_time = Some(std::time::Instant::now());
+                                    
+                                    // Log success with language info
+                                    let lang_info = container.language.as_deref().unwrap_or("plain text");
+                                    log::info!("Copied {} code block to clipboard", lang_info);
+                                    
+                                    context.invalidate();
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -495,6 +495,9 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
         }
 
         self.agent_mode = AgentMode::Thinking;
+        
+        // Clear code block registry since we've replaced all content
+        self.clear_code_block_registry();
     }
 
     fn render_header(&self, fonts: &SidebarFonts) -> Element {
@@ -1272,6 +1275,8 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
                 timestamp: SystemTime::now(),
             });
             self.chat_input.clear();
+            // Clear code block registry since content has changed
+            self.clear_code_block_registry();
         }
     }
 
@@ -1679,6 +1684,43 @@ impl Sidebar for AiSidebar {
                 .handle_key_event(*key, KeyModifiers::empty())
             {
                 return Ok(true);
+            }
+        }
+
+        // Handle keyboard events for focused code blocks
+        if let Some(ref registry) = self.code_block_registry {
+            if let Ok(mut reg) = registry.lock() {
+                // Find if any code block has focus
+                let focused_block = reg.iter_mut()
+                    .find(|(_, container)| container.has_focus)
+                    .map(|(id, container)| (id.clone(), container));
+                
+                if let Some((block_id, container)) = focused_block {
+                    match key {
+                        KeyCode::LeftArrow => {
+                            container.scroll_horizontal(-50.0);
+                            return Ok(true);
+                        }
+                        KeyCode::RightArrow => {
+                            container.scroll_horizontal(50.0);
+                            return Ok(true);
+                        }
+                        KeyCode::Home => {
+                            container.set_scroll_offset(0.0);
+                            return Ok(true);
+                        }
+                        KeyCode::End => {
+                            let max_scroll = container.max_scroll();
+                            container.set_scroll_offset(max_scroll);
+                            return Ok(true);
+                        }
+                        KeyCode::Escape => {
+                            container.has_focus = false;
+                            return Ok(true);
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
 
