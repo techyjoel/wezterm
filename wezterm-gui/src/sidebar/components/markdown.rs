@@ -497,13 +497,32 @@ impl MarkdownRenderer {
 
         // Measure the maximum line width
         let content_width = measure_code_block_width(&lines_for_measurement, font);
-        let viewport_width = max_width.unwrap_or(content_width);
+        
+        // Account for code block padding (12px on each side)
+        let code_block_padding = 24.0;
+        let available_width = max_width.map(|w| w - code_block_padding);
+        let viewport_width = available_width.unwrap_or(content_width);
 
         // Create or update container for tracking scroll state
         let mut container = CodeBlockContainer::new(block_id.clone(), viewport_width);
         let needs_scrollbar = container.update_content_width(content_width);
         container.raw_code = code.to_string();
         container.language = language.map(|s| s.to_string());
+        
+        // TEMPORARY: Force scrollbar visibility for debugging
+        if needs_scrollbar {
+            container.scrollbar_opacity = 1.0;
+        }
+        
+        log::debug!(
+            "Code block {}: content_width={}, viewport_width={}, max_width={:?}, needs_scrollbar={}, opacity={}",
+            block_id,
+            content_width,
+            viewport_width,
+            max_width,
+            needs_scrollbar,
+            container.scrollbar_opacity
+        );
 
         // Update registry if available
         if let Some(ref registry) = self.code_block_registry {

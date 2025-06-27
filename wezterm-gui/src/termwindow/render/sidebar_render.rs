@@ -506,6 +506,10 @@ impl crate::TermWindow {
                 .as_any_mut()
                 .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
             {
+                // Update code block opacity for animations
+                // Calculate delta time (roughly 60fps = 16.67ms)
+                ai_sidebar.update_code_block_opacity(0.016);
+                
                 // Get the activity log element
                 let activity_log_element = ai_sidebar
                     .render_activity_log_content(&fonts, self.dimensions.pixel_height as f32);

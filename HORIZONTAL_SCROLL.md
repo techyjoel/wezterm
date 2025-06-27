@@ -1,8 +1,10 @@
-# Horizontal Scrolling for Code Blocks - Implementation Complete ✅
+# Horizontal Scrolling for Code Blocks - Implementation Status 🔄
 
-## Summary
+## Current Status: NOT WORKING
 
-This document tracks the successful implementation of horizontal scrolling for code blocks in the WezTerm sidebar's markdown renderer. All planned features have been completed, including:
+The horizontal scrolling feature has been fully implemented in code but is not functioning at runtime. The scrollbars do not appear and scrolling functionality is not active.
+
+## Implemented Features (In Code)
 
 - ✅ Horizontal scrolling with auto-hide scrollbars
 - ✅ Full mouse interaction (drag, wheel, click-to-focus)
@@ -11,6 +13,7 @@ This document tracks the successful implementation of horizontal scrolling for c
 - ✅ Automatic memory management
 - ✅ Reusable scrolling component
 - ✅ Visual polish with focus indicators
+- ✅ Compilation errors fixed
 
 ## Overview
 Implement horizontal scrolling for code blocks in the markdown renderer to handle long lines without wrapping, preserving code formatting and readability.
@@ -413,12 +416,53 @@ All planned features have been successfully implemented:
 6. **Memory Management**: Automatic cleanup when content changes
 7. **Reusability**: The horizontal_scroll module is now parameterized for use by other components
 
-## Resolved Issues
+## Troubleshooting Steps
 
-1. **Coordinate Transformation**: ✅ FIXED - Updated `mouse_event_code_block_scrollbar` to receive the UIItem parameter and transform absolute screen coordinates to scrollbar-relative coordinates.
+### Most Likely Issues (in order of probability)
 
-2. **Memory Management**: ✅ FIXED - Added automatic cleanup calls in `handle_chat_send()` and `populate_mock_data()` to prevent memory leaks.
+1. **Viewport Width Calculation Issue**
+   - Problem: The viewport width might be too large, preventing scrollbar from appearing
+   - Issue: Code block padding (12px each side) wasn't being subtracted from max_width
+   - Fixed: Now subtracting 24px from max_width for actual viewport
+   - Debug: Added logging to show viewport calculation
 
-3. **Copy Button**: ✅ FIXED - Copy button now extracts and copies the actual code content with visual feedback.
+2. **Opacity Never Increases Above 0**
+   - Problem: The scrollbar opacity starts at 0 and never increases
+   - Test: Temporarily forcing opacity to 1.0 when scrollbar is needed
+   - Debug: Added logging to show opacity values
 
-4. **Reusability**: ✅ FIXED - The `horizontal_scroll` module now accepts UIItemType as a parameter, making it truly reusable.
+3. **Content Width vs Available Width**
+   - Problem: The markdown renderer receives a max_width that's already the full sidebar width minus margins
+   - User confirmed: Code IS long enough to exceed visible viewport
+   - Mouse events ARE working (vertical scroll stops on hover)
+
+3. **Registry Not Being Preserved Between Renders**
+   - Problem: Code block state might be recreated on each render, losing scroll state
+   - Check: Registry is passed to markdown renderer, but state preservation needs verification
+
+4. **Mouse Events Not Reaching Code Blocks**
+   - Problem: UIItem registration or hit testing might be failing
+   - Check: Code blocks are tagged with UIItemType::CodeBlockContent
+   - Debug: Need to verify UIItems are being created with correct bounds
+
+5. **Scrollbar Rendering Skipped**
+   - Problem: The condition `if scrollbar_opacity > 0.01` might always be false
+   - Check: opacity animation timing and hover detection
+   - Debug: May need to force initial visibility for testing
+
+## Debug Actions Taken
+
+1. Added `update_code_block_opacity(0.016)` call in sidebar render
+2. Added debug logging for code block measurements and opacity
+3. Added a very long line to mock data to ensure scrolling is needed
+4. Fixed compilation errors (Float import, borrow checker issues)
+5. Adjusted viewport width calculation to account for code block padding (24px)
+6. Temporarily forcing scrollbar opacity to 1.0 when needed (for testing)
+
+## Next Debugging Steps
+
+1. **Force Scrollbar Visibility**: Temporarily set initial opacity to 1.0 to verify rendering
+2. **Add More Logging**: Log mouse events, hover state changes, and UIItem creation
+3. **Verify Registry Persistence**: Check if containers maintain state between renders
+4. **Test with WEZTERM_LOG=debug**: Run with debug logging to see the new log messages
+5. **Check Element Bounds**: Verify code blocks have proper width constraints

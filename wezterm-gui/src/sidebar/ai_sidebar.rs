@@ -369,6 +369,7 @@ The fastest way to resolve this is usually:
    export PKG_CONFIG_PATH="$OPENSSL_DIR/lib/pkgconfig"
    export LDFLAGS="-L$OPENSSL_DIR/lib"
    export CPPFLAGS="-I$OPENSSL_DIR/include"
+   # This is a very long line that should definitely trigger horizontal scrolling in the code block - it contains many characters and should exceed the width of the sidebar
    ```
 
 4. Try running `make` again.
