@@ -107,7 +107,8 @@ impl MarkdownRenderer {
                                     .padding(BoxDimension {
                                         bottom: Dimension::Pixels(8.0),
                                         ..Default::default()
-                                    }),
+                                    })
+                                    .display(DisplayType::Block),
                             );
                             current_paragraph.clear();
                         }
@@ -145,7 +146,8 @@ impl MarkdownRenderer {
                                         top: Dimension::Pixels(padding),
                                         bottom: Dimension::Pixels(padding / 2.0),
                                         ..Default::default()
-                                    }),
+                                    })
+                                    .display(DisplayType::Block),
                             );
                             current_paragraph.clear();
                         }
@@ -214,10 +216,12 @@ impl MarkdownRenderer {
         if !current_paragraph.is_empty() {
             let text = current_paragraph.join("");
             elements.push(
-                Element::new(font, ElementContent::WrappedText(text)).colors(ElementColors {
-                    text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
-                    ..Default::default()
-                }),
+                Element::new(font, ElementContent::WrappedText(text))
+                    .colors(ElementColors {
+                        text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
+                        ..Default::default()
+                    })
+                    .display(DisplayType::Block),
             );
         }
 
@@ -286,12 +290,12 @@ impl MarkdownRenderer {
         // If no lines were highlighted, fall back to plain text
         if line_elements.is_empty() {
             line_elements.push(
-                Element::new(font, ElementContent::WrappedText(code.to_string())).colors(
-                    ElementColors {
+                Element::new(font, ElementContent::WrappedText(code.to_string()))
+                    .colors(ElementColors {
                         text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
                         ..Default::default()
-                    },
-                ),
+                    })
+                    .display(DisplayType::Block),
             );
         }
 

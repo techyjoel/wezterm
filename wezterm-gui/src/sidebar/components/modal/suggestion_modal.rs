@@ -27,6 +27,7 @@ impl ModalContent for SuggestionModal {
         let padding = 20.0;
 
         // Title with width constraint
+        let title_width = context.modal_bounds.width() - 20.0; // Account for scrollbar space
         let title = Element::new(
             &context.fonts.heading,
             ElementContent::WrappedText(self.suggestion.title.clone()),
@@ -36,7 +37,7 @@ impl ModalContent for SuggestionModal {
             bg: LinearRgba(0.0, 0.0, 0.0, 0.0).into(),
             text: LinearRgba(1.0, 1.0, 1.0, 0.9).into(),
         })
-        .max_width(Some(Dimension::Pixels(context.modal_bounds.width())))
+        .max_width(Some(Dimension::Pixels(title_width)))
         .padding(BoxDimension {
             left: Dimension::Pixels(0.0),
             right: Dimension::Pixels(0.0),
@@ -47,12 +48,14 @@ impl ModalContent for SuggestionModal {
         children.push(title);
 
         // Render markdown content with width constraint
+        // Subtract padding from width to prevent text overflow
+        let content_width = context.modal_bounds.width() - 20.0; // Account for right padding
         let content = MarkdownRenderer::render_with_code_font(
             &self.suggestion.content,
             &context.fonts.body,
             &context.fonts.code,
         )
-        .max_width(Some(Dimension::Pixels(context.modal_bounds.width())))
+        .max_width(Some(Dimension::Pixels(content_width)))
         .padding(BoxDimension {
             left: Dimension::Pixels(0.0),
             right: Dimension::Pixels(20.0), // Add right padding to avoid scrollbar
