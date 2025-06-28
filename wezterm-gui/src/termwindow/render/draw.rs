@@ -121,46 +121,6 @@ impl crate::TermWindow {
                     });
                     cleared = true;
 
-                    // Apply scissor rect if we have one on the stack
-                    if let Some(scissor_rect) = render_state.get_current_scissor() {
-                        if scissor_rect.size.width <= 0.0 || scissor_rect.size.height <= 0.0 {
-                            // Zero-sized scissor rect clips everything
-                            log::trace!("WebGPU: Setting zero scissor rect (clips all)");
-                            render_pass.set_scissor_rect(0, 0, 0, 0);
-                        } else {
-                            // Clamp to viewport bounds
-                            let viewport_width = self.dimensions.pixel_width as f32;
-                            let viewport_height = self.dimensions.pixel_height as f32;
-
-                            let x = scissor_rect.origin.x.max(0.0).min(viewport_width) as u32;
-                            let y = scissor_rect.origin.y.max(0.0).min(viewport_height) as u32;
-                            let width = scissor_rect
-                                .size
-                                .width
-                                .max(0.0)
-                                .min(viewport_width - scissor_rect.origin.x)
-                                as u32;
-                            let height = scissor_rect
-                                .size
-                                .height
-                                .max(0.0)
-                                .min(viewport_height - scissor_rect.origin.y)
-                                as u32;
-
-                            log::trace!(
-                                "WebGPU: Setting scissor rect x={}, y={}, w={}, h={} (from {:?})",
-                                x,
-                                y,
-                                width,
-                                height,
-                                scissor_rect
-                            );
-                            render_pass.set_scissor_rect(x, y, width, height);
-                        }
-                    } else {
-                        log::trace!("WebGPU: No scissor rect on stack");
-                    }
-
                     uniforms = webgpu.create_uniform(ShaderUniform {
                         foreground_text_hsb,
                         milliseconds,
@@ -282,72 +242,6 @@ impl crate::TermWindow {
         let blink: ColorEaseUniform = (*self.blink_state.borrow()).into();
         let rapid_blink: ColorEaseUniform = (*self.rapid_blink_state.borrow()).into();
 
-        // Helper function to create draw parameters with optional scissor test
-        let create_draw_params = |blend: glium::Blend| -> glium::DrawParameters {
-            let mut params = glium::DrawParameters {
-                blend,
-                ..Default::default()
-            };
-
-            // Apply scissor test if we have a scissor rect on the stack
-            if let Some(scissor_rect) = gl_state.get_current_scissor() {
-                // Skip zero-sized scissor rects (no intersection)
-                if scissor_rect.size.width <= 0.0 || scissor_rect.size.height <= 0.0 {
-                    // Create a zero-sized scissor to clip everything
-                    log::trace!("OpenGL: Setting zero scissor rect (clips all)");
-                    params.scissor = Some(glium::Rect {
-                        left: 0,
-                        bottom: 0,
-                        width: 0,
-                        height: 0,
-                    });
-                } else {
-                    // Convert from our coordinate system (top-left origin) to OpenGL (bottom-left origin)
-                    let window_height = self.dimensions.pixel_height as f32;
-                    let window_width = self.dimensions.pixel_width as f32;
-
-                    // Clamp to viewport bounds and ensure non-negative
-                    let x = scissor_rect.origin.x.max(0.0).min(window_width) as u32;
-                    let y_top = scissor_rect.origin.y.max(0.0).min(window_height);
-                    let width = scissor_rect
-                        .size
-                        .width
-                        .max(0.0)
-                        .min(window_width - scissor_rect.origin.x)
-                        as u32;
-                    let height = scissor_rect
-                        .size
-                        .height
-                        .max(0.0)
-                        .min(window_height - scissor_rect.origin.y)
-                        as u32;
-
-                    // Convert Y coordinate from top-left to bottom-left origin
-                    let y_bottom = (window_height - y_top - height as f32).max(0.0) as u32;
-
-                    log::trace!(
-                        "OpenGL: Setting scissor rect left={}, bottom={}, w={}, h={} (from {:?})",
-                        x,
-                        y_bottom,
-                        width,
-                        height,
-                        scissor_rect
-                    );
-
-                    params.scissor = Some(glium::Rect {
-                        left: x,
-                        bottom: y_bottom,
-                        width,
-                        height,
-                    });
-                }
-            } else {
-                log::trace!("OpenGL: No scissor rect on stack");
-            }
-
-            params
-        };
-
         for layer in gl_state.layers.borrow().iter() {
             for idx in 0..3 {
                 let vb = &layer.vb.borrow()[idx];
@@ -368,10 +262,13 @@ impl crate::TermWindow {
                     uniforms.add_struct("blink", &blink);
                     uniforms.add_struct("rapid_blink", &rapid_blink);
 
-                    let draw_params = if subpixel_aa {
-                        create_draw_params(dual_source_blending.blend)
-                    } else {
-                        create_draw_params(alpha_blending.blend)
+                    let draw_params = glium::DrawParameters {
+                        blend: if subpixel_aa {
+                            dual_source_blending.blend
+                        } else {
+                            alpha_blending.blend
+                        },
+                        ..Default::default()
                     };
 
                     frame.draw(

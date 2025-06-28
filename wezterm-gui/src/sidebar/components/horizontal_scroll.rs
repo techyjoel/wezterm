@@ -120,12 +120,11 @@ pub fn create_horizontal_scroll_container(
         // Create viewport that enforces width constraints and clips content
         log::trace!("Creating viewport for code block: viewport_width={}, content_width={}, scroll_offset={}", 
             viewport_width, content_width, scroll_offset);
-        // Don't set max_width - let content be its natural width
-        // The clipping should handle visual overflow
+        // Use explicit clip bounds to ensure we clip to viewport width, not content width
         let mut viewport = Element::new(font, ElementContent::Children(vec![content_container]))
             .min_width(Some(Dimension::Pixels(viewport_width)))
-            .display(DisplayType::Block)
-            .with_clip_bounds(ClipBounds::ContentBounds);
+            .max_width(Some(Dimension::Pixels(viewport_width)))
+            .display(DisplayType::Block);
 
         // Apply z-index if provided to ensure proper layering for clipping
         if let Some(zindex) = base_zindex {

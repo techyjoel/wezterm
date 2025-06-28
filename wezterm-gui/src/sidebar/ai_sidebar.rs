@@ -827,7 +827,12 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
         )
     }
 
-    pub fn render_activity_item(&self, item: &ActivityItem, fonts: &SidebarFonts) -> Element {
+    pub fn render_activity_item(
+        &self,
+        item: &ActivityItem,
+        fonts: &SidebarFonts,
+        item_index: usize,
+    ) -> Element {
         match item {
             ActivityItem::Command {
                 command,
@@ -915,6 +920,7 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
                             &fonts.code,
                             Some(content_width),
                             Arc::clone(registry),
+                            &format!("activity_{}", item_index),
                         )
                     } else {
                         MarkdownRenderer::render_with_width(
@@ -966,6 +972,7 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
                         &fonts.code,
                         Some(content_width),
                         Arc::clone(registry),
+                        &format!("suggestion_{}", item_index),
                     )
                 } else {
                     MarkdownRenderer::render_with_width(
@@ -1014,7 +1021,8 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
         rendered_items.extend(
             filtered_items
                 .into_iter()
-                .map(|item| self.render_activity_item(item, fonts)),
+                .enumerate()
+                .map(|(idx, item)| self.render_activity_item(item, fonts, idx)),
         );
 
         let rendered_items_count = rendered_items.len();

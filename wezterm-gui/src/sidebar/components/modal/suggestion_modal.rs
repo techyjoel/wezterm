@@ -59,6 +59,7 @@ impl ModalContent for SuggestionModal {
                 &context.fonts.code,
                 Some(content_width),
                 registry.clone(),
+                "modal",
             )
         } else {
             MarkdownRenderer::render_with_width(

@@ -1263,16 +1263,6 @@ impl super::TermWindow {
         gl_state: &RenderState,
         inherited_colors: Option<&ElementColors>,
     ) -> anyhow::Result<()> {
-        // Apply scissor rect if element has clip bounds
-        if let Some(clip_bounds) = element.clip_bounds {
-            log::trace!(
-                "render_element: Applying clip bounds for element with zindex={}, bounds={:?}",
-                element.zindex,
-                clip_bounds
-            );
-            gl_state.push_scissor(clip_bounds);
-        }
-
         let layer = gl_state.layer_for_zindex(element.zindex)?;
         let mut layers = layer.quad_allocator();
 
@@ -1300,6 +1290,16 @@ impl super::TermWindow {
         };
 
         self.render_element_background(element, colors, &mut layers, inherited_colors)?;
+
+        // Debug: Log clip bounds
+        if let Some(clip_bounds) = element.clip_bounds {
+            log::info!(
+                "DEBUG: Element has clip bounds {:?}, content_rect={:?}",
+                clip_bounds,
+                element.content_rect
+            );
+        }
+
         let left = self.dimensions.pixel_width as f32 / -2.0;
         let top = self.dimensions.pixel_height as f32 / -2.0;
         match &element.content {
@@ -1595,11 +1595,6 @@ impl super::TermWindow {
                     self.resolve_text(colors, inherited_colors).apply(&mut quad);
                 }
             }
-        }
-
-        // Pop scissor rect if we pushed one
-        if element.clip_bounds.is_some() {
-            gl_state.pop_scissor();
         }
 
         Ok(())

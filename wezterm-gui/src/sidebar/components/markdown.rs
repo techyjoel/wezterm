@@ -138,6 +138,8 @@ pub struct MarkdownRenderer {
     code_block_counter: usize,
     /// Optional registry for tracking code block containers
     code_block_registry: Option<Arc<Mutex<HashMap<String, CodeBlockContainer>>>>,
+    /// Context prefix for generating unique code block IDs
+    context_prefix: String,
 }
 
 impl MarkdownRenderer {
@@ -148,6 +150,7 @@ impl MarkdownRenderer {
             theme_set: ThemeSet::load_defaults(),
             code_block_counter: 0,
             code_block_registry: None,
+            context_prefix: String::new(),
         }
     }
     /// Render markdown text to an Element tree
@@ -184,9 +187,11 @@ impl MarkdownRenderer {
         code_font: &Rc<LoadedFont>,
         max_width: Option<f32>,
         registry: Arc<Mutex<HashMap<String, CodeBlockContainer>>>,
+        context: &str,
     ) -> Element {
         let mut renderer = Self::new();
         renderer.code_block_registry = Some(registry);
+        renderer.context_prefix = context.to_string();
         renderer.render_markdown(text, font, Some(code_font), max_width)
     }
 
@@ -308,7 +313,14 @@ impl MarkdownRenderer {
 
                         // Generate unique ID for this code block
                         self.code_block_counter += 1;
-                        let block_id = format!("code_block_{}", self.code_block_counter);
+                        let block_id = if self.context_prefix.is_empty() {
+                            format!("code_block_{}", self.code_block_counter)
+                        } else {
+                            format!(
+                                "{}__code_block_{}",
+                                self.context_prefix, self.code_block_counter
+                            )
+                        };
 
                         let highlighted_element = self.highlight_code_block(
                             &code_block_content,

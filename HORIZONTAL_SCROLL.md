@@ -1,6 +1,6 @@
 # Horizontal Scrolling for Code Blocks - Implementation Status
 
-## Current Status: PARTIALLY WORKING ⚠️
+## Current Status: MECHANICALLY WORKING, VISUALLY BROKEN ⚠️
 
 ### Working Features ✅
 - ✅ **Horizontal scrollbar mechanics** - thumb drag and shift+wheel work correctly
@@ -10,17 +10,27 @@
 - ✅ **Vertical scroll pass-through** - vertical scrolling works over code blocks and copy buttons
 - ✅ **Mouse event routing** - events properly forwarded to sidebar when appropriate
 - ✅ **Content Rendering Fixed** - Text no longer truncated, full content is shaped and rendered
+- ✅ **Unique Code Block IDs** - Each code block has unique ID preventing scroll state sharing
 
 ### Critical Issues Still Present 🔴
 
 1. **Clipping Not Working**:
    - Content visually overflows code block boundaries when scrolled
-   - Manual clipping implemented but not effective (only skips entire glyphs)
-   - **Root cause**: Timing mismatch between element processing and GPU drawing
-     - Elements push/pop scissor rects during `render_element` (processing phase)
-     - GPU drawing happens later in `draw.rs` (draw phase)
-     - By draw time, scissor stack doesn't match what it was during element processing
-     - Different z-indices don't help - scissor state is per render pass, not per element
+   - **Attempted Solutions**:
+     a) **GPU Scissor Rect** (FAILED - Removed):
+        - Implemented full scissor stack infrastructure in RenderState
+        - Added scissor push/pop in render_element
+        - **Failed because**: Scissor state set during element processing, but GPU draws later in separate batched render passes
+        - **Outcome**: Didn't cause crashes but clipping was ineffective, removed during cleanup
+     b) **Manual Clipping with Partial Glyphs** (IMPLEMENTED but INEFFECTIVE):
+        - Added coordinate-corrected clipping logic with partial glyph support
+        - Adjusts texture coordinates for glyphs at boundaries
+        - **Failed because**: Even with correct coordinates and max_width constraints, content still overflows
+        - **Theory**: May be rendering issue with how Elements handle overflow
+     c) **Explicit ClipBounds** (CAUSES CRASHES):
+        - Setting ClipBounds::Explicit on viewport element
+        - **Failed because**: Triggers RefCell BorrowMutError in quad allocator
+        - **Root cause**: WezTerm's quad allocator has nested borrow issues with clipped elements
 
 2. **Text Selection Broken**:
    - Cannot select any text in the sidebar (not just code blocks)
@@ -137,10 +147,14 @@ Build selection support directly into Element system:
 - Still have timing issues within a layer
 - Doesn't help with text selection
 
-### 4. **GPU Scissor Rect** (Current Implementation) ❌
-**Status**: Already implemented but doesn't work due to timing
-- Infrastructure complete (scissor stack, GPU commands)
-- Fails because scissor state at draw time ≠ state during element processing
+### 4. **GPU Scissor Rect** ❌ ATTEMPTED AND REMOVED
+**Status**: Was fully implemented but had to be removed
+- Infrastructure was complete (scissor stack, GPU commands in both WebGPU and OpenGL)
+- **Failed because**: 
+  - Scissor state set during element processing but GPU draws in batched render passes later
+  - Timing mismatch: scissor stack is empty by draw time
+  - Each z-index has its own render pass, can't clip across layers
+- **Outcome**: Clipping was ineffective, code removed during cleanup
 
 ## Solution Intersection with Text Selection
 
@@ -181,35 +195,47 @@ for glyph in glyphs {
 
 ## Architectural Insights
 
-### Why GPU Scissor Rect Doesn't Work
+### WezTerm's Rendering Architecture (VERIFIED)
 
-The fundamental issue is a **timing mismatch** in WezTerm's rendering pipeline:
+WezTerm uses a **batched rendering pipeline** that fundamentally conflicts with per-element clipping:
 
 1. **Element Processing Phase** (`render_element`):
-   - Elements are processed sequentially
-   - Each element pushes its clip bounds to scissor stack
-   - Quads (vertices) are added to shared buffers
-   - Scissor is popped from stack
-   - **Key point**: No actual GPU drawing happens here
+   - Elements are processed recursively, building a tree
+   - Each element calls `quad_allocator()` which returns a `BorrowedLayers` struct
+   - `BorrowedLayers` holds an immutable borrow of the vertex buffers via RefCell
+   - Quads are allocated and vertices added to layer-specific buffers (0=background, 1=text, 2=sprites)
+   - **Critical**: The immutable borrow is held for the entire element tree processing
 
 2. **GPU Drawing Phase** (`draw.rs`):
-   - Happens after ALL elements are processed
-   - Checks current scissor stack state (likely empty or wrong)
-   - Draws entire vertex buffer with single scissor state
-   - **Problem**: Scissor state now ≠ what it was during element processing
+   - After ALL elements are processed, iterate through layers
+   - Each layer draws its entire vertex buffer in one draw call
+   - Draw parameters (like scissor) apply to the entire draw call
+   - **Key insight**: One scissor rect per draw call, not per element
 
-3. **Why Different Z-Indices Don't Help**:
-   - Each z-index creates a separate layer with its own render pass
-   - But scissor rect is still applied per render pass, not per element
-   - All elements in that z-index still share the same scissor state
+3. **The RefCell Borrow Problem** (VERIFIED):
+   - `quad_allocator()` creates `BorrowedLayers` with `self.vb.borrow()` 
+   - This immutable borrow is extended via unsafe lifetime extension
+   - When allocating quads, it needs `current_vb_mut()` which calls `self.bufs.borrow_mut()`
+   - **Crash**: Can't get mutable borrow while immutable borrow exists
+   - This happens when using ClipBounds::Explicit, likely due to deeper element nesting
 
-### The Manual Clipping Advantage
+4. **Why Different Z-Indices Make It Worse**:
+   - Each z-index creates a separate RenderLayer
+   - More layers = more potential for nested borrows
+   - The borrow checker can't track the complex lifetime relationships
 
-Manual clipping avoids the timing issue entirely:
-- Clipping decisions made during element processing
-- No dependency on GPU state
-- Works with the batched rendering architecture
-- Can be enhanced to handle partial glyphs
+### Why Manual Clipping Also Failed
+
+Despite implementing manual clipping with:
+- Correct coordinate system (applied `left` offset to match rendering)
+- Partial glyph support with texture coordinate adjustment
+- Proper bounds checking before creating quads
+
+**It still doesn't work because**:
+- The viewport element expands to contain all content despite max_width constraint
+- Even with manual clipping in render_element, the element's background/borders render at full size
+- The Element system doesn't have a true "overflow: hidden" concept
+- Parent elements don't constrain child rendering bounds
 
 ## Manual Clipping Implementation Plan
 
@@ -389,19 +415,20 @@ Manual clipping avoids the timing issue entirely:
 
 ### Completed Infrastructure ✅
 
-#### Phase 1: GPU Scissor Rect Infrastructure
-- ✅ Added `scissor_stack: RefCell<Vec<RectF>>` to `RenderState`
-- ✅ Implemented stack-based scissor rect management with automatic intersection
-- ✅ Added OpenGL scissor implementation with coordinate transformation
-- ✅ Added WebGPU scissor implementation
-- ✅ Added bounds validation and safety checks
+#### Phase 1: GPU Scissor Rect Infrastructure (REMOVED)
+- ❌ ~~Added `scissor_stack: RefCell<Vec<RectF>>` to `RenderState`~~ - REMOVED
+- ❌ ~~Implemented stack-based scissor rect management~~ - REMOVED
+- ❌ ~~Added OpenGL scissor implementation~~ - REMOVED
+- ❌ ~~Added WebGPU scissor implementation~~ - REMOVED
+- All GPU scissor code removed as it was ineffective due to timing issues
 
-#### Phase 2: Element System Integration
+#### Phase 2: Element System Integration (PARTIALLY KEPT)
 - ✅ Created `ClipBounds` enum with `ContentBounds` and `Explicit` variants
 - ✅ Added `clip_bounds` field to both `Element` and `ComputedElement`
 - ✅ Added builder methods for setting clip bounds
 - ✅ Updated `compute_element()` to transform clip bounds to absolute coordinates
-- ✅ Updated `render_element()` to push/pop scissor rects
+- ✅ Implemented manual clipping with partial glyph support in `render_element()`
+- ❌ Cannot use ClipBounds::Explicit due to crashes
 
 #### Phase 3: Animation & Event Fixes
 - ✅ Fixed animation timing to respect actual FPS setting
@@ -409,6 +436,11 @@ Manual clipping avoids the timing issue entirely:
 - ✅ Added animation stop logic when all animations complete
 - ✅ Fixed mouse event routing for vertical scroll pass-through
 - ✅ Updated scrollbar thickness and appearance
+
+#### Phase 4: Scroll State Management
+- ✅ Made code block IDs unique by adding context prefix
+- ✅ Fixed scroll state sharing between different code blocks
+- ✅ Separate IDs for activity log, modal, and suggestion items
 
 ### Working Features (Pre-existing) ✅
 - **Basic horizontal scrolling mechanics** in activity log (thumb drag and shift+wheel)
@@ -419,35 +451,40 @@ Manual clipping avoids the timing issue entirely:
 
 
 
-## Todo List
+## Paths Forward
 
-### Immediate (Fix Clipping)
-- [x] ~~Implement scissor rect infrastructure in RenderState~~ ✅ DONE
-- [x] ~~Add OpenGL scissor implementation~~ ✅ DONE
-- [x] ~~Add WebGPU scissor implementation~~ ✅ DONE
-- [x] ~~Extend ComputedElement with clip_bounds~~ ✅ DONE
-- [x] ~~Update render_element to use scissor rects~~ ✅ DONE
-- [x] ~~Apply unique z-index per code block for proper clipping~~ ✅ DONE
-- [ ] Test clipping with multiple code blocks
-- [ ] Verify clipping works with both OpenGL and WebGPU
+### Option 1: CSS-Style Overflow Container (Most Promising)
+Create a new Element type that truly constrains child rendering:
+- Add `ElementContent::OverflowContainer { children, overflow_x, overflow_y }`
+- Implement proper bounds checking at the container level
+- Render to texture first, then blit only visible portion
+- **Pros**: Works with existing architecture, true clipping
+- **Cons**: Significant implementation effort, performance impact
 
-### Short-term (Complete Horizontal Scrolling)
-- [ ] Fix content truncation issue - investigate why scrolling doesn't reveal hidden content
-- [ ] Choose and implement text selection solution (Terminal panes vs Element selection)
-- [ ] Connect modal to code block registry - pass registry through modal context
-- [ ] Test with very long code lines
-- [ ] Document the chosen text selection approach
+### Option 2: Pane-Based Code Blocks
+Treat each code block as a mini terminal pane:
+- Implement Pane trait for code blocks
+- Use existing terminal scrolling/clipping infrastructure
+- **Pros**: Reuses battle-tested code, gets selection for free
+- **Cons**: Heavy-weight solution, may feel foreign
 
-### Medium-term (Vertical Scrolling Migration)
-- [ ] Use scissor rect for activity log scrolling
-- [ ] Remove cut-a-hole z-index pattern from sidebar_render.rs
-- [ ] Simplify activity log to single z-index
-- [ ] Add viewport culling optimization
-- [ ] Update documentation
+### Option 3: Immediate Mode Rendering for Code Blocks
+Render code blocks in a separate pass with proper clipping:
+- Extract code blocks from normal element tree
+- Render them after main content with scissor rects
+- **Pros**: Avoids borrow checker issues
+- **Cons**: Breaks element tree abstraction, complex integration
 
-### Long-term (Polish & Performance)
-- [ ] Profile performance impact
-- [ ] Add scissor rect debugging visualization
-- [ ] Consider caching rendered content
-- [ ] Document new clipping architecture
+### Option 4: Virtual Scrolling (Workaround)
+Only render visible portion of code:
+- Calculate visible lines based on scroll offset
+- Only create elements for visible content
+- **Pros**: No clipping needed, works today
+- **Cons**: Can't partially show lines at boundaries, jarring UX
+
+## Recommendations
+
+1. **Short term**: Implement virtual scrolling as a workaround to get something usable
+2. **Long term**: Design and implement proper overflow containers in the Element system
+3. **Alternative**: Investigate using terminal Panes for code blocks if selection is critical
 - [ ] Add unit tests for clipping behavior
