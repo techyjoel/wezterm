@@ -6,7 +6,8 @@ use crate::sidebar::components::horizontal_scroll::{
     create_horizontal_scroll_container, HorizontalScrollConfig,
 };
 use crate::termwindow::box_model::{
-    BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent, Float,
+    BorderColor, BoxDimension, ClipBounds, DisplayType, Element, ElementColors, ElementContent,
+    Float,
 };
 use crate::termwindow::render::scrollbar_renderer::ScrollbarRenderer;
 use config::Dimension;
@@ -103,9 +104,9 @@ impl CodeBlockContainer {
 
     /// Update scrollbar opacity based on hover and activity
     pub fn update_opacity(&mut self, delta_time: f32) {
-        const FADE_IN_TIME: f32 = 0.15;
-        const FADE_OUT_TIME: f32 = 0.3;
-        const HIDE_DELAY: f32 = 1.5;
+        const FADE_IN_TIME: f32 = 0.1; // 100ms for fade in
+        const FADE_OUT_TIME: f32 = 0.075; // 75ms for fade out (twice as fast)
+        const HIDE_DELAY: f32 = 0.25; // 0.25 seconds before starting fade out (1/4 of previous)
 
         let is_active = self.hovering_content
             || self.hovering_scrollbar
@@ -456,18 +457,23 @@ impl MarkdownRenderer {
             }
 
             if !line_parts.is_empty() {
-                // Ensure all parts display inline so they flow together on wrapping
+                // Ensure all parts display inline so they flow together
+                // But DON'T wrap - we want horizontal scrolling
                 let inline_parts: Vec<Element> = line_parts
                     .into_iter()
                     .map(|mut part| {
                         part.display = DisplayType::Inline;
+                        // Remove any width constraints on individual text parts
+                        part.max_width = None;
                         part
                     })
                     .collect();
 
-                // Create a block container for the line that allows its inline children to wrap
+                // Create a block container for the line
+                // Don't constrain width - let it be as wide as needed
                 let combined_element = Element::new(font, ElementContent::Children(inline_parts))
-                    .display(DisplayType::Block);
+                    .display(DisplayType::Block)
+                    .max_width(None);
                 line_elements.push(combined_element);
             }
         }
@@ -483,7 +489,8 @@ impl MarkdownRenderer {
                             text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
                             ..Default::default()
                         })
-                        .display(DisplayType::Block),
+                        .display(DisplayType::Block)
+                        .max_width(None),
                 );
             }
             // Handle case where code is empty or has no lines
@@ -497,43 +504,54 @@ impl MarkdownRenderer {
 
         // Measure the maximum line width
         let content_width = measure_code_block_width(&lines_for_measurement, font);
-        
+
         // Get the actual available width for code content
         // Note: max_width is the sidebar width, we need to account for:
         // - Code block padding: 12px each side = 24px
-        // - Code block border: 1px each side = 2px  
+        // - Code block border: 1px each side = 2px
         // - Sidebar margins/padding
         let code_block_chrome = 26.0; // padding + border
         let available_width = max_width.map(|w| {
             let adjusted = w - code_block_chrome;
-            log::debug!("Width calc: max_width={}, chrome={}, available={}", w, code_block_chrome, adjusted);
+            log::debug!(
+                "Width calc: max_width={}, chrome={}, available={}",
+                w,
+                code_block_chrome,
+                adjusted
+            );
             adjusted
         });
         let viewport_width = available_width.unwrap_or(content_width);
 
+        // Debug the context
+        log::debug!("Markdown context: block_id={}, language={:?}, max_width={:?}, available_width={:?}, content_width={}, viewport_width={}", 
+            block_id, language, max_width, available_width, content_width, viewport_width);
+
         // Create or update container for tracking scroll state
         let mut container = CodeBlockContainer::new(block_id.clone(), viewport_width);
-        // Add a larger buffer (20px) to content width to catch borderline cases
-        // This ensures scrollbars appear for content that's even slightly wider
-        let needs_scrollbar = container.update_content_width(content_width + 20.0);
+        container.update_content_width(content_width);
         container.raw_code = code.to_string();
         container.language = language.map(|s| s.to_string());
-        
-        // Force scrollbar visibility if needed
-        if needs_scrollbar {
-            container.scrollbar_opacity = 1.0;
+
+        // Check if scrollbar is needed with a small buffer to catch borderline cases
+        // This ensures scrollbars appear for content that's even slightly wider than viewport
+        let needs_scrollbar = content_width > (viewport_width - 5.0);
+
+        // Start with scrollbar visible if needed, but let animation system control it
+        if needs_scrollbar && container.scrollbar_opacity == 0.0 {
+            container.scrollbar_opacity = 0.01; // Start barely visible to trigger fade-in
+            container.last_activity = Some(Instant::now());
         }
-        
-        log::debug!(
-            "Code block {}: content_width={:.1}, viewport_width={:.1}, max_width={:?}, needs_scrollbar={}, first_line_preview='{}'",
+
+        log::trace!(
+            "Code block {}: content_width={:.1}, viewport_width={:.1}, max_width={:?}, needs_scrollbar={}, num_lines={}, longest_line_len={}",
             block_id,
             content_width,
             viewport_width,
             max_width,
             needs_scrollbar,
-            lines_for_measurement.first().map(|l| {
-                if l.len() > 50 { &l[..50] } else { l }
-            }).unwrap_or("")
+            lines_for_measurement.len(),
+            lines_for_measurement.iter().map(|l| l.len()).max().unwrap_or(0)
         );
 
         // Update registry if available
@@ -567,12 +585,18 @@ impl MarkdownRenderer {
             container.scrollbar_opacity,
             &scroll_config,
             crate::termwindow::UIItemType::CodeBlockScrollbar(block_id.clone()),
+            None,
         );
-        
-        log::debug!("Code block {} got {} elements from horizontal scroll container", 
-            block_id, elements.len());
+
+        log::debug!(
+            "Code block {} got {} elements from horizontal scroll container",
+            block_id,
+            elements.len()
+        );
 
         // Wrap all elements (including scrollbar) in the code block container
+        // IMPORTANT: Apply clip bounds to the code block container itself to ensure
+        // content doesn't overflow into the padding area
         let mut code_block = Element::new(font, ElementContent::Children(elements))
             .colors(ElementColors {
                 bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),
@@ -604,16 +628,17 @@ impl MarkdownRenderer {
 
         // Add a copy button above the code block (always visible)
         // Check if we should show success state
-        let show_success = container.copy_success_time
+        let show_success = container
+            .copy_success_time
             .map(|time| time.elapsed().as_secs_f32() < 2.0)
             .unwrap_or(false);
-        
+
         let button_text = if show_success {
             "✅ Copied!".to_string()
         } else {
             "📋 Copy".to_string()
         };
-        
+
         let copy_button = Element::new(font, ElementContent::Text(button_text))
             .colors(ElementColors {
                 bg: LinearRgba::with_components(0.2, 0.2, 0.25, 0.9).into(),
@@ -641,7 +666,10 @@ impl MarkdownRenderer {
             ));
 
         // Create a wrapper that includes both the copy button and the code block
-        Element::new(font, ElementContent::Children(vec![copy_button, code_block]))
-            .display(DisplayType::Block)
+        Element::new(
+            font,
+            ElementContent::Children(vec![copy_button, code_block]),
+        )
+        .display(DisplayType::Block)
     }
 }

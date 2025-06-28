@@ -297,10 +297,33 @@ impl super::TermWindow {
         };
 
         if let Some(item) = ui_item.clone() {
-            if capture_mouse {
-                self.current_mouse_capture = Some(MouseCapture::UI);
+            // Check if this is a vertical scroll on a code block or copy button without Shift
+            // If so, forward it to the sidebar's scroll handler
+            let is_code_block_vertical_scroll =
+                matches!(
+                    (&item.item_type, &event.kind),
+                    (UIItemType::CodeBlockContent(_), WMEK::VertWheel(_))
+                        | (UIItemType::CodeBlockCopyButton(_), WMEK::VertWheel(_))
+                ) && !event.modifiers.contains(::window::Modifiers::SHIFT);
+
+            if is_code_block_vertical_scroll {
+                // Forward vertical scroll to the sidebar that contains this code block
+                // Code blocks are always in the right sidebar (AiSidebar)
+                let mut sidebar_manager = self.sidebar_manager.borrow_mut();
+                if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
+                    let mut sidebar_locked = sidebar.lock().unwrap();
+                    if let Ok(handled) = sidebar_locked.handle_mouse_event(&event) {
+                        if handled {
+                            context.invalidate();
+                        }
+                    }
+                }
+            } else {
+                if capture_mouse {
+                    self.current_mouse_capture = Some(MouseCapture::UI);
+                }
+                self.mouse_event_ui_item(item, pane, y, event, context);
             }
-            self.mouse_event_ui_item(item, pane, y, event, context);
         } else if matches!(
             self.current_mouse_capture,
             None | Some(MouseCapture::TerminalPane(_))
@@ -481,7 +504,12 @@ impl super::TermWindow {
                 self.mouse_event_suggestion_dismiss_button(event, context);
             }
             UIItemType::CodeBlockScrollbar(block_id) => {
-                self.mouse_event_code_block_scrollbar(item.clone(), block_id.clone(), event, context);
+                self.mouse_event_code_block_scrollbar(
+                    item.clone(),
+                    block_id.clone(),
+                    event,
+                    context,
+                );
             }
             UIItemType::CodeBlockContent(block_id) => {
                 self.mouse_event_code_block_content(block_id.clone(), event, context);
@@ -1365,7 +1393,11 @@ impl super::TermWindow {
             calculate_drag_scroll, hit_test_scrollbar, ScrollbarHitTarget,
         };
 
-        log::debug!("mouse_event_code_block_scrollbar called for block_id={}, event={:?}", block_id, event.kind);
+        log::debug!(
+            "mouse_event_code_block_scrollbar called for block_id={}, event={:?}",
+            block_id,
+            event.kind
+        );
         context.set_cursor(Some(MouseCursor::Arrow));
 
         // Get the sidebar and its code block registry
@@ -1424,12 +1456,14 @@ impl super::TermWindow {
                                 WMEK::Move => {
                                     if container.dragging_scrollbar {
                                         // Handle scrollbar dragging
-                                        if let (Some(drag_start_x), Some(drag_start_offset)) = 
-                                            (container.drag_start_x, container.drag_start_offset) 
+                                        if let (Some(drag_start_x), Some(drag_start_offset)) =
+                                            (container.drag_start_x, container.drag_start_offset)
                                         {
-                                            let thumb_ratio = container.viewport_width / container.content_width;
-                                            let thumb_width = (container.viewport_width * thumb_ratio).max(30.0);
-                                            
+                                            let thumb_ratio =
+                                                container.viewport_width / container.content_width;
+                                            let thumb_width =
+                                                (container.viewport_width * thumb_ratio).max(30.0);
+
                                             let new_offset = calculate_drag_scroll(
                                                 drag_start_x,
                                                 event.coords.x as f32,
@@ -1460,7 +1494,11 @@ impl super::TermWindow {
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
-        log::debug!("mouse_event_code_block_content called for block_id={}, event={:?}", block_id, event.kind);
+        log::debug!(
+            "mouse_event_code_block_content called for block_id={}, event={:?}",
+            block_id,
+            event.kind
+        );
         context.set_cursor(Some(MouseCursor::Text));
 
         // Get the sidebar and its code block registry
@@ -1507,6 +1545,10 @@ impl super::TermWindow {
                                         .scroll_horizontal(delta as f32 * HORIZONTAL_SCROLL_SPEED);
                                     context.invalidate();
                                 }
+                                WMEK::VertWheel(_) => {
+                                    // Non-shift vertical wheel - ignore it here
+                                    // The main event handler will forward it to the sidebar
+                                }
                                 _ => {}
                             }
                         }
@@ -1534,8 +1576,8 @@ impl super::TermWindow {
                     let sidebar_locked = sidebar.lock().unwrap();
                     if let Some(ai_sidebar) = sidebar_locked
                         .as_any()
-                        .downcast_ref::<crate::sidebar::ai_sidebar::AiSidebar>()
-                    {
+                        .downcast_ref::<crate::sidebar::ai_sidebar::AiSidebar>(
+                    ) {
                         // Get the code block registry
                         if let Some(ref registry) = ai_sidebar.code_block_registry {
                             if let Ok(mut reg) = registry.lock() {
@@ -1545,14 +1587,15 @@ impl super::TermWindow {
                                         config::keyassignment::ClipboardCopyDestination::ClipboardAndPrimarySelection,
                                         container.raw_code.clone()
                                     );
-                                    
+
                                     // Set copy success time for visual feedback
                                     container.copy_success_time = Some(std::time::Instant::now());
-                                    
+
                                     // Log success with language info
-                                    let lang_info = container.language.as_deref().unwrap_or("plain text");
+                                    let lang_info =
+                                        container.language.as_deref().unwrap_or("plain text");
                                     log::info!("Copied {} code block to clipboard", lang_info);
-                                    
+
                                     context.invalidate();
                                 }
                             }

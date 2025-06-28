@@ -677,6 +677,7 @@ pub struct RenderState {
     pub util_sprites: UtilSprites,
     pub glyph_prog: Option<glium::Program>,
     pub layers: RefCell<Vec<Rc<RenderLayer>>>,
+    pub scissor_stack: RefCell<Vec<RectF>>,
 }
 
 impl RenderState {
@@ -706,6 +707,7 @@ impl RenderState {
                         util_sprites,
                         glyph_prog,
                         layers: RefCell::new(vec![main_layer]),
+                        scissor_stack: RefCell::new(vec![]),
                     });
                 }
                 Err(OutOfTextureSpace {
@@ -768,6 +770,65 @@ impl RenderState {
         }
 
         Ok(allocated)
+    }
+
+    /// Push a new scissor rect onto the stack. The new rect will be intersected
+    /// with the current scissor rect (if any) to ensure proper nesting.
+    pub fn push_scissor(&self, bounds: RectF) {
+        let mut stack = self.scissor_stack.borrow_mut();
+
+        // Intersect with current scissor rect if there is one
+        let effective_bounds = if let Some(current) = stack.last() {
+            // Compute intersection
+            let left = bounds.origin.x.max(current.origin.x);
+            let top = bounds.origin.y.max(current.origin.y);
+            let right =
+                (bounds.origin.x + bounds.size.width).min(current.origin.x + current.size.width);
+            let bottom =
+                (bounds.origin.y + bounds.size.height).min(current.origin.y + current.size.height);
+
+            if right > left && bottom > top {
+                RectF::new(
+                    euclid::point2(left, top),
+                    euclid::size2(right - left, bottom - top),
+                )
+            } else {
+                // No intersection, use zero-sized rect at origin
+                RectF::new(euclid::point2(left, top), euclid::size2(0.0, 0.0))
+            }
+        } else {
+            bounds
+        };
+
+        log::trace!(
+            "push_scissor: input bounds={:?}, effective={:?}, stack_depth={}",
+            bounds,
+            effective_bounds,
+            stack.len() + 1
+        );
+
+        stack.push(effective_bounds);
+    }
+
+    /// Pop the most recent scissor rect from the stack
+    pub fn pop_scissor(&self) {
+        let mut stack = self.scissor_stack.borrow_mut();
+        if stack.is_empty() {
+            log::warn!("Attempted to pop from empty scissor stack");
+            return;
+        }
+        stack.pop();
+        log::trace!("pop_scissor: new stack_depth={}", stack.len());
+    }
+
+    /// Get the current scissor rect (top of stack)
+    pub fn get_current_scissor(&self) -> Option<RectF> {
+        self.scissor_stack.borrow().last().cloned()
+    }
+
+    /// Clear all scissor rects from the stack
+    pub fn clear_scissor(&self) {
+        self.scissor_stack.borrow_mut().clear();
     }
 
     pub fn compile_prog(

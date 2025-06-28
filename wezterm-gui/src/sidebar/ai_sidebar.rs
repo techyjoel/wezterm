@@ -496,7 +496,7 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
         }
 
         self.agent_mode = AgentMode::Thinking;
-        
+
         // Clear code block registry since we've replaced all content
         self.clear_code_block_registry();
     }
@@ -898,9 +898,14 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
                     // AI messages use markdown rendering with code font support
                     // Need to add width constraint for proper text wrapping
                     let sidebar_width = self.width as f32;
-                    let content_width = sidebar_width - 52.0; // Account for margins and padding
-                    log::debug!("Rendering markdown in activity log: sidebar_width={}, content_width={}", 
-                        sidebar_width, content_width);
+                    // Use same calculation as modal: just subtract small padding
+                    // The markdown renderer will handle code block chrome internally
+                    let content_width = sidebar_width - 20.0; // Just account for scrollbar space
+                    log::debug!(
+                        "Rendering markdown in activity log: sidebar_width={}, content_width={}",
+                        sidebar_width,
+                        content_width
+                    );
 
                     // Use registry if available for horizontal scrolling support
                     if let Some(ref registry) = self.code_block_registry {
@@ -953,7 +958,7 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
             ActivityItem::Suggestion { title, content, .. } => {
                 // Add width constraint for proper text wrapping
                 let sidebar_width = self.width as f32;
-                let content_width = sidebar_width - 52.0; // Account for margins and padding
+                let content_width = sidebar_width - 20.0; // Same as modal calculation
                 let markdown_content = if let Some(ref registry) = self.code_block_registry {
                     MarkdownRenderer::render_with_registry(
                         content,
@@ -1436,14 +1441,38 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
     }
 
     /// Update code block opacity for auto-hide scrollbars
-    pub fn update_code_block_opacity(&mut self, delta_time: f32) {
+    /// Returns true if animation should continue
+    pub fn update_code_block_opacity(&mut self, delta_time: f32) -> bool {
+        let mut needs_animation = false;
         if let Some(ref registry) = self.code_block_registry {
             if let Ok(mut reg) = registry.lock() {
                 for (_, container) in reg.iter_mut() {
+                    let old_opacity = container.scrollbar_opacity;
                     container.update_opacity(delta_time);
+
+                    // Continue animation if:
+                    // 1. Opacity is changing
+                    // 2. Opacity is not at rest (not 0.0 or 1.0)
+                    // 3. Or we have recent activity that might trigger a fade soon
+                    if (old_opacity - container.scrollbar_opacity).abs() > 0.001 {
+                        needs_animation = true;
+                    } else if container.scrollbar_opacity > 0.001
+                        && container.scrollbar_opacity < 0.999
+                    {
+                        needs_animation = true;
+                    } else if container.scrollbar_opacity > 0.001 {
+                        // Check if we're within the hide delay period
+                        if let Some(last_activity) = container.last_activity {
+                            if last_activity.elapsed().as_secs_f32() < 0.25 {
+                                // HIDE_DELAY (0.25 seconds)
+                                needs_animation = true;
+                            }
+                        }
+                    }
                 }
             }
         }
+        needs_animation
     }
 
     /// Clear code block registry when content changes completely
@@ -1473,8 +1502,12 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
             window_height,
         );
 
-        self.modal_manager
-            .render(sidebar_bounds, window_bounds, fonts)
+        self.modal_manager.render(
+            sidebar_bounds,
+            window_bounds,
+            fonts,
+            self.code_block_registry.clone(),
+        )
     }
 }
 
@@ -1694,10 +1727,11 @@ impl Sidebar for AiSidebar {
         if let Some(ref registry) = self.code_block_registry {
             if let Ok(mut reg) = registry.lock() {
                 // Find if any code block has focus
-                let focused_block = reg.iter_mut()
+                let focused_block = reg
+                    .iter_mut()
                     .find(|(_, container)| container.has_focus)
                     .map(|(id, container)| (id.clone(), container));
-                
+
                 if let Some((block_id, container)) = focused_block {
                     match key {
                         KeyCode::LeftArrow => {

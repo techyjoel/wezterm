@@ -306,6 +306,15 @@ impl From<LinearRgba> for ResolvedColor {
     }
 }
 
+/// Specifies how an element should be clipped
+#[derive(Debug, Clone)]
+pub enum ClipBounds {
+    /// Clip to the element's content rect
+    ContentBounds,
+    /// Clip to explicit dimensions
+    Explicit { width: Dimension, height: Dimension },
+}
+
 #[derive(Debug, Clone)]
 pub struct Element {
     pub item_type: Option<UIItemType>,
@@ -326,6 +335,7 @@ pub struct Element {
     pub max_width: Option<Dimension>,
     pub min_width: Option<Dimension>,
     pub min_height: Option<Dimension>,
+    pub clip_bounds: Option<ClipBounds>,
 }
 
 impl Element {
@@ -349,6 +359,7 @@ impl Element {
             max_width: None,
             min_width: None,
             min_height: None,
+            clip_bounds: None,
         }
     }
 
@@ -530,6 +541,16 @@ impl Element {
         self.min_height = height;
         self
     }
+
+    pub fn clip_bounds(mut self, bounds: Option<ClipBounds>) -> Self {
+        self.clip_bounds = bounds;
+        self
+    }
+
+    pub fn with_clip_bounds(mut self, bounds: ClipBounds) -> Self {
+        self.clip_bounds = Some(bounds);
+        self
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -566,6 +587,8 @@ pub struct ComputedElement {
     /// The outer bounds of the content
     pub content_rect: RectF,
     pub baseline: f32,
+    /// Clip bounds in absolute window coordinates (if any)
+    pub clip_bounds: Option<RectF>,
 
     pub content: ComputedElementContent,
 }
@@ -576,6 +599,11 @@ impl ComputedElement {
         self.border_rect = self.border_rect.translate(delta);
         self.padding = self.padding.translate(delta);
         self.content_rect = self.content_rect.translate(delta);
+
+        // Also translate clip bounds if present
+        if let Some(clip) = &mut self.clip_bounds {
+            *clip = clip.translate(delta);
+        }
 
         match &mut self.content {
             ComputedElementContent::Children(kids) => {
@@ -649,6 +677,35 @@ struct Rects {
 }
 
 impl Element {
+    /// Compute absolute clip bounds from element's clip_bounds specification
+    fn compute_clip_bounds(&self, context: &LayoutContext, rects: &Rects) -> Option<RectF> {
+        self.clip_bounds.as_ref().map(|bounds| {
+            let result = match bounds {
+                ClipBounds::ContentBounds => {
+                    // Clip to the content rect, translated to absolute coordinates
+                    rects.content_rect.translate(rects.translate)
+                }
+                ClipBounds::Explicit { width, height } => {
+                    // Compute explicit dimensions and create rect
+                    let clip_width = width.evaluate_as_pixels(context.width);
+                    let clip_height = height.evaluate_as_pixels(context.height);
+                    RectF::new(
+                        rects.content_rect.origin + rects.translate,
+                        euclid::size2(clip_width, clip_height),
+                    )
+                }
+            };
+            log::trace!(
+                "compute_clip_bounds: bounds={:?}, content_rect={:?}, translate={:?}, result={:?}",
+                bounds,
+                rects.content_rect,
+                rects.translate,
+                result
+            );
+            result
+        })
+    }
+
     fn compute_rects(&self, context: &LayoutContext, content_rect: RectF) -> Rects {
         let padding = self.padding.to_pixels(context);
         let margin = self.margin.to_pixels(context);
@@ -929,7 +986,12 @@ impl super::TermWindow {
                 let mut pixel_width = 0.0;
                 let mut x_pos = context.bounds.min_x();
                 let mut min_y = 0.0f32;
-                let max_x = context.bounds.min_x() + max_width;
+                // If element has no max_width constraint, use a very large value to shape all text
+                let max_x = if element.max_width.is_none() {
+                    f32::MAX
+                } else {
+                    context.bounds.min_x() + max_width
+                };
 
                 for info in infos {
                     let cell_start = &s[info.cluster as usize..];
@@ -938,7 +1000,10 @@ impl super::TermWindow {
                         .next()
                         .ok_or_else(|| anyhow!("info.cluster didn't map into string"))?;
                     if let Some(key) = BlockKey::from_str(grapheme) {
-                        if pixel_width + context.width.pixel_cell >= max_x {
+                        // Only break if we have a max_width constraint
+                        if element.max_width.is_some()
+                            && pixel_width + context.width.pixel_cell >= max_x
+                        {
                             break;
                         }
                         pixel_width += context.width.pixel_cell;
@@ -961,10 +1026,13 @@ impl super::TermWindow {
                         if let Some(texture) = glyph.texture.as_ref() {
                             let x_pos = x_pos + (glyph.x_offset + glyph.bearing_x).get() as f32;
                             let width = texture.coords.size.width as f32 * glyph.scale as f32;
-                            if x_pos + width >= max_x {
+                            // Only break if we have a max_width constraint
+                            if element.max_width.is_some() && x_pos + width >= max_x {
                                 break;
                             }
-                        } else if x_pos + glyph.x_advance.get() as f32 >= max_x {
+                        } else if element.max_width.is_some()
+                            && x_pos + glyph.x_advance.get() as f32 >= max_x
+                        {
                             break;
                         }
 
@@ -986,6 +1054,7 @@ impl super::TermWindow {
                 );
 
                 let rects = element.compute_rects(context, content_rect);
+                let clip_bounds = element.compute_clip_bounds(context, &rects);
 
                 Ok(ComputedElement {
                     item_type: element.item_type.clone(),
@@ -999,6 +1068,7 @@ impl super::TermWindow {
                     border_rect: rects.border_rect,
                     padding: rects.padding,
                     content_rect: rects.content_rect,
+                    clip_bounds,
                     content: ComputedElementContent::Text(computed_cells),
                 })
             }
@@ -1025,6 +1095,7 @@ impl super::TermWindow {
                 );
 
                 let rects = element.compute_rects(context, content_rect);
+                let clip_bounds = element.compute_clip_bounds(context, &rects);
 
                 Ok(ComputedElement {
                     item_type: element.item_type.clone(),
@@ -1038,6 +1109,7 @@ impl super::TermWindow {
                     border_rect: rects.border_rect,
                     padding: rects.padding,
                     content_rect: rects.content_rect,
+                    clip_bounds,
                     content: ComputedElementContent::MultilineText { lines, line_height },
                 })
             }
@@ -1139,25 +1211,7 @@ impl super::TermWindow {
                     kid.translate(rects.translate);
                 }
 
-                Ok(ComputedElement {
-                    item_type: element.item_type.clone(),
-                    zindex: element.zindex + context.zindex,
-                    baseline,
-                    border,
-                    border_corners,
-                    colors: element.colors.clone(),
-                    hover_colors: element.hover_colors.clone(),
-                    bounds: rects.bounds,
-                    border_rect: rects.border_rect,
-                    padding: rects.padding,
-                    content_rect: rects.content_rect,
-                    content: ComputedElementContent::Children(computed_kids),
-                })
-            }
-            ElementContent::Poly { poly, line_width } => {
-                let poly = poly.to_pixels(context);
-                let content_rect = euclid::rect(0., 0., poly.width, poly.height.max(min_height));
-                let rects = element.compute_rects(context, content_rect);
+                let clip_bounds = element.compute_clip_bounds(context, &rects);
 
                 Ok(ComputedElement {
                     item_type: element.item_type.clone(),
@@ -1171,6 +1225,29 @@ impl super::TermWindow {
                     border_rect: rects.border_rect,
                     padding: rects.padding,
                     content_rect: rects.content_rect,
+                    clip_bounds,
+                    content: ComputedElementContent::Children(computed_kids),
+                })
+            }
+            ElementContent::Poly { poly, line_width } => {
+                let poly = poly.to_pixels(context);
+                let content_rect = euclid::rect(0., 0., poly.width, poly.height.max(min_height));
+                let rects = element.compute_rects(context, content_rect);
+                let clip_bounds = element.compute_clip_bounds(context, &rects);
+
+                Ok(ComputedElement {
+                    item_type: element.item_type.clone(),
+                    zindex: element.zindex + context.zindex,
+                    baseline,
+                    border,
+                    border_corners,
+                    colors: element.colors.clone(),
+                    hover_colors: element.hover_colors.clone(),
+                    bounds: rects.bounds,
+                    border_rect: rects.border_rect,
+                    padding: rects.padding,
+                    content_rect: rects.content_rect,
+                    clip_bounds,
                     content: ComputedElementContent::Poly {
                         poly,
                         line_width: *line_width,
@@ -1186,6 +1263,16 @@ impl super::TermWindow {
         gl_state: &RenderState,
         inherited_colors: Option<&ElementColors>,
     ) -> anyhow::Result<()> {
+        // Apply scissor rect if element has clip bounds
+        if let Some(clip_bounds) = element.clip_bounds {
+            log::trace!(
+                "render_element: Applying clip bounds for element with zindex={}, bounds={:?}",
+                element.zindex,
+                clip_bounds
+            );
+            gl_state.push_scissor(clip_bounds);
+        }
+
         let layer = gl_state.layer_for_zindex(element.zindex)?;
         let mut layers = layer.quad_allocator();
 
@@ -1218,8 +1305,22 @@ impl super::TermWindow {
         match &element.content {
             ComputedElementContent::Text(cells) => {
                 let mut pos_x = element.content_rect.min_x();
+                // Check if we should apply manual clipping based on clip_bounds
+                let should_clip = element.clip_bounds.is_some();
+                let clip_min_x = element
+                    .clip_bounds
+                    .as_ref()
+                    .map(|b| b.min_x())
+                    .unwrap_or(f32::MIN);
+                let clip_max_x = element
+                    .clip_bounds
+                    .as_ref()
+                    .map(|b| b.max_x())
+                    .unwrap_or(f32::MAX);
+
                 for cell in cells {
-                    if pos_x >= element.content_rect.max_x() {
+                    // Don't break early if we have clip bounds - keep rendering all content
+                    if !should_clip && pos_x >= element.content_rect.max_x() {
                         break;
                     }
                     match cell {
@@ -1228,8 +1329,70 @@ impl super::TermWindow {
                             let height = sprite.coords.height();
                             let pos_y = top + element.content_rect.min_y();
 
-                            if pos_x + width as f32 > element.content_rect.max_x() {
+                            // Don't break early if we have clip bounds
+                            if !should_clip && pos_x + width as f32 > element.content_rect.max_x() {
                                 break;
+                            }
+
+                            // Manual clipping check
+                            if should_clip {
+                                // Apply the same left offset used in rendering to get actual screen coordinates
+                                let sprite_left = pos_x + left;
+                                let sprite_right = pos_x + left + width as f32;
+
+                                // Skip sprites entirely outside clip bounds
+                                if sprite_right < clip_min_x || sprite_left > clip_max_x {
+                                    log::trace!("Skipping sprite outside clip bounds: sprite [{}, {}], clip [{}, {}]", 
+                                        sprite_left, sprite_right, clip_min_x, clip_max_x);
+                                    pos_x += width as f32;
+                                    continue;
+                                }
+
+                                // Handle partially clipped sprites
+                                if sprite_left < clip_min_x || sprite_right > clip_max_x {
+                                    // Calculate visible portion
+                                    let visible_left = sprite_left.max(clip_min_x);
+                                    let visible_right = sprite_right.min(clip_max_x);
+                                    let visible_width = visible_right - visible_left;
+
+                                    // Calculate texture coordinate adjustments
+                                    let sprite_width = width as f32;
+                                    let left_clip_ratio =
+                                        (visible_left - sprite_left) / sprite_width;
+                                    let right_clip_ratio =
+                                        (sprite_right - visible_right) / sprite_width;
+
+                                    log::trace!("Partial sprite clipping: sprite [{}, {}], visible [{}, {}], clip ratios: left={:.3}, right={:.3}", 
+                                        sprite_left, sprite_right, visible_left, visible_right, left_clip_ratio, right_clip_ratio);
+
+                                    // Adjust texture coordinates
+                                    let tex_coords = sprite.texture_coords();
+                                    let tex_width = tex_coords.max_x() - tex_coords.min_x();
+                                    let adjusted_tex_left =
+                                        tex_coords.min_x() + left_clip_ratio * tex_width;
+                                    let adjusted_tex_right =
+                                        tex_coords.max_x() - right_clip_ratio * tex_width;
+
+                                    // Create quad with adjusted position and texture
+                                    let mut quad = layers.allocate(2)?;
+                                    quad.set_position(
+                                        visible_left,
+                                        pos_y,
+                                        visible_right,
+                                        pos_y + height as f32,
+                                    );
+                                    self.resolve_text(colors, inherited_colors).apply(&mut quad);
+                                    quad.set_texture(euclid::rect(
+                                        adjusted_tex_left,
+                                        tex_coords.min_y(),
+                                        adjusted_tex_right - adjusted_tex_left,
+                                        tex_coords.max_y() - tex_coords.min_y(),
+                                    ));
+                                    quad.set_hsv(None);
+
+                                    pos_x += width as f32;
+                                    continue;
+                                }
                             }
 
                             let mut quad = layers.allocate(2)?;
@@ -1250,20 +1413,86 @@ impl super::TermWindow {
                                     - (glyph.y_offset + glyph.bearing_y).get() as f32
                                     + element.baseline;
 
-                                if pos_x + glyph.x_advance.get() as f32
-                                    > element.content_rect.max_x()
+                                // Don't break early if we have clip bounds
+                                if !should_clip
+                                    && pos_x + glyph.x_advance.get() as f32
+                                        > element.content_rect.max_x()
                                 {
                                     break;
                                 }
-                                let pos_x = pos_x + (glyph.x_offset + glyph.bearing_x).get() as f32;
+                                let glyph_pos_x =
+                                    pos_x + (glyph.x_offset + glyph.bearing_x).get() as f32;
                                 let width = texture.coords.size.width as f32 * glyph.scale as f32;
                                 let height = texture.coords.size.height as f32 * glyph.scale as f32;
 
+                                // Manual clipping check for glyphs
+                                if should_clip {
+                                    // Apply the same left offset used in rendering to get actual screen coordinates
+                                    let glyph_left = glyph_pos_x + left;
+                                    let glyph_right = glyph_pos_x + left + width;
+
+                                    // Skip glyphs entirely outside clip bounds
+                                    if glyph_right < clip_min_x || glyph_left > clip_max_x {
+                                        log::trace!("Skipping glyph outside clip bounds: glyph [{}, {}], clip [{}, {}]", 
+                                            glyph_left, glyph_right, clip_min_x, clip_max_x);
+                                        pos_x += glyph.x_advance.get() as f32;
+                                        continue;
+                                    }
+
+                                    // Handle partially clipped glyphs
+                                    if glyph_left < clip_min_x || glyph_right > clip_max_x {
+                                        // Calculate visible portion
+                                        let visible_left = glyph_left.max(clip_min_x);
+                                        let visible_right = glyph_right.min(clip_max_x);
+                                        let visible_width = visible_right - visible_left;
+
+                                        // Calculate texture coordinate adjustments
+                                        let glyph_width = width;
+                                        let left_clip_ratio =
+                                            (visible_left - glyph_left) / glyph_width;
+                                        let right_clip_ratio =
+                                            (glyph_right - visible_right) / glyph_width;
+
+                                        log::trace!("Partial glyph clipping: glyph [{}, {}], visible [{}, {}], clip ratios: left={:.3}, right={:.3}", 
+                                            glyph_left, glyph_right, visible_left, visible_right, left_clip_ratio, right_clip_ratio);
+
+                                        // Adjust texture coordinates
+                                        let tex_coords = texture.texture_coords();
+                                        let tex_width = tex_coords.max_x() - tex_coords.min_x();
+                                        let adjusted_tex_left =
+                                            tex_coords.min_x() + left_clip_ratio * tex_width;
+                                        let adjusted_tex_right =
+                                            tex_coords.max_x() - right_clip_ratio * tex_width;
+
+                                        // Create quad with adjusted position and texture
+                                        let mut quad = layers.allocate(1)?;
+                                        quad.set_position(
+                                            visible_left,
+                                            pos_y,
+                                            visible_right,
+                                            pos_y + height,
+                                        );
+                                        self.resolve_text(colors, inherited_colors)
+                                            .apply(&mut quad);
+                                        quad.set_texture(euclid::rect(
+                                            adjusted_tex_left,
+                                            tex_coords.min_y(),
+                                            adjusted_tex_right - adjusted_tex_left,
+                                            tex_coords.max_y() - tex_coords.min_y(),
+                                        ));
+                                        quad.set_hsv(None);
+                                        quad.set_has_color(glyph.has_color);
+
+                                        pos_x += glyph.x_advance.get() as f32;
+                                        continue;
+                                    }
+                                }
+
                                 let mut quad = layers.allocate(1)?;
                                 quad.set_position(
-                                    pos_x + left,
+                                    glyph_pos_x + left,
                                     pos_y,
-                                    pos_x + left + width,
+                                    glyph_pos_x + left + width,
                                     pos_y + height,
                                 );
                                 self.resolve_text(colors, inherited_colors).apply(&mut quad);
@@ -1366,6 +1595,11 @@ impl super::TermWindow {
                     self.resolve_text(colors, inherited_colors).apply(&mut quad);
                 }
             }
+        }
+
+        // Pop scissor rect if we pushed one
+        if element.clip_bounds.is_some() {
+            gl_state.pop_scissor();
         }
 
         Ok(())

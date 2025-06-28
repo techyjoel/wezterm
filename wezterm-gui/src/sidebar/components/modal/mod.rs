@@ -1,4 +1,5 @@
 use crate::color::LinearRgba;
+use crate::sidebar::components::markdown::CodeBlockRegistry;
 use crate::sidebar::SidebarFonts;
 use crate::termwindow::box_model::*;
 use config::Dimension;
@@ -115,6 +116,7 @@ impl ModalManager {
         sidebar_bounds: RectF,
         window_bounds: RectF,
         fonts: &SidebarFonts,
+        code_block_registry: Option<CodeBlockRegistry>,
     ) -> Vec<Element> {
         self.update();
 
@@ -382,7 +384,7 @@ impl ModalManager {
                 fonts,
                 visible_height: self.visible_height,
                 scroll_offset: self.scroll_offset,
-                code_block_registry: None, // TODO: Pass registry from parent
+                code_block_registry,
             };
 
             if let Some(ref modal) = self.active_modal {

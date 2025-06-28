@@ -507,9 +507,23 @@ impl crate::TermWindow {
                 .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
             {
                 // Update code block opacity for animations
-                // Calculate delta time (roughly 60fps = 16.67ms)
-                ai_sidebar.update_code_block_opacity(0.016);
-                
+                // Calculate delta time based on actual animation FPS
+                let animation_fps = self.config.animation_fps as f32;
+                let delta_time = 1.0 / animation_fps;
+                let needs_animation = ai_sidebar.update_code_block_opacity(delta_time);
+                if needs_animation {
+                    // Schedule the next animation frame
+                    let next_frame =
+                        std::time::Instant::now() + std::time::Duration::from_secs_f32(delta_time);
+                    *self.has_animation.borrow_mut() = Some(next_frame);
+
+                    // Also trigger an immediate repaint
+                    if let Some(window) = self.window.as_ref() {
+                        window.invalidate();
+                    }
+                }
+                // If needs_animation is false, has_animation remains None and animations stop
+
                 // Get the activity log element
                 let activity_log_element = ai_sidebar
                     .render_activity_log_content(&fonts, self.dimensions.pixel_height as f32);
@@ -569,11 +583,13 @@ impl crate::TermWindow {
                 // Render the activity log
                 let gl_state = self.render_state.as_ref().unwrap();
                 self.render_element(&activity_log_computed, gl_state, None)?;
-                
+
                 // CRITICAL: Extract UI items from activity log for mouse handling
                 self.ui_items.extend(activity_log_computed.ui_items());
-                log::debug!("Activity log rendered at z-index 10 with {} UI items", 
-                    activity_log_computed.ui_items().len());
+                log::debug!(
+                    "Activity log rendered at z-index 10 with {} UI items",
+                    activity_log_computed.ui_items().len()
+                );
             }
 
             // Now get the main sidebar element

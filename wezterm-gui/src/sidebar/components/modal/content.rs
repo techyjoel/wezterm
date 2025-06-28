@@ -1,5 +1,5 @@
-use crate::sidebar::SidebarFonts;
 use crate::sidebar::components::markdown::CodeBlockRegistry;
+use crate::sidebar::SidebarFonts;
 use crate::termwindow::box_model::Element;
 use termwiz::input::KeyCode;
 use wezterm_term::KeyModifiers;

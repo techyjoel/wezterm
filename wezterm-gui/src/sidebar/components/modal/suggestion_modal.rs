@@ -48,9 +48,9 @@ impl ModalContent for SuggestionModal {
         children.push(title);
 
         // Render markdown content with width constraint and code block registry
-        // Subtract padding from width to prevent text overflow  
+        // Subtract padding from width to prevent text overflow
         let content_width = context.modal_bounds.width() - 20.0; // Account for right padding
-        
+
         // Get code block registry from context if available
         let content = if let Some(registry) = context.code_block_registry.as_ref() {
             MarkdownRenderer::render_with_registry(
