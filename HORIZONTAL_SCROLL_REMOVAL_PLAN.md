@@ -49,14 +49,26 @@ This plan outlines the systematic removal of all horizontal scrolling code and i
 - Simple code block rendering without viewport
 - Direct rendering of syntax-highlighted lines
 
+**Preserve** (Critical for visual appearance):
+- Bold text rendering (`**text**`)
+- Italic text rendering (`*text*`)
+- Code block background colors and padding
+- Inline code styling (`code`)
+- Heading styles (font sizes, weights)
+- List formatting (bullets, numbering)
+- Link styling and hover effects
+- Syntax highlighting for code blocks
+- Copy button positioning and functionality
+
 ### 1.3 Remove Manual Clipping from render_element
 **File**: `wezterm-gui/src/termwindow/box_model.rs`
 
-**Remove** (lines ~1308-1409):
+**Remove** (confirmed at lines 1308-1409):
 - Clip bounds checking for sprites and glyphs
 - Partial clipping calculations
 - Texture coordinate adjustments
 - All references to `element.clip_bounds` in rendering
+- This code exists but is ineffective at preventing visual overflow
 
 **Keep**:
 - Basic sprite and glyph rendering logic
@@ -87,8 +99,31 @@ This plan outlines the systematic removal of all horizontal scrolling code and i
 - Horizontal scroll container usage
 - Simplify markdown rendering
 
-### 1.7 Reset Z-Index Assignments
-**Action**: Search for z-index values 50-69 and restore to default layering
+### 1.7 Verify and Fix Z-Index Assignments
+**Action**: Review current z-index usage and ensure consistency
+
+**Current State** (verified in code):
+- Cut-a-hole pattern IS IMPLEMENTED AND WORKING:
+  - Background renders at z-index 12 with holes cut out (sidebar_render.rs lines 376-398)
+  - Activity log content renders at lower z-index (exact value not explicitly set, inherits from parent)
+  - Scrollbars render at z-index 16 (as per comments and design)
+  - Pattern successfully prevents visual bleed-through during scrolling
+- Modals use z-indices 20-23 (confirmed in modal/mod.rs)
+- No evidence of z-indices 50-69 being used for code blocks
+
+**Target Z-Index Assignments** (from CLAUDE.md):
+- **Z-index 10**: Right sidebar activity log content (scrollable)
+- **Z-index 12**: Right sidebar background (with cut-out hole) ✓
+- **Z-index 14**: Right sidebar main content
+- **Z-index 16**: Right sidebar scrollbars and buttons ✓
+- **Z-index 20-23**: Right sidebar overlays (modals) ✓
+
+**Important**: 
+- Verify activity log content renders at proper z-index (should be 10 per CLAUDE.md)
+- Note: scrollable.rs uses z-index 2 for element-based scrollbars, but sidebar_render.rs mentions z-index 16
+- Ensure consistency with CLAUDE.md specification during cleanup
+
+**Note**: If you encounter any z-index conflicts or uncertainty about proper layering during implementation, refer to CLAUDE.md section "Z-Index Assignments" and ask for clarification before proceeding
 
 ### 1.8 Search for Missed References
 **Action**: Global search and cleanup
@@ -100,12 +135,52 @@ This plan outlines the systematic removal of all horizontal scrolling code and i
 - Check for stale imports
 - Remove any shift+wheel event handlers specific to horizontal scrolling
 
+### 1.9 Preserve Vertical Scrolling Improvements
+**Important**: While removing horizontal scrolling, preserve all vertical scrolling enhancements
+
+**Keep and Verify**:
+- **Cut-a-Hole Rendering Pattern** (ALREADY IMPLEMENTED AND WORKING):
+  - Background renders at z-index 12 with rectangular holes cut out
+  - Activity log content shows through the holes (verify it's at z-index 10)
+  - Scrollbar renders at z-index 16 (above background)
+  - This pattern successfully prevents visual bleed-through during scrolling
+  - Implementation in `sidebar_render.rs` lines 376-398
+  
+- **Performance Optimizations**:
+  - Virtual scrolling for large activity logs
+  - Efficient viewport calculations
+  - Smooth scroll animations
+  - Proper mouse wheel event handling
+  
+- **Visual Polish**:
+  - Scrollbar fade in/out animations
+  - Hover effects on scrollbar
+  - Smooth scrolling physics
+  - Proper bounds checking
+
+**Test**: Ensure vertical scrolling remains smooth and performant after horizontal removal
+
 ## Phase 2: Implement Line Wrapping for Code Blocks
 
 ### 2.1 Extend WrappedText for Code Preservation
 **Challenge**: Code blocks need to preserve exact spacing and indentation
 
-**Solution**: Since WRAPPING.md shows WrappedText is already implemented and working for other content, we should reuse it with modifications for code blocks. Instead of creating a new WrappedCode variant, enhance the existing wrap_text implementation to support a "preserve whitespace" mode:
+**Solution**: WrappedText is already fully implemented (completed implementation includes word wrapping with character-level fallback for long words). We should reuse it with modifications for code blocks to preserve whitespace and indentation.
+
+**Key Implementation Details from Existing WrappedText**:
+- Uses `split_inclusive(' ')` to preserve spaces
+- Falls back to character wrapping for words exceeding max_width
+- Requires `&config::TextStyle` parameter for glyph caching
+- Calculates actual line widths for proper content rect sizing
+- Already handles Unicode/emoji correctly via grapheme clusters
+
+**To-Do Items Not Yet Implemented**:
+- Support for preserving newlines in wrapped text (code blocks need this)
+- Performance optimization via caching wrapped text
+- RTL text wrapping support
+- Hyphenation for long words
+
+**For Code Blocks**, enhance the existing wrap_text to:
 ```rust
 fn wrap_text_preserve_whitespace(
     &self,
@@ -218,14 +293,35 @@ Element::new(&fonts.code, ElementContent::WrappedText(code))
 - [ ] Modal code blocks wrap properly
 - [ ] Activity log renders correctly without horizontal scroll
 
-### 3.2 Functional Testing
+### 3.2 Markdown Rendering Verification
+**Critical**: Ensure all markdown features remain intact
+- [ ] **Bold text** renders with correct font weight
+- [ ] *Italic text* renders with correct font style
+- [ ] `Inline code` has distinct background and font
+- [ ] Code blocks have proper background color and padding
+- [ ] Headings (H1-H6) have correct sizes and weights
+- [ ] Lists (ordered and unordered) format correctly
+- [ ] Links remain clickable with hover effects
+- [ ] Syntax highlighting works for all supported languages
+- [ ] Copy buttons positioned correctly above code blocks
+- [ ] Line numbers (if present) align properly
+
+### 3.3 Vertical Scrolling Preservation
+- [ ] Activity log scrolls smoothly
+- [ ] Cut-a-hole pattern renders correctly (no bleed-through)
+- [ ] Scrollbar appears/disappears with proper animations
+- [ ] Mouse wheel events handled correctly
+- [ ] Scrollbar dragging works smoothly
+- [ ] Performance remains consistent with large logs
+
+### 3.4 Functional Testing
 - [ ] Verify no panics or crashes
 - [ ] Check memory usage (no leaks from removed state)
 - [ ] Ensure scrollbar calculations correct
 - [ ] Test with various code block sizes
 - [ ] Test window resizing behavior
 
-### 3.3 Expected Bug Fixes
+### 3.5 Expected Bug Fixes
 1. **Visual Overflow**: Should be completely resolved
 2. **RefCell Panics**: Should no longer occur
 3. **Z-Index Conflicts**: Restored to standard layering
@@ -263,14 +359,12 @@ struct LineSelectionInfo {
 
 ## Implementation Order
 
-1. **Create backup branch** (for reference)
-2. **Implement code wrapping** (Phase 2) - FIRST to ensure functionality
-3. **Test new wrapping implementation** - Verify it works before removing old code
-4. **Remove horizontal scrolling code** (Phase 1)
-5. **Run `cargo check` and fix compilation errors**
-6. **Run full test suite** (Phase 3)
-7. **Document changes** for text selection work
-8. **Update CLAUDE.md** with new patterns
+1. **Implement code wrapping** (Phase 2) - FIRST to ensure functionality, but ensure you don't rely on code that will be removed
+2. **Have user test new wrapping implementation** - Verify it works before removing old code
+3. **Remove horizontal scrolling code** (Phase 1)
+4. **Run `cargo check` and fix compilation errors**
+5. **Run full test suite** (Phase 3)
+6. **Document changes** for text selection work
 
 **Note**: Implementing the replacement before removal ensures we maintain functionality throughout the refactoring process.
 
@@ -279,15 +373,10 @@ struct LineSelectionInfo {
 ### Potential Risks
 1. **Regression in code display**: Mitigate by careful testing
 2. **Performance impact**: Line wrapping is already implemented and performant
-3. **User confusion**: Document the change clearly
-4. **Performance with large code blocks**: Very long code blocks might cause performance issues with line wrapping
-   - Mitigation: Add maximum line limit with "Show more" functionality
-   - Consider virtual scrolling for extremely long blocks
-   - Profile performance with realistic code samples
 
 ### Rollback Plan
 - Keep horizontal scrolling code in git history
-- Document attempt in HORIZONTAL_SCROLL_ATTEMPTS.md
+- Attempt are documented in HORIZONTAL_SCROLL_ATTEMPTS.md
 - Can reference for future implementation if needed
 
 ## Success Criteria
@@ -300,30 +389,8 @@ struct LineSelectionInfo {
 6. **Clean Codebase**: All horizontal scroll code removed
 7. **Future-Ready**: Clear path to text selection implementation
 
-## Timeline Estimate
-
-- Phase 1 (Removal): 2-3 hours
-- Phase 2 (Wrapping): 3-4 hours  
-- Phase 3 (Testing): 2-3 hours
-- Phase 4 (Documentation): 1 hour
-
-Total: ~8-11 hours of focused work
-
 ## Next Steps After Implementation
 
 1. Implement text selection using parallel text mapping
 2. Add keyboard navigation for selection
 3. Integrate with system clipboard
-4. Consider future enhancements (find in sidebar, etc.)
-5. Consider render-to-texture approach for true horizontal scrolling if needed in future (see "Future Implementation Options" in HORIZONTAL_SCROLL_ATTEMPTS.md for detailed technical approach)
-
-## Conclusion
-
-Removing horizontal scrolling in favor of line wrapping is the pragmatic choice that:
-- Solves immediate visual bugs
-- Simplifies the codebase
-- Enables text selection implementation
-- Maintains all current functionality
-- Provides better user experience for reading code
-
-The architectural challenges discovered during horizontal scrolling implementation make this the correct technical decision for the project's goals.
