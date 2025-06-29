@@ -903,9 +903,14 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
                     // AI messages use markdown rendering with code font support
                     // Need to add width constraint for proper text wrapping
                     let sidebar_width = self.width as f32;
-                    // Use same calculation as modal: just subtract small padding
-                    // The markdown renderer will handle code block chrome internally
-                    let content_width = sidebar_width - 20.0; // Just account for scrollbar space
+                    // Calculate available width accounting for all padding/margins:
+                    // - Activity log container: no explicit padding
+                    // - Chat message margin: 20px left or right = 20px
+                    // - Chat message padding: 12px each side = 24px
+                    // - Chat message border: 1px each side = 2px
+                    // - Scrollbar space: ~12px
+                    // Total: 20 + 24 + 2 + 12 = 58px
+                    let content_width = sidebar_width - 58.0;
                     log::debug!(
                         "Rendering markdown in activity log: sidebar_width={}, content_width={}",
                         sidebar_width,
@@ -914,19 +919,17 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
 
                     // Use registry if available for horizontal scrolling support
                     if let Some(ref registry) = self.code_block_registry {
-                        MarkdownRenderer::render_with_registry(
+                        MarkdownRenderer::render_with_fonts_and_registry(
                             message,
-                            &fonts.body,
-                            &fonts.code,
+                            fonts,
                             Some(content_width),
                             Arc::clone(registry),
                             &format!("activity_{}", item_index),
                         )
                     } else {
-                        MarkdownRenderer::render_with_width(
+                        MarkdownRenderer::render_with_fonts(
                             message,
-                            &fonts.body,
-                            &fonts.code,
+                            fonts,
                             Some(content_width),
                         )
                     }
@@ -964,21 +967,25 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
             ActivityItem::Suggestion { title, content, .. } => {
                 // Add width constraint for proper text wrapping
                 let sidebar_width = self.width as f32;
-                let content_width = sidebar_width - 20.0; // Same as modal calculation
+                // Calculate available width for suggestion card content:
+                // - Card margin: 8px each side = 16px
+                // - Card padding: 12px each side = 24px
+                // - Card border: 1px each side = 2px
+                // - Scrollbar space: ~12px
+                // Total: 16 + 24 + 2 + 12 = 54px
+                let content_width = sidebar_width - 54.0;
                 let markdown_content = if let Some(ref registry) = self.code_block_registry {
-                    MarkdownRenderer::render_with_registry(
+                    MarkdownRenderer::render_with_fonts_and_registry(
                         content,
-                        &fonts.body,
-                        &fonts.code,
+                        fonts,
                         Some(content_width),
                         Arc::clone(registry),
                         &format!("suggestion_{}", item_index),
                     )
                 } else {
-                    MarkdownRenderer::render_with_width(
+                    MarkdownRenderer::render_with_fonts(
                         content,
-                        &fonts.body,
-                        &fonts.code,
+                        fonts,
                         Some(content_width),
                     )
                 };
@@ -1448,40 +1455,6 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
         self.current_suggestion.as_ref()
     }
 
-    /// Update code block opacity for auto-hide scrollbars
-    /// Returns true if animation should continue
-    pub fn update_code_block_opacity(&mut self, delta_time: f32) -> bool {
-        let mut needs_animation = false;
-        if let Some(ref registry) = self.code_block_registry {
-            if let Ok(mut reg) = registry.lock() {
-                for (_, container) in reg.iter_mut() {
-                    let old_opacity = container.scrollbar_opacity;
-                    container.update_opacity(delta_time);
-
-                    // Continue animation if:
-                    // 1. Opacity is changing
-                    // 2. Opacity is not at rest (not 0.0 or 1.0)
-                    // 3. Or we have recent activity that might trigger a fade soon
-                    if (old_opacity - container.scrollbar_opacity).abs() > 0.001 {
-                        needs_animation = true;
-                    } else if container.scrollbar_opacity > 0.001
-                        && container.scrollbar_opacity < 0.999
-                    {
-                        needs_animation = true;
-                    } else if container.scrollbar_opacity > 0.001 {
-                        // Check if we're within the hide delay period
-                        if let Some(last_activity) = container.last_activity {
-                            if last_activity.elapsed().as_secs_f32() < 0.25 {
-                                // HIDE_DELAY (0.25 seconds)
-                                needs_animation = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        needs_animation
-    }
 
     /// Clear code block registry when content changes completely
     pub fn clear_code_block_registry(&mut self) {
@@ -1571,60 +1544,7 @@ impl Sidebar for AiSidebar {
             }
         }
 
-        // Handle code block dragging
-        if let Some(ref registry) = self.code_block_registry {
-            if let Ok(mut reg) = registry.lock() {
-                // Check if any code block is being dragged
-                for (block_id, container) in reg.iter_mut() {
-                    if container.dragging_scrollbar {
-                        use crate::sidebar::components::horizontal_scroll::calculate_drag_scroll;
-
-                        match event.kind {
-                            WMEK::Release(MousePress::Left) => {
-                                container.dragging_scrollbar = false;
-                                container.drag_start_x = None;
-                                container.drag_start_offset = None;
-                                return Ok(true);
-                            }
-                            WMEK::Move => {
-                                if let (Some(start_x), Some(start_offset)) =
-                                    (container.drag_start_x, container.drag_start_offset)
-                                {
-                                    // Calculate thumb width
-                                    let thumb_ratio =
-                                        container.viewport_width / container.content_width;
-                                    let thumb_width =
-                                        (container.viewport_width * thumb_ratio).max(30.0);
-
-                                    let new_offset = calculate_drag_scroll(
-                                        start_x,
-                                        event.coords.x as f32,
-                                        start_offset,
-                                        container.viewport_width,
-                                        container.content_width,
-                                        thumb_width,
-                                    );
-
-                                    container.set_scroll_offset(new_offset);
-                                    return Ok(true);
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-
-                // Update hover states when mouse leaves
-                if matches!(event.kind, WMEK::Move) {
-                    // Clear hover states for all code blocks
-                    // The UIItem system will set the appropriate ones
-                    for (_, container) in reg.iter_mut() {
-                        container.hovering_content = false;
-                        container.hovering_scrollbar = false;
-                    }
-                }
-            }
-        }
+        // Code block horizontal scrolling has been removed - using line wrapping instead
 
         // Show more button is now handled via UIItemType
 
@@ -1731,43 +1651,7 @@ impl Sidebar for AiSidebar {
             }
         }
 
-        // Handle keyboard events for focused code blocks
-        if let Some(ref registry) = self.code_block_registry {
-            if let Ok(mut reg) = registry.lock() {
-                // Find if any code block has focus
-                let focused_block = reg
-                    .iter_mut()
-                    .find(|(_, container)| container.has_focus)
-                    .map(|(id, container)| (id.clone(), container));
-
-                if let Some((block_id, container)) = focused_block {
-                    match key {
-                        KeyCode::LeftArrow => {
-                            container.scroll_horizontal(-50.0);
-                            return Ok(true);
-                        }
-                        KeyCode::RightArrow => {
-                            container.scroll_horizontal(50.0);
-                            return Ok(true);
-                        }
-                        KeyCode::Home => {
-                            container.set_scroll_offset(0.0);
-                            return Ok(true);
-                        }
-                        KeyCode::End => {
-                            let max_scroll = container.max_scroll();
-                            container.set_scroll_offset(max_scroll);
-                            return Ok(true);
-                        }
-                        KeyCode::Escape => {
-                            container.has_focus = false;
-                            return Ok(true);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
+        // Code block keyboard navigation removed - using line wrapping instead
 
         // Focus the chat input for now (in future, handle focus states)
         self.chat_input.focused = true;

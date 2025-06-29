@@ -747,6 +747,7 @@ impl Element {
 
 impl super::TermWindow {
     /// Wraps text at word boundaries to fit within max_width, with character-level fallback
+    /// Preserves newlines by processing each line independently
     fn wrap_text(
         &self,
         text: &str,
@@ -755,76 +756,169 @@ impl super::TermWindow {
         context: &LayoutContext,
         style: &config::TextStyle,
     ) -> anyhow::Result<Vec<Vec<ElementCell>>> {
-        let mut lines = Vec::new();
-        let mut current_line = Vec::new();
-        let mut current_width = 0.0;
+        let mut all_lines = Vec::new();
 
-        // Split by whitespace while preserving it
-        let words = text.split_inclusive(' ');
-
-        for word in words {
-            // Shape the word to get its width
-            let window = self.window.as_ref().unwrap().clone();
-            let word_infos = font.shape(
-                word,
-                move || window.notify(TermWindowNotif::InvalidateShapeCache),
-                BlockKey::filter_out_synthetic,
-                None, // presentation
-                wezterm_bidi::Direction::LeftToRight,
-                None, // range
-                None, // direction override
-            )?;
-
-            // Calculate word width
-            let word_width = self.calculate_text_width(word, &word_infos, font, context, style)?;
-
-            // Check if word fits on current line
-            if current_width > 0.0 && current_width + word_width > max_width {
-                // Finalize current line
-                if !current_line.is_empty() {
-                    lines.push(current_line);
-                    current_line = Vec::new();
-                    current_width = 0.0;
-                }
+        // Split by newlines first to preserve line structure
+        for line_text in text.lines() {
+            if line_text.is_empty() {
+                // Preserve empty lines
+                all_lines.push(Vec::new());
+                continue;
             }
 
-            // If word itself is too wide, break it at character boundaries
-            if word_width > max_width {
-                let cells = self.shape_text_to_cells(word, &word_infos, font, context, style)?;
-                let mut char_line = Vec::new();
-                let mut char_width = 0.0;
+            let mut current_line = Vec::new();
+            let mut current_width = 0.0;
 
-                for cell in cells {
-                    let cell_width = self.get_cell_width(&cell, context)?;
+            // Split by whitespace, but handle spaces separately
+            let mut words_with_spaces = Vec::new();
+            let mut current_word = String::new();
+            let mut char_iter = line_text.chars().peekable();
+            
+            while let Some(ch) = char_iter.next() {
+                if ch == ' ' {
+                    if !current_word.is_empty() {
+                        // This word is followed by a space, so it has a trailing space
+                        words_with_spaces.push((current_word.clone(), true));
+                        current_word.clear();
+                    }
+                    // Skip consecutive spaces
+                    while char_iter.peek() == Some(&' ') {
+                        char_iter.next();
+                    }
+                } else {
+                    current_word.push(ch);
+                }
+            }
+            
+            // Don't forget the last word (which has no trailing space)
+            if !current_word.is_empty() {
+                words_with_spaces.push((current_word, false));
+            }
 
-                    if char_width + cell_width > max_width && !char_line.is_empty() {
-                        lines.push(char_line);
-                        char_line = Vec::new();
-                        char_width = 0.0;
+            for (word, has_space) in words_with_spaces {
+                // Shape the word (without space) to get its width
+                let window = self.window.as_ref().unwrap().clone();
+                let word_infos = font.shape(
+                    &word,
+                    move || window.notify(TermWindowNotif::InvalidateShapeCache),
+                    BlockKey::filter_out_synthetic,
+                    None, // presentation
+                    wezterm_bidi::Direction::LeftToRight,
+                    None, // range
+                    None, // direction override
+                )?;
+
+                // Calculate word width (without space)
+                let word_width = self.calculate_text_width(&word, &word_infos, font, context, style)?;
+                
+                // Calculate space width if needed
+                let space_width = if has_space {
+                    let space_window = self.window.as_ref().unwrap().clone();
+                    let space_infos = font.shape(
+                        " ",
+                        move || space_window.notify(TermWindowNotif::InvalidateShapeCache),
+                        BlockKey::filter_out_synthetic,
+                        None,
+                        wezterm_bidi::Direction::LeftToRight,
+                        None,
+                        None,
+                    )?;
+                    self.calculate_text_width(" ", &space_infos, font, context, style)?
+                } else {
+                    0.0
+                };
+
+                // Check if we need to wrap to a new line
+                // Only consider the word width, not the trailing space
+                if current_width > 0.0 && current_width + word_width > max_width {
+                    // The word itself doesn't fit, need new line
+                    if !current_line.is_empty() {
+                        all_lines.push(current_line);
+                        current_line = Vec::new();
+                        current_width = 0.0;
+                    }
+                }
+
+                // Now handle the word
+                if word_width > max_width {
+                    // Word is too wide for a single line, break at character boundaries
+                    if !current_line.is_empty() {
+                        all_lines.push(current_line);
+                        current_line = Vec::new();
+                        current_width = 0.0;
+                    }
+                    
+                    let cells = self.shape_text_to_cells(&word, &word_infos, font, context, style)?;
+                    let mut char_line = Vec::new();
+                    let mut char_width = 0.0;
+
+                    for cell in cells {
+                        let cell_width = self.get_cell_width(&cell, context)?;
+
+                        if char_width + cell_width > max_width && !char_line.is_empty() {
+                            all_lines.push(char_line);
+                            char_line = Vec::new();
+                            char_width = 0.0;
+                        }
+
+                        char_line.push(cell);
+                        char_width += cell_width;
                     }
 
-                    char_line.push(cell);
-                    char_width += cell_width;
+                    if !char_line.is_empty() {
+                        current_line = char_line;
+                        current_width = char_width;
+                    }
+                    
+                    // Try to add space if it fits
+                    if has_space && current_width + space_width <= max_width {
+                        let space_window = self.window.as_ref().unwrap().clone();
+                        let space_infos = font.shape(
+                            " ",
+                            move || space_window.notify(TermWindowNotif::InvalidateShapeCache),
+                            BlockKey::filter_out_synthetic,
+                            None,
+                            wezterm_bidi::Direction::LeftToRight,
+                            None,
+                            None,
+                        )?;
+                        let space_cells = self.shape_text_to_cells(" ", &space_infos, font, context, style)?;
+                        current_line.extend(space_cells);
+                        current_width += space_width;
+                    }
+                } else {
+                    // Word fits on the line
+                    let cells = self.shape_text_to_cells(&word, &word_infos, font, context, style)?;
+                    current_line.extend(cells);
+                    current_width += word_width;
+                    
+                    // Now handle the space
+                    if has_space {
+                        // Always add the space - it's OK if it overflows into padding
+                        let space_window = self.window.as_ref().unwrap().clone();
+                        let space_infos = font.shape(
+                            " ",
+                            move || space_window.notify(TermWindowNotif::InvalidateShapeCache),
+                            BlockKey::filter_out_synthetic,
+                            None,
+                            wezterm_bidi::Direction::LeftToRight,
+                            None,
+                            None,
+                        )?;
+                        let space_cells = self.shape_text_to_cells(" ", &space_infos, font, context, style)?;
+                        current_line.extend(space_cells);
+                        current_width += space_width;
+                    }
                 }
+            }
 
-                if !char_line.is_empty() {
-                    current_line = char_line;
-                    current_width = char_width;
-                }
-            } else {
-                // Word fits, add it to current line
-                let cells = self.shape_text_to_cells(word, &word_infos, font, context, style)?;
-                current_line.extend(cells);
-                current_width += word_width;
+            // Add final line for this text line
+            if !current_line.is_empty() {
+                all_lines.push(current_line);
             }
         }
 
-        // Add final line
-        if !current_line.is_empty() {
-            lines.push(current_line);
-        }
-
-        Ok(lines)
+        Ok(all_lines)
     }
 
     /// Helper to calculate text width from shaped glyphs

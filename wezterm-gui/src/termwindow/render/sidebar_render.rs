@@ -506,22 +506,7 @@ impl crate::TermWindow {
                 .as_any_mut()
                 .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
             {
-                // Update code block opacity for animations
-                // Calculate delta time based on actual animation FPS
-                let animation_fps = self.config.animation_fps as f32;
-                let delta_time = 1.0 / animation_fps;
-                let needs_animation = ai_sidebar.update_code_block_opacity(delta_time);
-                if needs_animation {
-                    // Schedule the next animation frame
-                    let next_frame =
-                        std::time::Instant::now() + std::time::Duration::from_secs_f32(delta_time);
-                    *self.has_animation.borrow_mut() = Some(next_frame);
-
-                    // Also trigger an immediate repaint
-                    if let Some(window) = self.window.as_ref() {
-                        window.invalidate();
-                    }
-                }
+                // Code block opacity animation has been removed with horizontal scrolling
                 // If needs_animation is false, has_animation remains None and animations stop
 
                 // Get the activity log element

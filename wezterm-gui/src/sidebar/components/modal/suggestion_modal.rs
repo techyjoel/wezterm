@@ -53,19 +53,17 @@ impl ModalContent for SuggestionModal {
 
         // Get code block registry from context if available
         let content = if let Some(registry) = context.code_block_registry.as_ref() {
-            MarkdownRenderer::render_with_registry(
+            MarkdownRenderer::render_with_fonts_and_registry(
                 &self.suggestion.content,
-                &context.fonts.body,
-                &context.fonts.code,
+                &context.fonts,
                 Some(content_width),
                 registry.clone(),
                 "modal",
             )
         } else {
-            MarkdownRenderer::render_with_width(
+            MarkdownRenderer::render_with_fonts(
                 &self.suggestion.content,
-                &context.fonts.body,
-                &context.fonts.code,
+                &context.fonts,
                 Some(content_width),
             )
         }

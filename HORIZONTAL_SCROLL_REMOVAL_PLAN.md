@@ -6,6 +6,58 @@ This plan outlines the systematic removal of all horizontal scrolling code and i
 
 **Background**: After extensive attempts to implement horizontal scrolling (including GPU scissor rects, manual clipping, and explicit clip bounds), fundamental architectural limitations in WezTerm's batched rendering pipeline make proper visual clipping impossible without major refactoring. Line wrapping is the pragmatic solution that works within existing architecture.
 
+## Implementation Status: ✅ COMPLETE (2025-06-29)
+
+### Phase 2: Code Wrapping - IMPLEMENTED
+- Enhanced `wrap_text()` in box_model.rs to preserve newlines for all WrappedText usage
+- Modified code block rendering to wrap syntax-highlighted segments intelligently
+- Preserved syntax highlighting colors across wrapped lines
+- Maintained copy button functionality with original unwrapped text
+
+### Phase 1: Code Removal - COMPLETED
+- Deleted `horizontal_scroll.rs` module entirely
+- Simplified `CodeBlockContainer` to only track copy state (4 fields vs 15)
+- Removed all horizontal scroll event handling from `ai_sidebar.rs` and `mouseevent.rs`
+- Cleaned up imports and module declarations
+- **Post-review cleanup**:
+  - Removed `UIItemType::CodeBlockScrollbar` variant from termwindow/mod.rs
+  - Deleted `mouse_event_code_block_scrollbar()` function entirely
+  - Removed `update_code_block_opacity()` and its animation loop call
+  - Fixed `CodeBlockContainer::new()` signature to remove unused parameter
+  - Made `CODE_BLOCK_CHROME_SIZE` a named constant (26.0px)
+
+### Key Implementation Notes
+
+#### Text Wrapping Enhancement (box_model.rs:751)
+```rust
+// Now processes each line independently to preserve newlines
+for line_text in text.lines() {
+    if line_text.is_empty() {
+        all_lines.push(Vec::new()); // Preserve empty lines
+        continue;
+    }
+    // ... wrap each line individually
+}
+```
+
+#### Syntax Highlighting Preservation (markdown.rs:386-447)
+- Wraps at syntax segment boundaries when possible
+- Groups colored segments into wrapped lines while maintaining styles
+- **Character-level breaking**: Long segments wider than available width automatically use `WrappedText` for character-level breaking
+- Falls back to `WrappedText` for non-highlighted code
+- Width calculation accounts for code block padding (26px)
+
+#### Simplified State Management
+- `CodeBlockContainer` now only tracks: `id`, `raw_code`, `language`, `copy_success_time`
+- Removed all scroll-related fields and methods
+- Registry still used but only for copy button feedback
+
+#### Important Architecture Details
+- Code blocks render directly as wrapped `Element::Children` collections
+- No viewport containers or negative margins
+- Copy button retrieves original unwrapped text from registry
+- Z-index layering unchanged (follows CLAUDE.md spec)
+
 ## Current State Analysis
 
 ### Working Features to Preserve
@@ -388,6 +440,34 @@ struct LineSelectionInfo {
 5. **Performance**: No noticeable slowdown
 6. **Clean Codebase**: All horizontal scroll code removed
 7. **Future-Ready**: Clear path to text selection implementation
+
+## Remaining Work & Future Considerations
+
+### Testing Required (Phase 3)
+- Verify code blocks wrap correctly for various languages
+- Test with extreme cases (very long lines, deep indentation)
+- Ensure no visual overflow in any scenario
+- Performance testing with large code blocks
+- Cross-platform testing (different fonts/DPI)
+
+### Known Limitations
+1. **Segment-based wrapping**: Normally wraps at syntax segment boundaries, which may create uneven line lengths
+2. **No continuation indicators**: Wrapped lines have no visual indication they're continuations
+3. **Character width estimation**: Uses approximate width (`font.metrics().cell_width`), may be inaccurate for proportional fonts
+4. **Width calculation**: Syntax highlighting width estimation uses character count × cell width (line 409 in markdown.rs)
+
+### Future Enhancements
+1. **Improved wrapping algorithm**: Split syntax segments mid-word for better line length consistency
+2. **Visual continuation markers**: Subtle indicators for wrapped lines (e.g., `↳` or indent)
+3. **Smart indentation preservation**: Maintain logical indentation on wrapped lines
+4. **Caching**: Cache wrapped results keyed by content hash + width
+
+### Text Selection Preparation
+The simplified architecture makes text selection straightforward:
+- Each wrapped line has known bounds from `Element` rendering
+- No coordinate transformation needed (no scroll offsets)
+- Can build selection map during the wrapping process
+- Original text preserved in registry for accurate copying
 
 ## Next Steps After Implementation
 

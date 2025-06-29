@@ -1,7 +1,6 @@
 pub mod card;
 pub mod chip;
 pub mod forms;
-pub mod horizontal_scroll;
 pub mod markdown;
 pub mod modal;
 pub mod scrollable;

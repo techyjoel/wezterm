@@ -53,7 +53,6 @@ impl super::TermWindow {
             | UIItemType::ShowMoreButton(_)
             | UIItemType::SuggestionRunButton
             | UIItemType::SuggestionDismissButton
-            | UIItemType::CodeBlockScrollbar(_)
             | UIItemType::CodeBlockContent(_)
             | UIItemType::CodeBlockCopyButton(_) => {}
         }
@@ -73,7 +72,6 @@ impl super::TermWindow {
             | UIItemType::ShowMoreButton(_)
             | UIItemType::SuggestionRunButton
             | UIItemType::SuggestionDismissButton
-            | UIItemType::CodeBlockScrollbar(_)
             | UIItemType::CodeBlockContent(_)
             | UIItemType::CodeBlockCopyButton(_) => {}
         }
@@ -502,14 +500,6 @@ impl super::TermWindow {
             }
             UIItemType::SuggestionDismissButton => {
                 self.mouse_event_suggestion_dismiss_button(event, context);
-            }
-            UIItemType::CodeBlockScrollbar(block_id) => {
-                self.mouse_event_code_block_scrollbar(
-                    item.clone(),
-                    block_id.clone(),
-                    event,
-                    context,
-                );
             }
             UIItemType::CodeBlockContent(block_id) => {
                 self.mouse_event_code_block_content(block_id.clone(), event, context);
@@ -1382,180 +1372,15 @@ impl super::TermWindow {
         }
     }
 
-    pub fn mouse_event_code_block_scrollbar(
-        &mut self,
-        item: UIItem,
-        block_id: String,
-        event: MouseEvent,
-        context: &dyn WindowOps,
-    ) {
-        use crate::sidebar::components::horizontal_scroll::{
-            calculate_drag_scroll, hit_test_scrollbar, ScrollbarHitTarget,
-        };
-
-        log::debug!(
-            "mouse_event_code_block_scrollbar called for block_id={}, event={:?}",
-            block_id,
-            event.kind
-        );
-        context.set_cursor(Some(MouseCursor::Arrow));
-
-        // Get the sidebar and its code block registry
-        let sidebar_manager = self.sidebar_manager.borrow();
-        if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
-            let mut sidebar_locked = sidebar.lock().unwrap();
-            if let Some(ai_sidebar) = sidebar_locked
-                .as_any_mut()
-                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
-            {
-                // Access the code block registry through the sidebar
-                if let Some(ref mut registry) = ai_sidebar.code_block_registry {
-                    if let Ok(mut reg) = registry.lock() {
-                        if let Some(container) = reg.get_mut(&block_id) {
-                            match event.kind {
-                                WMEK::Press(MousePress::Left) => {
-                                    // Transform absolute screen coordinates to scrollbar-relative coordinates
-                                    let relative_x = (event.coords.x as f32) - (item.x as f32);
-                                    let hit = hit_test_scrollbar(
-                                        relative_x,
-                                        0.0, // scrollbar starts at x=0 relative to its bounds
-                                        container.viewport_width,
-                                        container.content_width,
-                                        container.scroll_offset,
-                                        30.0, // min thumb width
-                                    );
-
-                                    match hit {
-                                        ScrollbarHitTarget::Thumb => {
-                                            container.dragging_scrollbar = true;
-                                            container.drag_start_x = Some(event.coords.x as f32);
-                                            container.drag_start_offset =
-                                                Some(container.scroll_offset);
-                                        }
-                                        ScrollbarHitTarget::BeforeThumb => {
-                                            // Page left
-                                            container
-                                                .scroll_horizontal(-container.viewport_width * 0.8);
-                                        }
-                                        ScrollbarHitTarget::AfterThumb => {
-                                            // Page right
-                                            container
-                                                .scroll_horizontal(container.viewport_width * 0.8);
-                                        }
-                                        _ => {}
-                                    }
-                                    container.last_activity = Some(std::time::Instant::now());
-                                    context.invalidate();
-                                }
-                                WMEK::Release(MousePress::Left) => {
-                                    container.dragging_scrollbar = false;
-                                    container.drag_start_x = None;
-                                    container.drag_start_offset = None;
-                                    context.invalidate();
-                                }
-                                WMEK::Move => {
-                                    if container.dragging_scrollbar {
-                                        // Handle scrollbar dragging
-                                        if let (Some(drag_start_x), Some(drag_start_offset)) =
-                                            (container.drag_start_x, container.drag_start_offset)
-                                        {
-                                            let thumb_ratio =
-                                                container.viewport_width / container.content_width;
-                                            let thumb_width =
-                                                (container.viewport_width * thumb_ratio).max(30.0);
-
-                                            let new_offset = calculate_drag_scroll(
-                                                drag_start_x,
-                                                event.coords.x as f32,
-                                                drag_start_offset,
-                                                container.viewport_width,
-                                                container.content_width,
-                                                thumb_width,
-                                            );
-                                            container.set_scroll_offset(new_offset);
-                                        }
-                                    }
-                                    container.hovering_scrollbar = true;
-                                    container.last_activity = Some(std::time::Instant::now());
-                                    context.invalidate();
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     pub fn mouse_event_code_block_content(
         &mut self,
-        block_id: String,
-        event: MouseEvent,
+        _block_id: String,
+        _event: MouseEvent,
         context: &dyn WindowOps,
     ) {
-        log::debug!(
-            "mouse_event_code_block_content called for block_id={}, event={:?}",
-            block_id,
-            event.kind
-        );
+        // Code blocks now use line wrapping - no special interaction needed
         context.set_cursor(Some(MouseCursor::Text));
-
-        // Get the sidebar and its code block registry
-        let sidebar_manager = self.sidebar_manager.borrow();
-        if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
-            let mut sidebar_locked = sidebar.lock().unwrap();
-            if let Some(ai_sidebar) = sidebar_locked
-                .as_any_mut()
-                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
-            {
-                if let Some(ref mut registry) = ai_sidebar.code_block_registry {
-                    if let Ok(mut reg) = registry.lock() {
-                        if let Some(container) = reg.get_mut(&block_id) {
-                            match event.kind {
-                                WMEK::Press(MousePress::Left) => {
-                                    // Set focus to this code block
-                                    container.has_focus = true;
-                                    container.last_activity = Some(std::time::Instant::now());
-
-                                    // Clear focus from all other blocks
-                                    for (id, other_container) in reg.iter_mut() {
-                                        if id != &block_id {
-                                            other_container.has_focus = false;
-                                        }
-                                    }
-                                    context.invalidate();
-                                }
-                                WMEK::Move => {
-                                    container.hovering_content = true;
-                                    container.last_activity = Some(std::time::Instant::now());
-                                    context.invalidate();
-                                }
-                                WMEK::HorzWheel(delta) => {
-                                    // Horizontal scrolling with mouse wheel
-                                    container
-                                        .scroll_horizontal(delta as f32 * HORIZONTAL_SCROLL_SPEED);
-                                    context.invalidate();
-                                }
-                                WMEK::VertWheel(delta)
-                                    if event.modifiers.contains(::window::Modifiers::SHIFT) =>
-                                {
-                                    // Shift+vertical wheel -> horizontal scroll
-                                    container
-                                        .scroll_horizontal(delta as f32 * HORIZONTAL_SCROLL_SPEED);
-                                    context.invalidate();
-                                }
-                                WMEK::VertWheel(_) => {
-                                    // Non-shift vertical wheel - ignore it here
-                                    // The main event handler will forward it to the sidebar
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     pub fn mouse_event_code_block_copy_button(
