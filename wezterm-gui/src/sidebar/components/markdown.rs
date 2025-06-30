@@ -418,56 +418,40 @@ impl MarkdownRenderer {
             }
 
             if !line_parts.is_empty() {
-                // For code wrapping, we need to handle syntax-highlighted segments
-                // If we have a max_width, wrap the line intelligently
-                if let Some(max_w) = max_width {
-                    // Account for code block padding and border
-                    let available_width = max_w - CODE_BLOCK_CHROME_SIZE;
-                    
-                    // Use Children elements with inline display to preserve syntax colors
-                    // This allows natural wrapping while maintaining color segments
-                    if !line_parts.is_empty() {
-                        log::debug!("Code block line with {} segments", line_parts.len());
-                        
-                        // Make all segments inline so they wrap naturally
-                        let inline_parts: Vec<Element> = line_parts
-                            .into_iter()
-                            .map(|mut part| {
-                                part.display = DisplayType::Inline;
-                                part
-                            })
-                            .collect();
-                        
-                        // Wrap in a block container that handles the line spacing
-                        let wrapped_line = Element::new(font, ElementContent::Children(inline_parts))
-                            .display(DisplayType::Block)
-                            .line_height(Some(code_line_height))
-                            .margin(BoxDimension {
-                                bottom: Dimension::Pixels(code_line_margin as f32), // Visual separation between logical lines
-                                ..Default::default()
-                            });
-                        line_elements.push(wrapped_line);
+                // Combine all segments into a single string for proper wrapping
+                // We'll temporarily lose syntax highlighting but gain proper wrapping
+                let mut combined_text = String::new();
+                let mut first_color = None;
+                
+                for part in &line_parts {
+                    if let ElementContent::Text(text) = &part.content {
+                        combined_text.push_str(text);
+                        if first_color.is_none() {
+                            first_color = Some(part.colors.clone());
+                        }
                     }
-                } else {
-                    // No max_width, preserve original behavior
-                    let inline_parts: Vec<Element> = line_parts
-                        .into_iter()
-                        .map(|mut part| {
-                            part.display = DisplayType::Inline;
-                            part
-                        })
-                        .collect();
-
-                    let combined_element = Element::new(font, ElementContent::Children(inline_parts))
-                        .display(DisplayType::Block)
-                        .line_height(Some(code_line_height))
-                        // Add bottom margin to create visual separation between logical lines
-                        .margin(BoxDimension {
-                            bottom: Dimension::Pixels(code_line_margin as f32), // Visual separation between logical lines
-                            ..Default::default()
-                        });
-                    line_elements.push(combined_element);
                 }
+                
+                // Use WrappedText for proper line wrapping
+                let mut wrapped_line = Element::new(font, ElementContent::WrappedText(combined_text))
+                    .display(DisplayType::Block)
+                    .line_height(Some(code_line_height))
+                    .margin(BoxDimension {
+                        bottom: Dimension::Pixels(code_line_margin as f32), // Visual separation between logical lines
+                        ..Default::default()
+                    });
+                
+                // Apply the first segment's color or default
+                if let Some(colors) = first_color {
+                    wrapped_line = wrapped_line.colors(colors);
+                } else {
+                    wrapped_line = wrapped_line.colors(ElementColors {
+                        text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
+                        ..Default::default()
+                    });
+                }
+                
+                line_elements.push(wrapped_line);
             }
         }
 
