@@ -424,34 +424,44 @@ impl MarkdownRenderer {
                     // Account for code block padding and border
                     let available_width = max_w - CODE_BLOCK_CHROME_SIZE;
                     
-                    // First, let's reconstruct the full line text
+                    // Use the new ColoredWrappedText element for proper wrapping with syntax highlighting
                     let mut full_line = String::new();
+                    let mut color_spans = Vec::new();
+                    let mut byte_pos = 0;
+                    
+                    // Collect all segments and build color spans
                     for part in &line_parts {
                         if let ElementContent::Text(text) = &part.content {
-                            full_line.push_str(text);
+                            if !text.is_empty() {
+                                let start = byte_pos;
+                                let end = byte_pos + text.len();
+                                color_spans.push(crate::termwindow::box_model::ColorSpan {
+                                    start,
+                                    end,
+                                    colors: part.colors.clone(),
+                                });
+                                full_line.push_str(text);
+                                byte_pos = end;
+                            }
                         }
                     }
                     
-                    // Now create a single WrappedText element for the entire line
-                    // This will properly handle word wrapping
                     if !full_line.is_empty() {
-                        log::debug!("Code block line (len={}): {:?}", full_line.len(), full_line);
-                        // For now, use the first segment's color for the whole line
-                        // TODO: Implement a way to preserve syntax colors across wrapped lines
-                        let base_colors = if !line_parts.is_empty() {
-                            line_parts[0].colors.clone()
-                        } else {
-                            ElementColors::default()
-                        };
+                        log::debug!("Code block line with {} color spans: {:?}", color_spans.len(), full_line);
                         
-                        let wrapped_line = Element::new(font, ElementContent::WrappedText(full_line))
-                            .colors(base_colors)
-                            .display(DisplayType::Block)
-                            .line_height(Some(code_line_height))
-                            .margin(BoxDimension {
-                                bottom: Dimension::Pixels(code_line_margin as f32), // Visual separation between logical lines
-                                ..Default::default()
-                            });
+                        let wrapped_line = Element::new(
+                            font, 
+                            ElementContent::ColoredWrappedText {
+                                text: full_line,
+                                spans: color_spans,
+                            }
+                        )
+                        .display(DisplayType::Block)
+                        .line_height(Some(code_line_height))
+                        .margin(BoxDimension {
+                            bottom: Dimension::Pixels(code_line_margin as f32),
+                            ..Default::default()
+                        });
                         line_elements.push(wrapped_line);
                     }
                 } else {
