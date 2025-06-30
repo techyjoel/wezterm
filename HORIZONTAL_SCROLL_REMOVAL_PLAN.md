@@ -64,12 +64,6 @@
 - ✅ Copy button functionality
 - ✅ Vertical scrolling and scrollbar dragging
 - ✅ Basic markdown structure (headings, paragraphs, code blocks)
-- ✅ Tab handling in indentation (converts to 4 spaces)
-
-## Recent Fixes (Latest Session)
-- **Dead Code Cleanup**: Removed ColoredWrappedText implementation and all related code
-- **Indentation Bug Fix**: Fixed double-processing of leading spaces that could cause wrapped lines to have incorrect indentation
-- **Tab Support**: Added proper tab-to-space conversion in indentation handling
 
 ## Implementation Details for Completed Fixes
 
@@ -104,18 +98,6 @@
    - Apply appropriate font variant to each text segment
 3. Add bullet/number rendering for lists
 4. Style inline code with code font and background color
-
-## Current Syntax Highlighting Approach
-The segment-based WrappedText approach (commit 322f5b8a0) works as follows:
-- Each syntax-highlighted segment becomes its own WrappedText element
-- Segments are displayed inline within a block container
-- This preserves colors but may wrap at segment boundaries rather than word boundaries
-- Trade-off: Better than no syntax highlighting, but not optimal for readability
-
-### Known Issues with Current Approach
-1. **Suboptimal Wrapping**: Lines may break mid-word if a syntax segment boundary occurs there
-2. **Performance**: Creating many small Elements has overhead
-3. **Wrapped Line Indentation**: The screenshot shows wrapped lines sometimes have incorrect indentation - this may be due to segment boundaries
 
 ## Architecture Notes
 
