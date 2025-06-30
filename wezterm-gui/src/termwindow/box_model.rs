@@ -554,20 +554,9 @@ impl Element {
 }
 
 #[derive(Debug, Clone)]
-pub struct ColorSpan {
-    pub start: usize,  // Byte offset in string
-    pub end: usize,    // Byte offset in string  
-    pub colors: ElementColors,
-}
-
-#[derive(Debug, Clone)]
 pub enum ElementContent {
     Text(String),
     WrappedText(String), // Automatically wraps at word boundaries, falling back to character boundaries
-    ColoredWrappedText {
-        text: String,
-        spans: Vec<ColorSpan>,
-    }, // Wrapped text with color spans preserved
     Children(Vec<Element>),
     Poly { line_width: isize, poly: SizedPoly },
 }
@@ -780,26 +769,29 @@ impl super::TermWindow {
             let mut current_line = Vec::new();
             let mut current_width = 0.0;
 
-            // Preserve leading indentation
-            let leading_spaces = line_text.len() - line_text.trim_start().len();
+            // Preserve leading indentation (spaces and tabs)
+            let trimmed_start = line_text.trim_start();
+            let leading_whitespace_len = line_text.len() - trimmed_start.len();
+            let leading_whitespace = &line_text[..leading_whitespace_len];
             let mut indentation = String::new();
-            if leading_spaces > 0 {
-                indentation = " ".repeat(leading_spaces);
-                log::debug!("wrap_text: Found {} leading spaces for line: {:?}", leading_spaces, line_text);
+            if !leading_whitespace.is_empty() {
+                // Convert tabs to spaces for consistent rendering (assuming 4 spaces per tab)
+                indentation = leading_whitespace.chars()
+                    .map(|ch| if ch == '\t' { "    ".to_string() } else { ch.to_string() })
+                    .collect::<String>();
+                log::debug!("wrap_text: Found leading whitespace: {:?} for line: {:?}", leading_whitespace, line_text);
             }
 
+            // Process the line after removing leading indentation
+            let trimmed_line = trimmed_start;
+            
             // Split by whitespace, but handle spaces separately
             let mut words_with_spaces = Vec::new();
             let mut current_word = String::new();
-            let mut char_iter = line_text.chars().peekable();
-            let mut is_at_start = true;
+            let mut char_iter = trimmed_line.chars().peekable();
             
             while let Some(ch) = char_iter.next() {
                 if ch == ' ' {
-                    if is_at_start {
-                        // Leading spaces are handled separately
-                        continue;
-                    }
                     if !current_word.is_empty() {
                         // This word is followed by a space, so it has a trailing space
                         words_with_spaces.push((current_word.clone(), true));
@@ -810,7 +802,6 @@ impl super::TermWindow {
                         char_iter.next();
                     }
                 } else {
-                    is_at_start = false;
                     current_word.push(ch);
                 }
             }
@@ -979,252 +970,6 @@ impl super::TermWindow {
         }
 
         Ok(all_lines)
-    }
-
-    /// Wraps colored text at word boundaries while preserving color spans
-    fn wrap_colored_text(
-        &self,
-        text: &str,
-        spans: &[ColorSpan],
-        font: &Rc<LoadedFont>,
-        max_width: f32,
-        context: &LayoutContext,
-        style: &config::TextStyle,
-    ) -> anyhow::Result<Vec<Vec<ElementCell>>> {
-        let mut all_lines = Vec::new();
-
-        // Split by newlines first to preserve line structure
-        for (line_idx, line_text) in text.lines().enumerate() {
-            if line_text.is_empty() {
-                // Preserve empty lines
-                all_lines.push(Vec::new());
-                continue;
-            }
-
-            let mut current_line = Vec::new();
-            let mut current_width = 0.0;
-
-            // Calculate byte offset of this line in the original text
-            let line_byte_offset = text
-                .lines()
-                .take(line_idx)
-                .map(|l| l.len() + 1) // +1 for newline
-                .sum::<usize>();
-
-            // Preserve leading indentation
-            let leading_spaces = line_text.len() - line_text.trim_start().len();
-            let mut indentation = String::new();
-            if leading_spaces > 0 {
-                indentation = " ".repeat(leading_spaces);
-                log::debug!("wrap_colored_text: Found {} leading spaces for line: {:?}", leading_spaces, line_text);
-            }
-
-            // Find the color for indentation (color at start of line)
-            let default_colors = ElementColors {
-                text: InheritableColor::Inherited,
-                bg: Default::default(),
-                border: Default::default(),
-            };
-            let indent_colors = self.get_color_at_offset(line_byte_offset, spans, &default_colors);
-
-            // Add indentation with proper color
-            if !indentation.is_empty() {
-                let ind_window = self.window.as_ref().unwrap().clone();
-                let ind_infos = font.shape(
-                    &indentation,
-                    move || ind_window.notify(TermWindowNotif::InvalidateShapeCache),
-                    BlockKey::filter_out_synthetic,
-                    None,
-                    wezterm_bidi::Direction::LeftToRight,
-                    None,
-                    None,
-                )?;
-                let ind_width = self.calculate_text_width(&indentation, &ind_infos, font, context, style)?;
-                let ind_cells = self.shape_colored_text_to_cells(&indentation, &ind_infos, font, context, style, indent_colors)?;
-                current_line.extend(ind_cells);
-                current_width = ind_width;
-            }
-
-            // Process the rest of the line
-            let trimmed_line = &line_text[leading_spaces..];
-            let mut char_offset = leading_spaces;
-
-            // Split by whitespace but track position for color lookup
-            let mut current_word = String::new();
-            let mut word_start_offset = char_offset;
-            let mut chars = trimmed_line.chars().peekable();
-
-            while let Some(ch) = chars.next() {
-                if ch == ' ' {
-                    // Process current word if any
-                    if !current_word.is_empty() {
-                        let word_byte_offset = line_byte_offset + word_start_offset;
-                        let word_colors = self.get_color_at_offset(word_byte_offset, spans, &default_colors);
-                        
-                        // Shape and measure word
-                        let window = self.window.as_ref().unwrap().clone();
-                        let word_infos = font.shape(
-                            &current_word,
-                            move || window.notify(TermWindowNotif::InvalidateShapeCache),
-                            BlockKey::filter_out_synthetic,
-                            None,
-                            wezterm_bidi::Direction::LeftToRight,
-                            None,
-                            None,
-                        )?;
-                        let word_width = self.calculate_text_width(&current_word, &word_infos, font, context, style)?;
-
-                        // Check if word fits
-                        if current_width > 0.0 && current_width + word_width > max_width {
-                            // Start new line
-                            if !current_line.is_empty() {
-                                all_lines.push(current_line);
-                                current_line = Vec::new();
-                                current_width = 0.0;
-                            }
-                        }
-
-                        // Add word to line
-                        let cells = self.shape_colored_text_to_cells(&current_word, &word_infos, font, context, style, word_colors)?;
-                        current_line.extend(cells);
-                        current_width += word_width;
-                        
-                        current_word.clear();
-                    }
-
-                    // Process space(s)
-                    let mut spaces = String::from(" ");
-                    char_offset += 1;
-                    while chars.peek() == Some(&' ') {
-                        spaces.push(' ');
-                        chars.next();
-                        char_offset += 1;
-                    }
-
-                    let space_byte_offset = line_byte_offset + word_start_offset + current_word.len();
-                    let space_colors = self.get_color_at_offset(space_byte_offset, spans, &default_colors);
-
-                    // Always add spaces (they can overflow into padding)
-                    let space_window = self.window.as_ref().unwrap().clone();
-                    let space_infos = font.shape(
-                        &spaces,
-                        move || space_window.notify(TermWindowNotif::InvalidateShapeCache),
-                        BlockKey::filter_out_synthetic,
-                        None,
-                        wezterm_bidi::Direction::LeftToRight,
-                        None,
-                        None,
-                    )?;
-                    let space_cells = self.shape_colored_text_to_cells(&spaces, &space_infos, font, context, style, space_colors)?;
-                    current_line.extend(space_cells);
-                    let space_width = self.calculate_text_width(&spaces, &space_infos, font, context, style)?;
-                    current_width += space_width;
-
-                    word_start_offset = char_offset;
-                } else {
-                    current_word.push(ch);
-                    char_offset += ch.len_utf8();
-                }
-            }
-
-            // Process final word
-            if !current_word.is_empty() {
-                let word_byte_offset = line_byte_offset + word_start_offset;
-                let word_colors = self.get_color_at_offset(word_byte_offset, spans, &default_colors);
-                
-                let window = self.window.as_ref().unwrap().clone();
-                let word_infos = font.shape(
-                    &current_word,
-                    move || window.notify(TermWindowNotif::InvalidateShapeCache),
-                    BlockKey::filter_out_synthetic,
-                    None,
-                    wezterm_bidi::Direction::LeftToRight,
-                    None,
-                    None,
-                )?;
-                let word_width = self.calculate_text_width(&current_word, &word_infos, font, context, style)?;
-
-                // Check if word fits
-                if current_width > 0.0 && current_width + word_width > max_width {
-                    if !current_line.is_empty() {
-                        all_lines.push(current_line);
-                        current_line = Vec::new();
-                        current_width = 0.0;
-                    }
-                }
-
-                // Handle words too wide for line
-                if word_width > max_width {
-                    // Character-level wrapping for oversized words
-                    let cells = self.shape_colored_text_to_cells(&current_word, &word_infos, font, context, style, word_colors)?;
-                    let mut char_line = Vec::new();
-                    let mut char_width = 0.0;
-
-                    for cell in cells {
-                        let cell_width = self.get_cell_width(&cell, context)?;
-                        if char_width + cell_width > max_width && !char_line.is_empty() {
-                            all_lines.push(char_line);
-                            char_line = Vec::new();
-                            char_width = 0.0;
-                        }
-                        char_line.push(cell);
-                        char_width += cell_width;
-                    }
-
-                    if !char_line.is_empty() {
-                        current_line.extend(char_line);
-                        current_width = char_width;
-                    }
-                } else {
-                    let cells = self.shape_colored_text_to_cells(&current_word, &word_infos, font, context, style, word_colors)?;
-                    current_line.extend(cells);
-                    current_width += word_width;
-                }
-            }
-
-            // Add final line
-            if !current_line.is_empty() {
-                all_lines.push(current_line);
-            }
-        }
-
-        Ok(all_lines)
-    }
-
-    /// Get the color that applies at a specific byte offset in the text
-    fn get_color_at_offset(
-        &self,
-        offset: usize,
-        spans: &[ColorSpan],
-        default_colors: &ElementColors,
-    ) -> ElementColors {
-        // Find the span that contains this offset
-        for span in spans {
-            if offset >= span.start && offset < span.end {
-                return span.colors.clone();
-            }
-        }
-        
-        // No span found, use default
-        default_colors.clone()
-    }
-
-    /// Shape text to cells with specific colors
-    fn shape_colored_text_to_cells(
-        &self,
-        text: &str,
-        infos: &[GlyphInfo],
-        font: &Rc<LoadedFont>,
-        context: &LayoutContext,
-        style: &config::TextStyle,
-        colors: ElementColors,
-    ) -> anyhow::Result<Vec<ElementCell>> {
-        // Apply the colors to the text
-        // Since style.foreground is Option<RgbaColor> and colors.text is InheritableColor,
-        // we need to handle the conversion properly
-        // For now, just use the existing style since the color is applied during rendering
-        
-        self.shape_text_to_cells(text, infos, font, context, style)
     }
 
     /// Helper to calculate text width from shaped glyphs
@@ -1474,47 +1219,6 @@ impl super::TermWindow {
             }
             ElementContent::WrappedText(text) => {
                 let lines = self.wrap_text(text, &element.font, max_width, context, &style)?;
-                let line_height = context.height.pixel_cell;
-                let num_lines = lines.len() as f32;
-
-                // Calculate max width of all lines for proper content rect
-                let mut max_line_width: f32 = 0.0;
-                for line in &lines {
-                    let mut line_width = 0.0;
-                    for cell in line {
-                        line_width += self.get_cell_width(cell, context)?;
-                    }
-                    max_line_width = max_line_width.max(line_width);
-                }
-
-                let content_rect = euclid::rect(
-                    0.,
-                    0.,
-                    max_line_width.max(min_width),
-                    (line_height * num_lines).max(min_height),
-                );
-
-                let rects = element.compute_rects(context, content_rect);
-                let clip_bounds = element.compute_clip_bounds(context, &rects);
-
-                Ok(ComputedElement {
-                    item_type: element.item_type.clone(),
-                    zindex: element.zindex + context.zindex,
-                    baseline,
-                    border,
-                    border_corners,
-                    colors: element.colors.clone(),
-                    hover_colors: element.hover_colors.clone(),
-                    bounds: rects.bounds,
-                    border_rect: rects.border_rect,
-                    padding: rects.padding,
-                    content_rect: rects.content_rect,
-                    clip_bounds,
-                    content: ComputedElementContent::MultilineText { lines, line_height },
-                })
-            }
-            ElementContent::ColoredWrappedText { text, spans } => {
-                let lines = self.wrap_colored_text(text, spans, &element.font, max_width, context, &style)?;
                 let line_height = context.height.pixel_cell;
                 let num_lines = lines.len() as f32;
 
