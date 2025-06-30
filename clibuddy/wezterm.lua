@@ -446,8 +446,8 @@ local clibuddy_config = {
             body_weight = 'Regular',  -- 'Regular' or 'Light' for body text
             font_size_reduction = 1.0,  -- How many points smaller than heading font (1 point)
             -- font_family = 'Roboto',  -- Optional: override font family (defaults to Roboto)
-            code_line_height = 0.85,  -- Line height multiplier for code blocks (0.5-2.0)
-            code_line_margin = 3.0,  -- Bottom margin between logical lines in code blocks (pixels)
+            code_line_height = 0.8,  -- Line height multiplier for code blocks (0.5-2.0)
+            code_line_margin = 4.0,  -- Bottom margin between logical lines in code blocks (pixels)
         },
         -- Toggle button
         button = {
@@ -568,8 +568,8 @@ config.clibuddy = {
             body_weight = clibuddy_config.right_sidebar.fonts.body_weight,
             font_size_reduction = clibuddy_config.right_sidebar.fonts.font_size_reduction,
             font_family = clibuddy_config.right_sidebar.fonts.font_family,
-            code_line_height = clibuddy_config.right_sidebar.fonts.code_line_height or 0.85,
-            code_line_margin = clibuddy_config.right_sidebar.fonts.code_line_margin or 3.0
+            code_line_height = clibuddy_config.right_sidebar.fonts.code_line_height or 0.8,
+            code_line_margin = clibuddy_config.right_sidebar.fonts.code_line_margin or 4.0
         },
     }
 }

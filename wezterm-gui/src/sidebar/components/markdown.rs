@@ -424,37 +424,22 @@ impl MarkdownRenderer {
                     // Account for code block padding and border
                     let available_width = max_w - CODE_BLOCK_CHROME_SIZE;
                     
-                    // First, let's reconstruct the full line text and track color spans
-                    let mut full_line = String::new();
-                    let mut color_spans = Vec::new();
-                    let mut current_pos = 0;
-                    
-                    for part in &line_parts {
-                        let segment_text = match &part.content {
-                            ElementContent::Text(t) => t,
-                            _ => "",
-                        };
-                        let segment_len = segment_text.len();
-                        if segment_len > 0 {
-                            color_spans.push((current_pos, current_pos + segment_len, part.colors.clone()));
-                            full_line.push_str(segment_text);
-                            current_pos += segment_len;
-                        }
-                    }
-                    
-                    // Now create a single WrappedText element for the entire line
-                    // This will properly handle word wrapping
-                    if !full_line.is_empty() {
-                        // For now, use the first segment's color for the whole line
-                        // TODO: Implement a way to preserve syntax colors across wrapped lines
-                        let base_colors = if !line_parts.is_empty() {
-                            line_parts[0].colors.clone()
-                        } else {
-                            ElementColors::default()
-                        };
+                    // Use Children elements with inline display to preserve syntax colors
+                    // This allows natural wrapping while maintaining color segments
+                    if !line_parts.is_empty() {
+                        log::debug!("Code block line with {} segments", line_parts.len());
                         
-                        let wrapped_line = Element::new(font, ElementContent::WrappedText(full_line))
-                            .colors(base_colors)
+                        // Make all segments inline so they wrap naturally
+                        let inline_parts: Vec<Element> = line_parts
+                            .into_iter()
+                            .map(|mut part| {
+                                part.display = DisplayType::Inline;
+                                part
+                            })
+                            .collect();
+                        
+                        // Wrap in a block container that handles the line spacing
+                        let wrapped_line = Element::new(font, ElementContent::Children(inline_parts))
                             .display(DisplayType::Block)
                             .line_height(Some(code_line_height))
                             .margin(BoxDimension {

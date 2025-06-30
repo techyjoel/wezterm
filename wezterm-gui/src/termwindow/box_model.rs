@@ -769,13 +769,26 @@ impl super::TermWindow {
             let mut current_line = Vec::new();
             let mut current_width = 0.0;
 
+            // Preserve leading indentation
+            let leading_spaces = line_text.len() - line_text.trim_start().len();
+            let mut indentation = String::new();
+            if leading_spaces > 0 {
+                indentation = " ".repeat(leading_spaces);
+                log::debug!("wrap_text: Found {} leading spaces for line: {:?}", leading_spaces, line_text);
+            }
+
             // Split by whitespace, but handle spaces separately
             let mut words_with_spaces = Vec::new();
             let mut current_word = String::new();
             let mut char_iter = line_text.chars().peekable();
+            let mut is_at_start = true;
             
             while let Some(ch) = char_iter.next() {
                 if ch == ' ' {
+                    if is_at_start {
+                        // Leading spaces are handled separately
+                        continue;
+                    }
                     if !current_word.is_empty() {
                         // This word is followed by a space, so it has a trailing space
                         words_with_spaces.push((current_word.clone(), true));
@@ -786,6 +799,7 @@ impl super::TermWindow {
                         char_iter.next();
                     }
                 } else {
+                    is_at_start = false;
                     current_word.push(ch);
                 }
             }
@@ -793,6 +807,41 @@ impl super::TermWindow {
             // Don't forget the last word (which has no trailing space)
             if !current_word.is_empty() {
                 words_with_spaces.push((current_word, false));
+            }
+
+            // Add indentation to the beginning of the line if present
+            if !indentation.is_empty() && words_with_spaces.is_empty() {
+                // Line has only indentation (empty after trimming)
+                let ind_window = self.window.as_ref().unwrap().clone();
+                let ind_infos = font.shape(
+                    &indentation,
+                    move || ind_window.notify(TermWindowNotif::InvalidateShapeCache),
+                    BlockKey::filter_out_synthetic,
+                    None,
+                    wezterm_bidi::Direction::LeftToRight,
+                    None,
+                    None,
+                )?;
+                let ind_cells = self.shape_text_to_cells(&indentation, &ind_infos, font, context, style)?;
+                current_line.extend(ind_cells);
+                all_lines.push(current_line);
+                continue;
+            } else if !indentation.is_empty() {
+                // Add indentation at the start
+                let ind_window = self.window.as_ref().unwrap().clone();
+                let ind_infos = font.shape(
+                    &indentation,
+                    move || ind_window.notify(TermWindowNotif::InvalidateShapeCache),
+                    BlockKey::filter_out_synthetic,
+                    None,
+                    wezterm_bidi::Direction::LeftToRight,
+                    None,
+                    None,
+                )?;
+                let ind_width = self.calculate_text_width(&indentation, &ind_infos, font, context, style)?;
+                let ind_cells = self.shape_text_to_cells(&indentation, &ind_infos, font, context, style)?;
+                current_line.extend(ind_cells);
+                current_width = ind_width;
             }
 
             for (word, has_space) in words_with_spaces {

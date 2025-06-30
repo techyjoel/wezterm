@@ -465,6 +465,43 @@ This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.
             timestamp: now - Duration::from_secs(10),
         });
 
+        // Add a Python example with indentation to test code block rendering
+        self.activity_log.push(ActivityItem::Chat {
+            id: "chat4".to_string(),
+            message: r#"Here's a Python example showing proper error handling with indentation:
+
+```python
+def process_data(filename):
+    """Process data from a file with proper error handling."""
+    try:
+        with open(filename, 'r') as file:
+            data = file.read()
+            # Process each line
+            for line in data.splitlines():
+                if line.strip():  # Skip empty lines
+                    result = parse_line(line)
+                    if result:
+                        yield result
+    except FileNotFoundError:
+        print(f"Error: File '{filename}' not found")
+        return None
+    except PermissionError:
+        print(f"Error: Permission denied for '{filename}'")
+        return None
+    finally:
+        print("Processing complete")
+```
+
+This example demonstrates:
+- Function definition with docstring
+- Context manager (`with` statement)
+- Nested indentation levels (up to 5 levels deep)
+- Error handling with multiple `except` blocks
+- The `finally` clause for cleanup"#.to_string(),
+            is_user: false,
+            timestamp: now - Duration::from_secs(5),
+        });
+
         // Add more mock items to test scrolling
         for i in 0..20 {
             if i % 3 == 0 {
