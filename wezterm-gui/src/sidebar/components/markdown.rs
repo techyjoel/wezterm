@@ -424,28 +424,44 @@ impl MarkdownRenderer {
                     // Account for code block padding and border
                     let available_width = max_w - CODE_BLOCK_CHROME_SIZE;
                     
-                    // Use Children elements with inline display to preserve syntax colors
-                    // This allows natural wrapping while maintaining color segments
-                    if !line_parts.is_empty() {
-                        log::debug!("Code block line with {} segments", line_parts.len());
+                    // Use the new ColoredWrappedText element for proper wrapping with syntax highlighting
+                    let mut full_line = String::new();
+                    let mut color_spans = Vec::new();
+                    let mut byte_pos = 0;
+                    
+                    // Collect all segments and build color spans
+                    for part in &line_parts {
+                        if let ElementContent::Text(text) = &part.content {
+                            if !text.is_empty() {
+                                let start = byte_pos;
+                                let end = byte_pos + text.len();
+                                color_spans.push(crate::termwindow::box_model::ColorSpan {
+                                    start,
+                                    end,
+                                    colors: part.colors.clone(),
+                                });
+                                full_line.push_str(text);
+                                byte_pos = end;
+                            }
+                        }
+                    }
+                    
+                    if !full_line.is_empty() {
+                        log::debug!("Code block line with {} color spans: {:?}", color_spans.len(), full_line);
                         
-                        // Make all segments inline so they wrap naturally
-                        let inline_parts: Vec<Element> = line_parts
-                            .into_iter()
-                            .map(|mut part| {
-                                part.display = DisplayType::Inline;
-                                part
-                            })
-                            .collect();
-                        
-                        // Wrap in a block container that handles the line spacing
-                        let wrapped_line = Element::new(font, ElementContent::Children(inline_parts))
-                            .display(DisplayType::Block)
-                            .line_height(Some(code_line_height))
-                            .margin(BoxDimension {
-                                bottom: Dimension::Pixels(code_line_margin as f32), // Visual separation between logical lines
-                                ..Default::default()
-                            });
+                        let wrapped_line = Element::new(
+                            font, 
+                            ElementContent::ColoredWrappedText {
+                                text: full_line,
+                                spans: color_spans,
+                            }
+                        )
+                        .display(DisplayType::Block)
+                        .line_height(Some(code_line_height))
+                        .margin(BoxDimension {
+                            bottom: Dimension::Pixels(code_line_margin as f32),
+                            ..Default::default()
+                        });
                         line_elements.push(wrapped_line);
                     }
                 } else {
