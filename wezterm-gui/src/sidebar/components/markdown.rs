@@ -424,57 +424,16 @@ impl MarkdownRenderer {
                     // Account for code block padding and border
                     let available_width = max_w - CODE_BLOCK_CHROME_SIZE;
                     
-                    // Split syntax segments at word boundaries for better wrapping
-                    // This allows wrapping at any word boundary while preserving colors
-                    let mut word_elements = Vec::new();
+                    // Split each syntax segment into separate WrappedText elements
+                    // This allows each segment to wrap independently while preserving colors
+                    let mut segment_elements = Vec::new();
                     
                     for part in &line_parts {
                         if let ElementContent::Text(text) = &part.content {
-                            if text.is_empty() {
-                                continue;
-                            }
-                            
-                            // Split this segment into words while preserving the color
-                            let mut current_word = String::new();
-                            let mut chars = text.chars().peekable();
-                            
-                            while let Some(ch) = chars.next() {
-                                if ch.is_whitespace() {
-                                    // Emit the current word if any
-                                    if !current_word.is_empty() {
-                                        word_elements.push(
-                                            Element::new(font, ElementContent::Text(current_word.clone()))
-                                                .colors(part.colors.clone())
-                                                .display(DisplayType::Inline)
-                                        );
-                                        current_word.clear();
-                                    }
-                                    
-                                    // Collect all consecutive whitespace
-                                    let mut spaces = ch.to_string();
-                                    while let Some(&next_ch) = chars.peek() {
-                                        if next_ch.is_whitespace() {
-                                            spaces.push(chars.next().unwrap());
-                                        } else {
-                                            break;
-                                        }
-                                    }
-                                    
-                                    // Add whitespace as its own element
-                                    word_elements.push(
-                                        Element::new(font, ElementContent::Text(spaces))
-                                            .colors(part.colors.clone())
-                                            .display(DisplayType::Inline)
-                                    );
-                                } else {
-                                    current_word.push(ch);
-                                }
-                            }
-                            
-                            // Don't forget the last word
-                            if !current_word.is_empty() {
-                                word_elements.push(
-                                    Element::new(font, ElementContent::Text(current_word))
+                            if !text.is_empty() {
+                                // Each segment becomes its own WrappedText element
+                                segment_elements.push(
+                                    Element::new(font, ElementContent::WrappedText(text.clone()))
                                         .colors(part.colors.clone())
                                         .display(DisplayType::Inline)
                                 );
@@ -482,11 +441,11 @@ impl MarkdownRenderer {
                         }
                     }
                     
-                    if !word_elements.is_empty() {
-                        log::debug!("Code block line split into {} word elements", word_elements.len());
+                    if !segment_elements.is_empty() {
+                        log::debug!("Code block line with {} segments", segment_elements.len());
                         
-                        // Wrap all word elements in a block container
-                        let wrapped_line = Element::new(font, ElementContent::Children(word_elements))
+                        // Wrap all segments in a block container
+                        let wrapped_line = Element::new(font, ElementContent::Children(segment_elements))
                             .display(DisplayType::Block)
                             .line_height(Some(code_line_height))
                             .margin(BoxDimension {
