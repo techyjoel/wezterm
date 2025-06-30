@@ -99,6 +99,99 @@
 3. Add bullet/number rendering for lists
 4. Style inline code with code font and background color
 
+## Current Syntax Highlighting Approach
+The segment-based WrappedText approach (commit 322f5b8a0) works as follows:
+- Each syntax-highlighted segment becomes its own WrappedText element
+- Segments are displayed inline within a block container
+- This preserves colors but may wrap at segment boundaries rather than word boundaries
+- Trade-off: Better than no syntax highlighting, but not optimal for readability
+
+### Known Issues with Current Approach
+1. **Suboptimal Wrapping**: Lines may break mid-word if a syntax segment boundary occurs there
+2. **Performance**: Creating many small Elements has overhead
+3. **Wrapped Line Indentation**: The screenshot shows wrapped lines sometimes have incorrect indentation - this may be due to segment boundaries
+
+
+## Option C: Color-Aware Text Wrapping Implementation Plan
+
+### Overview
+Extend WezTerm's core `wrap_text` algorithm to handle color spans, allowing proper syntax highlighting while maintaining correct line wrapping behavior.
+
+### 1. New Data Structures
+
+```rust
+#[derive(Debug, Clone)]
+pub struct ColorSpan {
+    pub start: usize,      // Byte offset in string
+    pub end: usize,        // Byte offset in string
+    pub color: LinearRgba, // Color for this span
+}
+
+#[derive(Debug, Clone)]
+pub struct ColoredText {
+    pub text: String,
+    pub spans: Vec<ColorSpan>,
+    pub default_color: LinearRgba,
+}
+
+#[derive(Debug, Clone)]
+pub enum ColoredElementCell {
+    Sprite(Sprite, LinearRgba),
+    Glyph(Rc<CachedGlyph>, LinearRgba),
+}
+```
+
+### 2. Core Algorithm Changes
+
+1. **New method**: `wrap_colored_text()` that tracks colors through wrapping
+2. **Color lookup**: Binary search for efficient color-at-offset queries
+3. **Backward compatibility**: Existing `wrap_text()` uses new implementation internally
+
+### 3. Implementation Steps
+
+1. **Add data structures** (1-2 hours)
+   - ColorSpan, ColoredText, ColoredElementCell types
+   - ElementContent::ColoredWrappedText variant
+   - ComputedElementContent::ColoredMultilineText variant
+
+2. **Implement color-aware wrapping** (3-4 hours)
+   - wrap_colored_text method with color preservation
+   - Handle word boundaries while tracking color spans
+   - Shape text with proper color application
+
+3. **Update element computation** (1-2 hours)
+   - Handle ColoredWrappedText in compute_element
+   - Calculate dimensions for colored multiline text
+
+4. **Update rendering pipeline** (2-3 hours)
+   - Render ColoredMultilineText with per-cell colors
+   - Integrate with existing quad rendering system
+
+5. **Markdown integration** (2-3 hours)
+   - Convert syntax highlighting to ColoredText
+   - Use new ElementContent::ColoredWrappedText
+
+6. **Testing and polish** (2-3 hours)
+   - Edge cases: overlapping spans, color boundaries
+   - Performance optimization
+   - Backward compatibility verification
+
+### 4. Benefits
+
+- **Clean architecture**: Colors flow through the pipeline naturally
+- **Backward compatible**: Existing code unchanged
+- **Proper wrapping**: Full wrap_text algorithm with colors
+- **Extensible**: Can add bold, italic, underline support
+
+### 5. Challenges
+
+- **Performance**: Need efficient color span lookups
+- **Memory**: Storing color per cell has overhead
+- **Complexity**: Tracking byte offsets through UTF-8 text
+- **Edge cases**: Color changes mid-word or mid-grapheme
+
+This approach provides the best of both worlds: proper text wrapping algorithm and full syntax highlighting preservation.
+
 ## Architecture Notes
 
 ### Z-Index Layering (Working)
