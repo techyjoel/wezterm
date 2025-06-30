@@ -86,85 +86,379 @@
 4. Style inline code with code font and background color
 
 
-## New Plan for Color-Aware Text Wrapping Implementation Option
+## Refined Color-Aware Text Wrapping Implementation Plan
 
 ### Overview
-Extend WezTerm's core `wrap_text` algorithm to handle color spans, allowing proper syntax highlighting while maintaining correct line wrapping behavior.
+Extend WezTerm's `wrap_text` algorithm to preserve syntax highlighting colors through line wrapping. This plan addresses all issues discovered in previous attempts and provides a clear path to full per-grapheme color support.
 
-### 1. New Data Structures
+### Critical Insights from Failed Attempts
+1. **Inline elements don't wrap** - WezTerm's box model lacks CSS-like inline wrapping
+2. **ColoredWrappedText (8f7ce0d88) had the right idea** - Failed due to rendering pipeline bug, not design flaw
+3. **Colors must flow through to quad rendering** - The missing piece in previous attempts
+
+### 1. Simplified Data Structures
 
 ```rust
+// Store color spans alongside text (byte ranges)
 #[derive(Debug, Clone)]
 pub struct ColorSpan {
     pub start: usize,      // Byte offset in string
-    pub end: usize,        // Byte offset in string
-    pub color: LinearRgba, // Color for this span
+    pub end: usize,        // Byte offset in string  
+    pub color: LinearRgba,
 }
 
+// Add new ElementContent variant - minimal change
 #[derive(Debug, Clone)]
-pub struct ColoredText {
-    pub text: String,
-    pub spans: Vec<ColorSpan>,
-    pub default_color: LinearRgba,
+pub enum ElementContent {
+    // ... existing variants ...
+    ColoredWrappedText {
+        text: String,
+        spans: Vec<ColorSpan>,
+    },
 }
 
+// NO CHANGES to ElementCell - avoid breaking existing code
+// ElementCell stays as is:
+// pub enum ElementCell {
+//     Sprite(Sprite),
+//     Glyph(Rc<CachedGlyph>),
+// }
+
+// Instead, track colors at the ComputedElement level
+// Add color tracking to MultilineText variant
 #[derive(Debug, Clone)]
-pub enum ColoredElementCell {
-    Sprite(Sprite, LinearRgba),
-    Glyph(Rc<CachedGlyph>, LinearRgba),
+pub enum ComputedElementContent {
+    // ... existing variants ...
+    MultilineText {
+        lines: Vec<Vec<ElementCell>>,
+        line_height: Option<f64>,
+        // NEW: Optional color spans per line for rendering
+        line_colors: Option<Vec<Vec<(usize, usize, LinearRgba)>>>, // cell_start, cell_end, color
+    },
 }
 ```
 
-### 2. Core Algorithm Changes
+### 2. Core Implementation Strategy
 
-1. **New method**: `wrap_colored_text()` that tracks colors through wrapping
-2. **Color lookup**: Binary search for efficient color-at-offset queries
-3. **Backward compatibility**: Existing `wrap_text()` uses new implementation internally
+#### Phase 1: Update Rendering Pipeline
+The issue wasn't that colors weren't passed to quads - WezTerm already does this correctly via `resolve_text()`. The real issue is tracking colors through the wrapping process.
 
-### 3. Implementation Steps
+```rust
+// In box_model.rs, modify MultilineText rendering (around line 1638):
+ComputedElementContent::MultilineText { lines, line_colors, .. } => {
+    for (line_idx, line) in lines.iter().enumerate() {
+        // Get color spans for this line if available
+        let color_spans = line_colors.as_ref()
+            .and_then(|lc| lc.get(line_idx));
+        
+        for (cell_idx, cell) in line.iter().enumerate() {
+            // Check if this cell has a specific color
+            let cell_color = color_spans
+                .and_then(|spans| {
+                    spans.iter().find(|(start, end, _)| {
+                        cell_idx >= *start && cell_idx < *end
+                    }).map(|(_, _, color)| *color)
+                })
+                .unwrap_or_else(|| self.colors.text);
+            
+            match cell {
+                ElementCell::Glyph(glyph) => {
+                    let mut quad = layers.allocate(layer_num)?;
+                    // Use cell-specific color instead of element color
+                    let colors = ElementColors {
+                        text: cell_color.into(),
+                        ..self.colors.clone()
+                    };
+                    self.resolve_text(&colors, &inherited_colors).apply(&mut quad);
+                    // ... rest of glyph rendering ...
+                }
+                // ... handle Sprite case ...
+            }
+        }
+    }
+}
+```
 
-1. **Add data structures**
-   - ColorSpan, ColoredText, ColoredElementCell types
-   - ElementContent::ColoredWrappedText variant
-   - ComputedElementContent::ColoredMultilineText variant
+#### Phase 2: Implement Color-Aware Text Wrapping
 
-2. **Implement color-aware wrapping** 
-   - wrap_colored_text method with color preservation
-   - Handle word boundaries while tracking color spans
-   - Shape text with proper color application
+```rust
+// Extend existing wrap_text to track color spans
+pub fn wrap_colored_text(
+    &self,
+    line_text: &str,
+    spans: &[ColorSpan],
+    font: &Rc<LoadedFont>,
+    max_width: f32,
+) -> (Vec<Vec<ElementCell>>, Vec<Vec<(usize, usize, LinearRgba)>>) {
+    // Key insight: Reuse existing wrap_text logic but track byte->cell mapping
+    let mut wrapped_lines = Vec::new();
+    let mut line_color_spans = Vec::new();
+    let mut current_line = Vec::new();
+    let mut current_line_colors = Vec::new();
+    let mut line_pixel_width = 0.0;
+    let mut byte_offset = 0;
+    let mut cell_in_line = 0;
+    
+    // Helper to find color at byte offset
+    let color_at_byte = |offset: usize| -> LinearRgba {
+        spans.iter()
+            .find(|span| offset >= span.start && offset < span.end)
+            .map(|span| span.color)
+            .unwrap_or(LinearRgba::with_components(0.9, 0.9, 0.9, 1.0))
+    };
+    
+    // Track spans for current line
+    let mut add_color_span = |start_cell: usize, end_cell: usize, color: LinearRgba| {
+        if let Some(last) = current_line_colors.last_mut() {
+            if last.2 == color && last.1 == start_cell {
+                // Extend previous span
+                last.1 = end_cell;
+                return;
+            }
+        }
+        current_line_colors.push((start_cell, end_cell, color));
+    };
+    
+    // Process text preserving indentation
+    let trimmed_start = line_text.trim_start();
+    let leading_whitespace_len = line_text.len() - trimmed_start.len();
+    let leading_whitespace = &line_text[..leading_whitespace_len];
+    
+    // Handle leading whitespace
+    if !leading_whitespace.is_empty() {
+        let color = color_at_byte(0);
+        for ch in leading_whitespace.chars() {
+            let ch_str = if ch == '\t' { "    " } else { &ch.to_string() };
+            let shaped = font.shape(ch_str, ...)?;
+            
+            for info in shaped {
+                let glyph = self.cached_glyph(&info, ...)?;
+                current_line.push(ElementCell::Glyph(glyph));
+                line_pixel_width += glyph.width;
+            }
+            
+            let cells_added = shaped.len();
+            add_color_span(cell_in_line, cell_in_line + cells_added, color);
+            cell_in_line += cells_added;
+            byte_offset += ch.len_utf8();
+        }
+    }
+    
+    // Process words with existing wrap_text logic
+    let trimmed_line = line_text.trim();
+    let words = trimmed_line.split_word_bounds();
+    
+    for word in words {
+        let color = color_at_byte(byte_offset);
+        let shaped = font.shape(word, ...)?;
+        let word_width = shaped.width();
+        
+        // Check if word fits
+        if line_pixel_width + word_width > max_width && !current_line.is_empty() {
+            // Finish current line
+            wrapped_lines.push(current_line);
+            line_color_spans.push(current_line_colors);
+            current_line = Vec::new();
+            current_line_colors = Vec::new();
+            line_pixel_width = 0.0;
+            cell_in_line = 0;
+        }
+        
+        // Add word cells
+        let start_cell = cell_in_line;
+        for info in shaped {
+            let glyph = self.cached_glyph(&info, ...)?;
+            current_line.push(ElementCell::Glyph(glyph));
+            cell_in_line += 1;
+        }
+        add_color_span(start_cell, cell_in_line, color);
+        
+        line_pixel_width += word_width;
+        byte_offset += word.len();
+    }
+    
+    // Don't forget last line
+    if !current_line.is_empty() {
+        wrapped_lines.push(current_line);
+        line_color_spans.push(current_line_colors);
+    }
+    
+    (wrapped_lines, line_color_spans)
+}
+```
 
-3. **Update element computation** 
-   - Handle ColoredWrappedText in compute_element
-   - Calculate dimensions for colored multiline text
+#### Phase 3: Integration with compute_element
 
-4. **Update rendering pipeline** 
-   - Render ColoredMultilineText with per-cell colors
-   - Integrate with existing quad rendering system
+```rust
+// In compute_element function (box_model.rs ~line 1200)
+ElementContent::ColoredWrappedText { text, spans } => {
+    let (wrapped_lines, color_spans) = self.wrap_colored_text(
+        &text,
+        &spans,
+        &self.font,
+        available_width,
+    )?;
+    
+    ComputedElementContent::MultilineText {
+        lines: wrapped_lines,
+        line_height: self.line_height,
+        line_colors: Some(color_spans),
+    }
+}
+```
 
-5. **Markdown integration**
-   - Convert syntax highlighting to ColoredText
-   - Use new ElementContent::ColoredWrappedText
+### 3. Markdown Integration
 
-6. **Testing and polish** 
-   - Edge cases: overlapping spans, color boundaries
-   - Performance optimization
-   - Backward compatibility verification
+```rust
+// In markdown.rs highlight_code_block method
+fn highlight_code_block(/* ... */) -> Element {
+    // ... existing syntax highlighting code ...
+    
+    for line in LinesWithEndings::from(code) {
+        let ranges = highlighter.highlight_line(line, &self.syntax_set)?;
+        
+        // Build color spans with byte offsets
+        let mut spans = Vec::new();
+        let mut byte_offset = 0;
+        let mut full_line = String::new();
+        
+        for (style, text) in ranges {
+            let start = byte_offset;
+            let end = byte_offset + text.len();
+            
+            spans.push(ColorSpan {
+                start,
+                end,
+                color: LinearRgba::with_components(
+                    style.foreground.r as f32 / 255.0,
+                    style.foreground.g as f32 / 255.0,
+                    style.foreground.b as f32 / 255.0,
+                    style.foreground.a as f32 / 255.0,
+                ),
+            });
+            
+            full_line.push_str(text);
+            byte_offset = end;
+        }
+        
+        // Create element with colored wrapped text
+        let line_element = Element::new(
+            font, 
+            ElementContent::ColoredWrappedText {
+                text: full_line,
+                spans,
+            }
+        )
+        .display(DisplayType::Block)
+        .line_height(Some(code_line_height))
+        .margin(BoxDimension {
+            bottom: Dimension::Pixels(code_line_margin as f32),
+            ..Default::default()
+        });
+        
+        line_elements.push(line_element);
+    }
+}
+```
 
-### 4. Benefits
+### 4. Critical Implementation Details
 
-- **Clean architecture**: Colors flow through the pipeline naturally
-- **Backward compatible**: Existing code unchanged
-- **Proper wrapping**: Full wrap_text algorithm with colors
-- **Extensible**: Can add bold, italic, underline support
+#### Avoiding Previous Pitfalls
+1. **Don't break ElementCell enum** - Keep it unchanged to avoid breaking existing pattern matches
+2. **Track colors separately** - Use line_colors in MultilineText instead of modifying cells
+3. **Preserve existing line spacing** - Use same line_height and margin as current implementation
+4. **Handle whitespace correctly** - Preserve indentation handling from current wrap_text
+5. **Work with byte offsets** - Syntect provides byte ranges, so we track bytes not graphemes
 
-### 5. Challenges
+#### Key Insights from Subagent Review
+1. **ElementCell must stay unchanged** - Changing from tuple to struct variant breaks ~100 pattern matches
+2. **Colors already flow to quads** - The issue was tracking colors through wrapping, not rendering
+3. **Shape once per word** - Don't reshape text for each color segment
+4. **Ligatures and complex scripts** - Accept that color boundaries might not align perfectly with glyphs
 
-- **Performance**: Need efficient color span lookups
-- **Memory**: Storing color per cell has overhead
-- **Complexity**: Tracking byte offsets through UTF-8 text
-- **Edge cases**: Color changes mid-word or mid-grapheme
+#### Performance Considerations
+1. **Linear color lookup is acceptable** - Code blocks rarely exceed 1000 characters
+2. **Minimize allocations** - Reuse vectors where possible
+3. **Cache shaped results** - The existing glyph cache already handles this
 
-This approach provides the best of both worlds: proper text wrapping algorithm and full syntax highlighting preservation.
+### 5. Testing Strategy
+
+#### Phase 1 Test: Rendering Pipeline
+```rust
+// Test that MultilineText with line_colors renders correctly
+let test_lines = vec![vec![
+    ElementCell::Glyph(glyph_h),
+    ElementCell::Glyph(glyph_i),
+]];
+let test_colors = Some(vec![vec![
+    (0, 1, red),    // First glyph is red
+    (1, 2, blue),   // Second glyph is blue
+]]);
+
+// Create ComputedElementContent::MultilineText with line_colors
+// Verify each glyph renders with its specified color
+```
+
+#### Phase 2 Test: Wrapping Algorithm
+```rust
+// Test with "def do_thing(123: int):"
+let text = "def do_thing(123: int):";
+let spans = vec![
+    ColorSpan { start: 0, end: 4, color: keyword_color },      // "def "
+    ColorSpan { start: 4, end: 12, color: function_color },    // "do_thing"
+    ColorSpan { start: 12, end: 13, color: default_color },    // "("
+    ColorSpan { start: 13, end: 16, color: number_color },     // "123"
+    ColorSpan { start: 16, end: 18, color: default_color },    // ": "
+    ColorSpan { start: 18, end: 21, color: type_color },       // "int"
+    ColorSpan { start: 21, end: 23, color: default_color },    // "):"
+];
+// Verify wrapping preserves each segment's color
+```
+
+### 6. Implementation Order
+
+1. **Phase 1**: Add ColoredWrappedText support (3-4 hours)
+   - Add ColorSpan struct and ElementContent::ColoredWrappedText variant
+   - Extend ComputedElementContent::MultilineText with optional line_colors
+   - NO changes to ElementCell enum
+
+2. **Phase 2**: Update rendering pipeline (2-3 hours)
+   - Modify MultilineText rendering to check line_colors
+   - Use color spans to override element colors per cell
+   - Test with manually created color spans
+
+3. **Phase 3**: Implement wrap_colored_text (4-5 hours)
+   - Create new method alongside existing wrap_text
+   - Track byte offsets through wrapping process
+   - Handle indentation and whitespace correctly
+
+4. **Phase 4**: Integration (2-3 hours)
+   - Update compute_element to handle ColoredWrappedText
+   - Modify markdown renderer to use new system
+   - Test with real syntax-highlighted code
+
+5. **Phase 5**: Testing and polish (2-3 hours)
+   - Edge cases: empty lines, very long tokens
+   - Performance profiling
+   - Ensure copy/paste still works correctly
+
+### 7. Success Criteria
+
+1. **Full syntax highlighting preserved**: Every token has correct color (e.g., `def` in purple, `do_thing` in blue, `123` in orange)
+2. **Proper word-boundary wrapping**: No breaks mid-word, wraps at spaces/punctuation
+3. **Maintained line spacing**: Uses configured line_height and margin
+4. **No breaking changes**: ElementCell enum unchanged, existing code continues to work
+5. **Copy/paste works**: Original text preserved despite color tracking
+6. **Performance acceptable**: No noticeable lag when rendering code blocks
+
+### 8. Risk Mitigation
+
+1. **If byte offset tracking proves problematic**: Fall back to character indices with UTF-8 aware conversion
+2. **If performance is poor**: Cache the wrapped results keyed by (text, width, spans)
+3. **If color boundaries don't align with glyphs**: Accept best-effort coloring for complex scripts
+4. **If implementation takes longer**: Each phase is independently useful and can be shipped
+
+This refined plan addresses all concerns raised by the subagent review while maintaining the core goal of achieving full syntax highlighting with proper line wrapping. The key insight is to work WITH WezTerm's existing architecture rather than trying to fundamentally change core data structures.
 
 ## Architecture Notes
 
