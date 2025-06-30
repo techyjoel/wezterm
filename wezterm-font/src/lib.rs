@@ -3,6 +3,7 @@ use crate::locator::{new_locator, FontLocator};
 use crate::parser::ParsedFont;
 use crate::rasterizer::{new_rasterizer, FontRasterizer};
 use crate::shaper::{new_shaper, FontShaper, PresentationWidth};
+use crate::units::PixelLength;
 use anyhow::{Context, Error};
 use config::{
     configuration, BoldBrightening, ConfigHandle, DisplayPixelGeometry, FontAttributes,
@@ -722,12 +723,20 @@ impl FontConfigInner {
 
         let shaper = new_shaper(&*config, &handles)?;
 
-        let metrics = shaper.metrics(font_size, dpi).with_context(|| {
+        let mut metrics = shaper.metrics(font_size, dpi).with_context(|| {
             format!(
                 "obtaining metrics for font_size={} @ dpi {}",
                 font_size, dpi
             )
         })?;
+
+        // Apply custom line height for SidebarCode entity
+        if matches!(entity, Entity::SidebarCode) {
+            let line_height_multiplier = config.clibuddy.right_sidebar.fonts.code_line_height;
+            metrics.cell_height = PixelLength::new(metrics.cell_height.get() * line_height_multiplier);
+            // Scale descender proportionally to maintain relative baseline position
+            metrics.descender = PixelLength::new(metrics.descender.get() * line_height_multiplier);
+        }
 
         let loaded = Rc::new(LoadedFont {
             rasterizers: RefCell::new(HashMap::new()),

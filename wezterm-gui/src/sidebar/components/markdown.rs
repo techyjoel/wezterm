@@ -71,7 +71,7 @@ impl MarkdownRenderer {
     /// Render markdown text to an Element tree
     pub fn render(text: &str, font: &Rc<LoadedFont>) -> Element {
         let mut renderer = Self::new();
-        renderer.render_markdown(text, font, None, None, None)
+        renderer.render_markdown(text, font, None, 1.0, 3.0, None, None)
     }
 
     /// Render markdown text with a specific code font
@@ -81,7 +81,7 @@ impl MarkdownRenderer {
         code_font: &Rc<LoadedFont>,
     ) -> Element {
         let mut renderer = Self::new();
-        renderer.render_markdown(text, font, Some(code_font), None, None)
+        renderer.render_markdown(text, font, Some(code_font), 1.0, 3.0, None, None)
     }
 
     /// Render markdown text with a specific code font and max width
@@ -92,7 +92,7 @@ impl MarkdownRenderer {
         max_width: Option<f32>,
     ) -> Element {
         let mut renderer = Self::new();
-        renderer.render_markdown(text, font, Some(code_font), max_width, None)
+        renderer.render_markdown(text, font, Some(code_font), 1.0, 3.0, max_width, None)
     }
 
     /// Render markdown text with a code block registry for state management
@@ -107,7 +107,7 @@ impl MarkdownRenderer {
         let mut renderer = Self::new();
         renderer.code_block_registry = Some(registry);
         renderer.context_prefix = context.to_string();
-        renderer.render_markdown(text, font, Some(code_font), max_width, None)
+        renderer.render_markdown(text, font, Some(code_font), 1.0, 3.0, max_width, None)
     }
 
     /// Render markdown text with SidebarFonts (includes bold heading font)
@@ -117,7 +117,8 @@ impl MarkdownRenderer {
         max_width: Option<f32>,
     ) -> Element {
         let mut renderer = Self::new();
-        renderer.render_markdown(text, &fonts.body, Some(&fonts.code), max_width, Some(&fonts.heading))
+        
+        renderer.render_markdown(text, &fonts.body, Some(&fonts.code), fonts.code_line_height, fonts.code_line_margin, max_width, Some(&fonts.heading))
     }
 
     /// Render markdown text with SidebarFonts and registry
@@ -131,7 +132,7 @@ impl MarkdownRenderer {
         let mut renderer = Self::new();
         renderer.code_block_registry = Some(registry);
         renderer.context_prefix = context.to_string();
-        renderer.render_markdown(text, &fonts.body, Some(&fonts.code), max_width, Some(&fonts.heading))
+        renderer.render_markdown(text, &fonts.body, Some(&fonts.code), fonts.code_line_height, fonts.code_line_margin, max_width, Some(&fonts.heading))
     }
 
     /// Internal render method
@@ -140,6 +141,8 @@ impl MarkdownRenderer {
         text: &str,
         font: &Rc<LoadedFont>,
         code_font: Option<&Rc<LoadedFont>>,
+        code_line_height: f64,
+        code_line_margin: f64,
         max_width: Option<f32>,
         heading_font: Option<&Rc<LoadedFont>>,
     ) -> Element {
@@ -267,6 +270,8 @@ impl MarkdownRenderer {
                             &code_block_content,
                             code_block_lang.as_deref(),
                             code_render_font,
+                            code_line_height,
+                            code_line_margin,
                             max_width,
                             block_id,
                         );
@@ -306,7 +311,8 @@ impl MarkdownRenderer {
                     }
                 }
                 Event::Code(code) => {
-                    // Inline code
+                    // Inline code - for now just add as formatted text
+                    // TODO: Implement proper inline code with code font
                     current_paragraph.push(format!("`{}`", code));
                 }
                 Event::SoftBreak => {
@@ -370,6 +376,8 @@ impl MarkdownRenderer {
         code: &str,
         language: Option<&str>,
         font: &Rc<LoadedFont>,
+        code_line_height: f64,
+        code_line_margin: f64,
         max_width: Option<f32>,
         block_id: String,
     ) -> Element {
@@ -447,7 +455,12 @@ impl MarkdownRenderer {
                         
                         let wrapped_line = Element::new(font, ElementContent::WrappedText(full_line))
                             .colors(base_colors)
-                            .display(DisplayType::Block);
+                            .display(DisplayType::Block)
+                            .line_height(Some(code_line_height))
+                            .margin(BoxDimension {
+                                bottom: Dimension::Pixels(code_line_margin as f32), // Visual separation between logical lines
+                                ..Default::default()
+                            });
                         line_elements.push(wrapped_line);
                     }
                 } else {
@@ -461,7 +474,13 @@ impl MarkdownRenderer {
                         .collect();
 
                     let combined_element = Element::new(font, ElementContent::Children(inline_parts))
-                        .display(DisplayType::Block);
+                        .display(DisplayType::Block)
+                        .line_height(Some(code_line_height))
+                        // Add bottom margin to create visual separation between logical lines
+                        .margin(BoxDimension {
+                            bottom: Dimension::Pixels(code_line_margin as f32), // Visual separation between logical lines
+                            ..Default::default()
+                        });
                     line_elements.push(combined_element);
                 }
             }
@@ -479,7 +498,13 @@ impl MarkdownRenderer {
                             text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
                             ..Default::default()
                         })
-                        .display(DisplayType::Block),
+                        .display(DisplayType::Block)
+                        .line_height(Some(code_line_height))
+                        // Add bottom margin to create visual separation between logical lines
+                        .margin(BoxDimension {
+                            bottom: Dimension::Pixels(code_line_margin as f32), // Visual separation between logical lines
+                            ..Default::default()
+                        }),
                 );
             }
             // Handle case where code is empty or has no lines

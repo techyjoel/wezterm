@@ -98,6 +98,14 @@ pub struct SidebarFontConfig {
 
     /// Override font family (defaults to Roboto if None)
     pub font_family: Option<String>,
+
+    /// Line height multiplier for code blocks (default 0.85, clamped to 0.5-2.0)
+    #[dynamic(default = "default_code_line_height", validate = "validate_line_height")]
+    pub code_line_height: f64,
+
+    /// Bottom margin between logical lines in code blocks (in pixels)
+    #[dynamic(default = "default_code_line_margin")]
+    pub code_line_margin: f64,
 }
 
 impl Default for SidebarFontConfig {
@@ -106,6 +114,8 @@ impl Default for SidebarFontConfig {
             body_weight: default_body_font_weight(),
             font_size_reduction: default_font_size_reduction(),
             font_family: None,
+            code_line_height: default_code_line_height(),
+            code_line_margin: default_code_line_margin(),
         }
     }
 }
@@ -233,4 +243,22 @@ fn default_body_font_weight() -> String {
 
 fn default_font_size_reduction() -> f64 {
     1.0
+}
+
+fn default_code_line_height() -> f64 {
+    0.85  // Reduced line height for more compact code blocks
+}
+
+fn validate_line_height(value: &f64) -> Result<(), String> {
+    if *value < 0.5 || *value > 2.0 {
+        return Err(format!(
+            "code_line_height must be between 0.5 and 2.0, got {}",
+            value
+        ));
+    }
+    Ok(())
+}
+
+fn default_code_line_margin() -> f64 {
+    3.0  // Visual separation between logical lines in code blocks
 }

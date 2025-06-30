@@ -498,6 +498,8 @@ impl crate::TermWindow {
                 heading: heading_font.clone(),
                 body: body_font,
                 code: code_font,
+                code_line_height: self.config.clibuddy.right_sidebar.fonts.code_line_height,
+                code_line_margin: self.config.clibuddy.right_sidebar.fonts.code_line_margin,
             };
 
             // First render the activity log content at z-index 10 (lower layer, will show through the hole)
@@ -852,6 +854,8 @@ impl crate::TermWindow {
                 heading: heading_font.clone(),
                 body: body_font,
                 code: code_font,
+                code_line_height: self.config.clibuddy.right_sidebar.fonts.code_line_height,
+                code_line_margin: self.config.clibuddy.right_sidebar.fonts.code_line_margin,
             };
 
             // Get modal elements

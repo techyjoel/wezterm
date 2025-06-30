@@ -870,8 +870,8 @@ impl super::TermWindow {
                         current_width = char_width;
                     }
                     
-                    // Try to add space if it fits
-                    if has_space && current_width + space_width <= max_width {
+                    // Always add the space - it's OK if it overflows into padding
+                    if has_space {
                         let space_window = self.window.as_ref().unwrap().clone();
                         let space_infos = font.shape(
                             " ",

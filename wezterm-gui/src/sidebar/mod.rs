@@ -17,6 +17,10 @@ pub struct SidebarFonts {
     pub body: Rc<LoadedFont>,
     /// Font for code blocks in markdown
     pub code: Rc<LoadedFont>,
+    /// Line height multiplier for code blocks
+    pub code_line_height: f64,
+    /// Bottom margin between logical lines in code blocks (in pixels)
+    pub code_line_margin: f64,
 }
 
 pub mod ai_sidebar;

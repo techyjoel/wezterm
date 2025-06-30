@@ -296,6 +296,8 @@ The implementation is divided into 7 phases:
   - ✅ Neon button styling configurable via config
   - ✅ Config file exists at ./clibuddy/wezterm.lua
   - ✅ Font configuration system for sidebar (heading, body, code fonts)
+  - ✅ Code line height configuration (default 0.85, configurable via `config.clibuddy.right_sidebar.fonts.code_line_height`)
+  - ✅ Code line margin configuration (default 3.0px, configurable via `config.clibuddy.right_sidebar.fonts.code_line_margin`)
   - ❌ AI-specific color themes and preferences not yet configurable
   - **Note**: Config structure exists in `config/src/clibuddy.rs`
 
@@ -336,6 +338,9 @@ The implementation is divided into 7 phases:
     - Error messages
     - Settings sub-panels
     - File pickers
+- [ ] **2.6.2** Fix use of config system (clibuddy/wezterm.lua)
+    - Unify clibuddy sections into one config.clibuddy section
+    - Ensure all relevant sidebar items are coming from config, not hard-coded values (e.g. font sizes, background colors, spacing between activity log elements, animation speeds, etc.)
 
 ---
 
