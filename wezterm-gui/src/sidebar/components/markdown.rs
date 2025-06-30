@@ -424,32 +424,32 @@ impl MarkdownRenderer {
                     // Account for code block padding and border
                     let available_width = max_w - CODE_BLOCK_CHROME_SIZE;
                     
-                    // First, let's reconstruct the full line text
-                    let mut full_line = String::new();
+                    // Split each syntax segment into separate WrappedText elements
+                    // This allows each segment to wrap independently while preserving colors
+                    let mut segment_elements = Vec::new();
+                    
                     for part in &line_parts {
                         if let ElementContent::Text(text) = &part.content {
-                            full_line.push_str(text);
+                            if !text.is_empty() {
+                                // Each segment becomes its own WrappedText element
+                                segment_elements.push(
+                                    Element::new(font, ElementContent::WrappedText(text.clone()))
+                                        .colors(part.colors.clone())
+                                        .display(DisplayType::Inline)
+                                );
+                            }
                         }
                     }
                     
-                    // Now create a single WrappedText element for the entire line
-                    // This will properly handle word wrapping
-                    if !full_line.is_empty() {
-                        log::debug!("Code block line (len={}): {:?}", full_line.len(), full_line);
-                        // For now, use the first segment's color for the whole line
-                        // TODO: Implement a way to preserve syntax colors across wrapped lines
-                        let base_colors = if !line_parts.is_empty() {
-                            line_parts[0].colors.clone()
-                        } else {
-                            ElementColors::default()
-                        };
+                    if !segment_elements.is_empty() {
+                        log::debug!("Code block line with {} segments", segment_elements.len());
                         
-                        let wrapped_line = Element::new(font, ElementContent::WrappedText(full_line))
-                            .colors(base_colors)
+                        // Wrap all segments in a block container
+                        let wrapped_line = Element::new(font, ElementContent::Children(segment_elements))
                             .display(DisplayType::Block)
                             .line_height(Some(code_line_height))
                             .margin(BoxDimension {
-                                bottom: Dimension::Pixels(code_line_margin as f32), // Visual separation between logical lines
+                                bottom: Dimension::Pixels(code_line_margin as f32),
                                 ..Default::default()
                             });
                         line_elements.push(wrapped_line);
