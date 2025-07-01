@@ -124,6 +124,12 @@ WEZTERM_LOG=debug ./target/release/wezterm 2>&1 | grep -E "(Code block language:
 - [ ] Test with non-ASCII characters to verify they get default color
 - [ ] Switch WezTerm themes and verify syntax colors change accordingly
 
+#### Visual Testing
+- [ ] Verify all syntax tokens get appropriate colors
+- [ ] Check that punctuation wrapping improves readability (after TODO 2)
+- [ ] Verify non-ASCII characters remain readable
+- [ ] Test with light and dark WezTerm themes
+
 #### Performance Testing
 - [ ] Profile theme creation overhead if performance issues are observed
 - [ ] Verify segment batching is working (fewer draw calls)
