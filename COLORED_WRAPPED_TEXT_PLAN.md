@@ -186,11 +186,32 @@ The `AsciiStyleMapper` handles the complex byte→grapheme→cell mapping with t
 - Created `wrap_styled_text` wrapper function
 - Currently all spans have `font: None`
 
-**Implementation Notes for Future Work**:
-- Need to detect bold/italic from syntect Style attributes
-- Load font variants in SidebarFonts
-- Modify wrapping to shape segments with different fonts
-- Complex because fonts must be selected during shaping phase
+**Implementation Plan**:
+```rust
+// StyleSpan already has the font field ready:
+pub struct StyleSpan {
+    pub start: usize,
+    pub end: usize,
+    pub colors: ElementColors,
+    pub font: Option<Rc<LoadedFont>>,  // Ready for font variants
+}
+
+// Future implementation in wrap_styled_text would:
+// 1. Pre-shape text segments with their specific fonts
+// 2. Track which glyphs came from which font
+// 3. Pass shaped glyphs to wrap_text
+```
+
+**Key Implementation Challenges**:
+1. **Font Selection Timing**: Fonts must be selected during shaping, not rendering
+2. **Syntect Integration**: Need to detect bold/italic from `syntect::Style` attributes
+3. **Font Loading**: Font variants must be loaded in SidebarFonts
+4. **Segment Boundaries**: Need to split text at font change boundaries before shaping
+
+**Why This Matters**: 
+- Markdown needs bold/italic for emphasis
+- Many syntax themes use bold for keywords
+- Would enable richer text formatting in sidebar
 
 #### 4. Remaining TODOs
 
