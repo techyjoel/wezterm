@@ -273,14 +273,10 @@ The implementation is divided into 7 phases:
   - **Development status**: Completed (part of activity log scrolling)
   - Auto-scroll to bottom on new messages
   - Maintain scroll position when reviewing history
-- [ ] **2.4.4** Fix sidebar rendering positioning and layout issues (**Partially Complete**)
-  - **Remaining Issues** (see SIDEBAR_SCROLLBAR.md "Revised Improvement Plan" for full details):
-    - Scrollbar thumb calculation uses hardcoded 40px per item (needs dynamic height based on font metrics)
-    - Filter chip click detection not working consistently (mouse interaction issues)
-    - Some activity log content may be cut off
-    - Activity log area has odd margin coloration (background not filling properly)
+- [ ] **2.4.4** Fix sidebar rendering and layout issues (**Partially Complete**)
+  - **Remaining Issues**:
     - Auto-hide scrollbar behavior not implemented
-    - Performance: markdown re-renders every frame
+    - Scrollbar background color should match enclosing parent (e.g. activity log background)
 
 - [ ] **2.4.5** Performance optimization - Caching for markdown and syntax highlighting
   - **Development status**: Pending
@@ -288,38 +284,28 @@ The implementation is divided into 7 phases:
   - Cache syntax highlighted code blocks
   - Implement dirty tracking to only re-render changed content
   - Consider using a render cache keyed by content hash
-  - **Rationale**: Currently the sidebar re-renders all markdown on every frame causing performance issues
+  - **Rationale**: As of the time of this writing the sidebar re-renders all markdown on every frame causing performance issues
 
-### 2.5 Config System Integration
-- [ ] **2.5.1** Integrate AI components into the Wezterm config system (**Partially Complete**)
+### 2.5 Basic Config System Integration
+- [x] **2.5.1** Integrate AI components into the Wezterm config system
   - ✅ Basic sidebar settings (width, show_on_startup, mode) integrated
   - ✅ Neon button styling configurable via config
   - ✅ Config file exists at ./clibuddy/wezterm.lua
   - ✅ Font configuration system for sidebar (heading, body, code fonts)
-  - ✅ Code line height configuration (default 0.85, configurable via `config.clibuddy.right_sidebar.fonts.code_line_height`)
-  - ✅ Code line margin configuration (default 3.0px, configurable via `config.clibuddy.right_sidebar.fonts.code_line_margin`)
-  - ❌ AI-specific color themes and preferences not yet configurable
   - **Note**: Config structure exists in `config/src/clibuddy.rs`
 
 **Phase 2 Summary**: Core AI sidebar UI components are implemented but have interaction issues. The sidebar renders with all major components (header, status, goals, suggestions, activity log, chat) and can be toggled via the button.
 
 **Remaining Phase 2 work**:
-- **2.4.4**: Fix scrollbar and interaction issues (see SIDEBAR_SCROLLBAR.md "Revised Improvement Plan")
-  - Phase 1: Dynamic height measurement system (Critical)
-  - Phase 2: Fix mouse interactions for filter chips and scrollbar (High)
-  - Phase 3: Fix content rendering and margins (Medium)
-  - Phase 4: Performance optimizations (Low)
-- **2.4.5**: Add performance optimization for markdown/syntax caching
-- **2.5**: Complete config system integration for AI-specific settings
-
-**Known Issues** (detailed in SIDEBAR_SCROLLBAR.md):
+**Known Issues To Address**
 - Multi-line chat input not yet interactive (can't click and type)
-- Filter chips not reliably clickable (mouse coordinate transformation issues)
-- Scrollbar thumb moves incorrectly due to hardcoded 40px item height assumption
-- Height calculations don't adapt to font size/family/line spacing changes
-- Activity log margins show odd coloration (background fill issues)
-- Markdown rendering implementation needs verification
-- Performance: markdown re-renders every frame
+- "View more" modal background isn't working right (needs to be extended to top and bottom of window)
+- "View more" modal won't close reliably (either via esc key or clicking on X in top right)
+- Suggestion card is taller now (2 rows) so needs to compress the activity log height some
+- Activity log is mis-aligned in sidebar
+- Activity log filter chips should be below the suggestion card
+- Fix margin, padding, and alignent of all items in sidebar to make some more compact and make room for the activity log
+- Make sidebar default width 50px wider, and make adjustable by dragging on divider between sidebar and terminal area.
 
 ---
 

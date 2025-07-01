@@ -4,7 +4,129 @@
 
 This document outlines approaches to achieve syntax highlighting with proper line wrapping in WezTerm's sidebar. After extensive analysis and multiple failed attempts, we've identified why this is challenging and documented potentially viable approaches.
 
-**Current Status**: We have working line wrapping but only single color per line (commit 1dd3a1309).
+## Current Status and Next Steps
+
+### Implementation Status
+**Option 5 (Virtual Multi-Element with ASCII-Only)** - IMPLEMENTED with limitations
+- ✅ Basic syntax highlighting for ASCII characters working
+- ✅ Proper line wrapping maintained
+- ✅ Non-ASCII/whitespace/ligatures get default color as designed
+- ✅ Segment batching for acceptable performance
+- ✅ Clean architecture with StyledWrappedText → MultilineText conversion
+
+### Known Issues (Jul 1, 2025, 10:47AM pacific time)
+1. **Theme Issue**: Using hardcoded syntect theme instead of WezTerm's configured theme
+2. **Wrapping Issue**: Code wraps at word boundaries only, causing poor layout in narrow spaces
+3. **Color Recognition Issue**: Some syntax elements not getting distinct colors (e.g., Python built-ins)
+
+### Next Steps - Priority Tasks
+
+#### 1. Add Debug Logging for Syntax Highlighting (HIGH PRIORITY)
+**Purpose**: Understand why some syntax elements aren't getting distinct colors
+**Task**: Add debug logging to `highlight_code_block` in markdown.rs around line 399:
+```rust
+log::debug!("Line '{}' highlighted as: {:?}", line, 
+    ranges.iter().map(|(style, text)| (text, style.foreground)).collect::<Vec<_>>());
+```
+**Expected Output**: Will show if syntect is detecting different elements but theme makes them same color
+
+#### 2. Use WezTerm Theme for Syntax Highlighting (HIGH PRIORITY)
+**Purpose**: Match syntax colors to configured WezTerm theme instead of hardcoded theme
+**Tasks**:
+- [ ] Create theme converter from WezTerm ColorPalette to syntect Theme
+- [ ] Map WezTerm config-selected theme colors to syntax highlighting roles
+- [ ] Pass palette through render chain to markdown renderer
+- [ ] Have user confirm theme colors are rendering properly
+
+#### 3. Implement Punctuation-Based Wrapping (HIGH PRIORITY)
+**Purpose**: Improve code readability in narrow spaces
+**Tasks**:
+- [ ] Investigate wrap_text current implementation
+- [ ] Modify wrap_text to break at punctuation boundaries in code blocks
+- [ ] Implement wrapping rules:
+  - Break after: `,` `(` `{` `[` operators (`=`, `+`, `-`, etc.)
+  - Break before: `.` in method chains
+  - Never break inside string literals or comments
+- [ ] Have user confirm good results
+
+#### 4. Font Variant Support (MEDIUM PRIORITY)
+**Purpose**: Support bold/italic in syntax highlighting
+**Tasks**:
+- [ ] Detect bold/italic from syntect Style attributes
+- [ ] Load font variants in SidebarFonts (bold, italic, bold-italic)
+- [ ] Implement text shaping with font variants
+- [ ] Have user test with markdown content that uses bold and italic keywords
+
+#### 5. Style Span Validation & Error Handling (MEDIUM PRIORITY)
+**Purpose**: Ensure robustness and prevent crashes from invalid style spans
+**Tasks**:
+- [ ] Add bounds checking for style span start/end positions
+- [ ] Validate spans don't exceed text length
+- [ ] Handle overlapping or out-of-order spans gracefully
+- [ ] Add error logging for invalid spans
+- [ ] Test with malformed syntax highlighting data
+
+#### 6. Multi-Cell Character Handling (MEDIUM PRIORITY)
+**Purpose**: Fix assumptions about 1 glyph = 1 grapheme
+**Tasks**:
+- [ ] Track actual cell width during glyph shaping
+- [ ] Handle tabs properly (expand to N cells)
+- [ ] Handle emoji/wide chars (may span 2+ cells)
+- [ ] Add tests for mixed ASCII/Unicode text
+
+#### 7. Performance Optimization (MEDIUM-LOW PRIORITY)
+**Purpose**: Optimize O(n) lookup in get_style_for_cell
+**Tasks**:
+- [ ] Profile current performance with large code blocks
+- [ ] Consider interval tree or segment tree for style lookups
+- [ ] Implement caching for repeated lookups
+- [ ] Measure improvement with benchmarks
+
+#### 8. Background Color Support (LOW PRIORITY)
+**Purpose**: Support selection highlighting and background colors in code
+**Tasks**:
+- [ ] Extend StyleSpan to include background colors
+- [ ] Implement background color rendering in MultilineText
+- [ ] Test with themes that use background highlights
+- [ ] Support selection overlay colors
+
+#### 9. Copy/Paste Integration (LOW PRIORITY)
+**Purpose**: Map visual selection back to original text
+**Tasks**:
+- [ ] Track mapping from rendered cells to original text positions
+- [ ] Handle selection across wrapped lines
+- [ ] Preserve original text including whitespace
+- [ ] Test copy/paste with various code examples
+
+### Testing Checklist
+
+#### Immediate Testing (After Debug Logging)
+- [ ] Update mock data to include the below so the user can visually evaluate:
+- [ ] Test Python code with built-ins: `open()`, `len()`, `print()`
+- [ ] Test Rust code with keywords: `fn`, `let`, `mut`, `impl`
+- [ ] Test JavaScript with various syntax elements
+- [ ] Test with non-ASCII characters
+- [ ] Compare syntect output with expected highlighting
+
+#### Visual Testing
+- [ ] Verify all syntax tokens get appropriate colors
+- [ ] Check that punctuation wrapping improves readability
+- [ ] Verify non-ASCII characters remain readable
+- [ ] Test with light and dark WezTerm themes
+
+#### Edge Case Testing
+- [ ] Very long identifiers (e.g., Java class names)
+- [ ] Deeply nested code with indentation
+- [ ] Mixed tabs and spaces
+- [ ] Unicode in strings and comments
+- [ ] Empty lines preservation
+- [ ] Code with no syntax highlighting available
+
+### Implementation Notes
+- Keep changes isolated to sidebar rendering
+- Don't affect main terminal performance
+- Maintain backwards compatibility
+- Document any new configuration options
 
 ## Why This Is Hard: Architectural Constraints
 
@@ -80,7 +202,8 @@ Simple index-based color mapping doesn't account for this complexity.
 
 **Verdict**: Requires too many architectural changes to be practical
 
-### Option 5: Virtual Multi-Element Approach (ASCII-Only Simplification)
+
+### Option 5: Virtual Multi-Element Approach (ASCII-Only Simplification) - SELECTED OPTION
 
 **Status**: IMPLEMENTED - Working implementation with known limitations
 
@@ -213,24 +336,9 @@ pub struct StyleSpan {
 - Many syntax themes use bold for keywords
 - Would enable richer text formatting in sidebar
 
-#### 4. Remaining TODOs
+#### 4. Implementation Details
 
-**High Priority**:
-1. **Multi-cell character mapping**: Current implementation assumes 1 glyph = 1 grapheme
-   - Incorrect for: wide chars (emoji), tabs, zero-width chars
-   - Needs integration with glyph shaping information
-
-2. **Font variant support**: StyleSpan.font field exists but unused
-   - Requires detecting bold/italic from syntax styles
-   - Need to modify text shaping phase
-
-**Medium Priority**:
-3. **Style span validation**: No bounds checking on span start/end
-4. **Performance optimization**: Linear search in get_style_for_cell
-
-**Low Priority**:
-5. **Background color support**: For selection highlighting
-6. **Copy/paste integration**: Map selection back to original text
+See the prioritized task list in "Next Steps - Priority Tasks" section above for remaining work items.
 
 #### Implementation Results
 
@@ -263,12 +371,9 @@ pub struct StyleSpan {
 4. **PartialEq requirements**: ElementColors needed it for segment batching
 5. **ElementCell types**: Must handle both Glyph and Sprite variants
 
-**Next Steps for Production**:
-1. Test with real code blocks in various languages
-2. Add style span validation
-3. Implement font variant support if needed
-4. Consider optimizing the O(n) cell lookup
-5. Add proper error handling for invalid spans
+**Implementation Summary**:
+The remaining work items have been consolidated into the "Next Steps - Priority Tasks" section at the top of this document for better workflow management.
+
 
 ### Option 6: Glyph Cache Color Variants
 
@@ -311,6 +416,7 @@ struct ColoredGlyphCache {
 
 **Verdict**: With limited colors, this becomes viable (60% success rate)
 
+
 ### Option 7: Split-Phase Rendering (with caching)
 
 **Status**: POTENTIALLY VIABLE but performance concerns
@@ -336,6 +442,7 @@ struct ColoredGlyphCache {
 
 **Verdict**: Could work with aggressive caching and batching optimizations
 
+
 ### Option 8: "Fake It" Token-Based Approach
 
 **Status**: MISUNDERSTOOD - Won't work as originally conceived
@@ -360,6 +467,7 @@ fn approximate_colors(line: &str, syntax_spans: Vec<(Style, &str)>) -> Vec<(Stri
 **But this is essentially what we already have** with single color per line.
 
 **Verdict**: Not viable for achieving better granularity than current solution
+
 
 ### Option 9: Layer Composition via Z-indices
 
@@ -404,7 +512,7 @@ for (color, zindex) in COLOR_Z_INDICES {
 
 **Verdict**: More viable than initially thought (40% success rate)
 
-## Testing Strategy
+## Final Testing Strategy
 
 ### Visual Testing
 - [ ] Verify syntax highlighting is preserved for all tokens
