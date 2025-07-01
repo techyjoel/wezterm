@@ -501,7 +501,7 @@ impl crate::TermWindow {
                 code_line_height: self.config.clibuddy.right_sidebar.fonts.code_line_height,
                 code_line_margin: self.config.clibuddy.right_sidebar.fonts.code_line_margin,
             };
-            
+
             // Get the color palette for syntax highlighting
             let palette = self.palette().clone();
 
@@ -515,8 +515,11 @@ impl crate::TermWindow {
                 // If needs_animation is false, has_animation remains None and animations stop
 
                 // Get the activity log element
-                let activity_log_element = ai_sidebar
-                    .render_activity_log_content(&fonts, self.dimensions.pixel_height as f32, &palette);
+                let activity_log_element = ai_sidebar.render_activity_log_content(
+                    &fonts,
+                    self.dimensions.pixel_height as f32,
+                    &palette,
+                );
 
                 // Get the activity log bounds to position it correctly
                 let activity_bounds = ai_sidebar

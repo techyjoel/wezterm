@@ -497,7 +497,8 @@ This example demonstrates:
 - Context manager (`with` statement)
 - Nested indentation levels (up to 5 levels deep)
 - Error handling with multiple `except` blocks
-- The `finally` clause for cleanup"#.to_string(),
+- The `finally` clause for cleanup"#
+                .to_string(),
             is_user: false,
             timestamp: now - Duration::from_secs(5),
         });
@@ -966,11 +967,7 @@ This example demonstrates:
                             palette,
                         )
                     } else {
-                        MarkdownRenderer::render_with_fonts(
-                            message,
-                            fonts,
-                            Some(content_width),
-                        )
+                        MarkdownRenderer::render_with_fonts(message, fonts, Some(content_width))
                     }
                     .max_width(Some(Dimension::Pixels(content_width)))
                 };
@@ -1023,11 +1020,7 @@ This example demonstrates:
                         palette,
                     )
                 } else {
-                    MarkdownRenderer::render_with_fonts(
-                        content,
-                        fonts,
-                        Some(content_width),
-                    )
+                    MarkdownRenderer::render_with_fonts(content, fonts, Some(content_width))
                 };
 
                 Card::new()
@@ -1049,7 +1042,12 @@ This example demonstrates:
     }
 
     /// Get filtered activity items based on current filter
-    fn render_activity_log(&mut self, fonts: &SidebarFonts, available_height: f32, palette: &wezterm_term::color::ColorPalette) -> Element {
+    fn render_activity_log(
+        &mut self,
+        fonts: &SidebarFonts,
+        available_height: f32,
+        palette: &wezterm_term::color::ColorPalette,
+    ) -> Element {
         let filtered_items: Vec<&ActivityItem> = self
             .activity_log
             .iter()
@@ -1495,7 +1493,6 @@ This example demonstrates:
     pub fn get_current_suggestion(&self) -> Option<&CurrentSuggestion> {
         self.current_suggestion.as_ref()
     }
-
 
     /// Clear code block registry when content changes completely
     pub fn clear_code_block_registry(&mut self) {

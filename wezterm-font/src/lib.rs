@@ -733,7 +733,8 @@ impl FontConfigInner {
         // Apply custom line height for SidebarCode entity
         if matches!(entity, Entity::SidebarCode) {
             let line_height_multiplier = config.clibuddy.right_sidebar.fonts.code_line_height;
-            metrics.cell_height = PixelLength::new(metrics.cell_height.get() * line_height_multiplier);
+            metrics.cell_height =
+                PixelLength::new(metrics.cell_height.get() * line_height_multiplier);
             // Scale descender proportionally to maintain relative baseline position
             metrics.descender = PixelLength::new(metrics.descender.get() * line_height_multiplier);
         }

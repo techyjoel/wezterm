@@ -100,7 +100,10 @@ pub struct SidebarFontConfig {
     pub font_family: Option<String>,
 
     /// Line height multiplier for code blocks (default 0.85, clamped to 0.5-2.0)
-    #[dynamic(default = "default_code_line_height", validate = "validate_line_height")]
+    #[dynamic(
+        default = "default_code_line_height",
+        validate = "validate_line_height"
+    )]
     pub code_line_height: f64,
 
     /// Bottom margin between logical lines in code blocks (in pixels)
@@ -246,7 +249,7 @@ fn default_font_size_reduction() -> f64 {
 }
 
 fn default_code_line_height() -> f64 {
-    0.85  // Reduced line height for more compact code blocks
+    0.85 // Reduced line height for more compact code blocks
 }
 
 fn validate_line_height(value: &f64) -> Result<(), String> {
@@ -260,5 +263,5 @@ fn validate_line_height(value: &f64) -> Result<(), String> {
 }
 
 fn default_code_line_margin() -> f64 {
-    3.0  // Visual separation between logical lines in code blocks
+    3.0 // Visual separation between logical lines in code blocks
 }

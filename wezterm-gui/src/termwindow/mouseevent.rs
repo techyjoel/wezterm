@@ -1372,7 +1372,6 @@ impl super::TermWindow {
         }
     }
 
-
     pub fn mouse_event_code_block_content(
         &mut self,
         _block_id: String,

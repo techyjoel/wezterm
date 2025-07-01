@@ -15,12 +15,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use termwiz::cell::{grapheme_column_width, unicode_column_width, Presentation};
 use termwiz::surface::Line;
+use unicode_segmentation::UnicodeSegmentation;
 use wezterm_font::shaper::GlyphInfo;
 use wezterm_font::units::PixelUnit;
 use wezterm_font::LoadedFont;
 use wezterm_term::color::{ColorAttribute, ColorPalette};
 use window::bitmaps::atlas::Sprite;
-use unicode_segmentation::UnicodeSegmentation;
 
 /// Style span for tracking syntax highlighting through text wrapping
 #[derive(Debug, Clone)]
@@ -48,28 +48,31 @@ impl AsciiStyleMapper {
             grapheme_to_byte_range: Vec::new(),
             grapheme_to_cell: Vec::new(),
         };
-        
+
         // Build byte-grapheme mapping
         let mut byte_idx = 0;
         for (g_idx, grapheme) in text.graphemes(true).enumerate() {
             let grapheme_bytes = grapheme.len();
-            mapper.grapheme_to_byte_range.push((byte_idx, byte_idx + grapheme_bytes));
-            
+            mapper
+                .grapheme_to_byte_range
+                .push((byte_idx, byte_idx + grapheme_bytes));
+
             for b in byte_idx..byte_idx + grapheme_bytes {
                 mapper.byte_to_grapheme[b] = g_idx;
             }
             byte_idx += grapheme_bytes;
         }
-        
+
         mapper
     }
-    
+
     pub fn track_wrapping(&mut self, wrapped_lines: &[Vec<ElementCell>]) {
         self.grapheme_to_cell.clear();
-        self.grapheme_to_cell.resize(self.grapheme_to_byte_range.len(), None);
-        
+        self.grapheme_to_cell
+            .resize(self.grapheme_to_byte_range.len(), None);
+
         let mut grapheme_idx = 0;
-        
+
         // More sophisticated tracking that handles ElementCell types
         for (line_idx, line) in wrapped_lines.iter().enumerate() {
             for (cell_idx, cell) in line.iter().enumerate() {
@@ -92,30 +95,33 @@ impl AsciiStyleMapper {
             }
         }
     }
-    
+
     pub fn get_style_for_cell(
-        &self, 
-        line: usize, 
+        &self,
+        line: usize,
         cell: usize,
         style_spans: &[StyleSpan],
-        default_colors: &ElementColors
+        default_colors: &ElementColors,
     ) -> ElementColors {
         // Find grapheme for this cell
-        let grapheme_idx = match self.grapheme_to_cell.iter()
-            .position(|&pos| pos == Some((line, cell))) {
+        let grapheme_idx = match self
+            .grapheme_to_cell
+            .iter()
+            .position(|&pos| pos == Some((line, cell)))
+        {
             Some(idx) => idx,
-            None => return default_colors.clone()
+            None => return default_colors.clone(),
         };
-        
+
         // Get byte range for this grapheme
         let (byte_start, byte_end) = match self.grapheme_to_byte_range.get(grapheme_idx) {
             Some(range) => range,
-            None => return default_colors.clone()
+            None => return default_colors.clone(),
         };
-        
+
         // ASCII-ONLY CHECK: Skip coloring for non-ASCII
         let text_slice = &self.text[*byte_start..*byte_end];
-        
+
         // Check for actual character count, not byte length
         // Single character that might be multi-byte UTF-8 is OK
         let char_count = text_slice.chars().count();
@@ -123,17 +129,18 @@ impl AsciiStyleMapper {
             // This is a ligature or multi-character grapheme
             return default_colors.clone();
         }
-        
+
         // Non-ASCII gets default color
         // Whitespace (including tabs) doesn't get syntax coloring
         if !text_slice.chars().all(|c| c.is_ascii_graphic()) {
             return default_colors.clone();
         }
-        
+
         // Find style span for single ASCII characters
         // Note: This assumes style spans are valid and within text bounds
         // TODO: Add validation to ensure spans don't exceed text.len()
-        style_spans.iter()
+        style_spans
+            .iter()
             .find(|span| *byte_start >= span.start && *byte_start < span.end)
             .map(|span| span.colors.clone())
             .unwrap_or_else(|| default_colors.clone())
@@ -677,7 +684,10 @@ pub enum ElementContent {
     Text(String),
     WrappedText(String), // Automatically wraps at word boundaries, falling back to character boundaries
     Children(Vec<Element>),
-    Poly { line_width: isize, poly: SizedPoly },
+    Poly {
+        line_width: isize,
+        poly: SizedPoly,
+    },
     StyledWrappedText {
         text: String,
         style_spans: Vec<StyleSpan>,
@@ -899,7 +909,11 @@ impl super::TermWindow {
             let mut indentation = String::new();
             if leading_spaces > 0 {
                 indentation = " ".repeat(leading_spaces);
-                log::debug!("wrap_text: Found {} leading spaces for line: {:?}", leading_spaces, line_text);
+                log::debug!(
+                    "wrap_text: Found {} leading spaces for line: {:?}",
+                    leading_spaces,
+                    line_text
+                );
             }
 
             // Split by whitespace, but handle spaces separately
@@ -907,7 +921,7 @@ impl super::TermWindow {
             let mut current_word = String::new();
             let mut char_iter = line_text.chars().peekable();
             let mut is_at_start = true;
-            
+
             while let Some(ch) = char_iter.next() {
                 if ch == ' ' {
                     if is_at_start {
@@ -928,7 +942,7 @@ impl super::TermWindow {
                     current_word.push(ch);
                 }
             }
-            
+
             // Don't forget the last word (which has no trailing space)
             if !current_word.is_empty() {
                 words_with_spaces.push((current_word, false));
@@ -947,7 +961,8 @@ impl super::TermWindow {
                     None,
                     None,
                 )?;
-                let ind_cells = self.shape_text_to_cells(&indentation, &ind_infos, font, context, style)?;
+                let ind_cells =
+                    self.shape_text_to_cells(&indentation, &ind_infos, font, context, style)?;
                 current_line.extend(ind_cells);
                 all_lines.push(current_line);
                 continue;
@@ -963,8 +978,10 @@ impl super::TermWindow {
                     None,
                     None,
                 )?;
-                let ind_width = self.calculate_text_width(&indentation, &ind_infos, font, context, style)?;
-                let ind_cells = self.shape_text_to_cells(&indentation, &ind_infos, font, context, style)?;
+                let ind_width =
+                    self.calculate_text_width(&indentation, &ind_infos, font, context, style)?;
+                let ind_cells =
+                    self.shape_text_to_cells(&indentation, &ind_infos, font, context, style)?;
                 current_line.extend(ind_cells);
                 current_width = ind_width;
             }
@@ -983,8 +1000,9 @@ impl super::TermWindow {
                 )?;
 
                 // Calculate word width (without space)
-                let word_width = self.calculate_text_width(&word, &word_infos, font, context, style)?;
-                
+                let word_width =
+                    self.calculate_text_width(&word, &word_infos, font, context, style)?;
+
                 // Calculate space width if needed
                 let space_width = if has_space {
                     let space_window = self.window.as_ref().unwrap().clone();
@@ -1021,8 +1039,9 @@ impl super::TermWindow {
                         current_line = Vec::new();
                         current_width = 0.0;
                     }
-                    
-                    let cells = self.shape_text_to_cells(&word, &word_infos, font, context, style)?;
+
+                    let cells =
+                        self.shape_text_to_cells(&word, &word_infos, font, context, style)?;
                     let mut char_line = Vec::new();
                     let mut char_width = 0.0;
 
@@ -1043,7 +1062,7 @@ impl super::TermWindow {
                         current_line = char_line;
                         current_width = char_width;
                     }
-                    
+
                     // Always add the space - it's OK if it overflows into padding
                     if has_space {
                         let space_window = self.window.as_ref().unwrap().clone();
@@ -1056,16 +1075,18 @@ impl super::TermWindow {
                             None,
                             None,
                         )?;
-                        let space_cells = self.shape_text_to_cells(" ", &space_infos, font, context, style)?;
+                        let space_cells =
+                            self.shape_text_to_cells(" ", &space_infos, font, context, style)?;
                         current_line.extend(space_cells);
                         current_width += space_width;
                     }
                 } else {
                     // Word fits on the line
-                    let cells = self.shape_text_to_cells(&word, &word_infos, font, context, style)?;
+                    let cells =
+                        self.shape_text_to_cells(&word, &word_infos, font, context, style)?;
                     current_line.extend(cells);
                     current_width += word_width;
-                    
+
                     // Now handle the space
                     if has_space {
                         // Always add the space - it's OK if it overflows into padding
@@ -1079,7 +1100,8 @@ impl super::TermWindow {
                             None,
                             None,
                         )?;
-                        let space_cells = self.shape_text_to_cells(" ", &space_infos, font, context, style)?;
+                        let space_cells =
+                            self.shape_text_to_cells(" ", &space_infos, font, context, style)?;
                         current_line.extend(space_cells);
                         current_width += space_width;
                     }
@@ -1106,32 +1128,29 @@ impl super::TermWindow {
         default_style: &config::TextStyle,
     ) -> anyhow::Result<(Vec<Vec<ElementCell>>, Vec<Vec<ElementColors>>)> {
         // First, wrap the text normally using the default font
-        let wrapped_lines = self.wrap_text(text, default_font, max_width, context, default_style)?;
-        
+        let wrapped_lines =
+            self.wrap_text(text, default_font, max_width, context, default_style)?;
+
         // Create the style mapper
         let mut mapper = AsciiStyleMapper::new(text);
         mapper.track_wrapping(&wrapped_lines);
-        
+
         // Build per-cell styles
         let mut line_styles = Vec::new();
         let default_colors = ElementColors::default();
-        
+
         for (line_idx, line) in wrapped_lines.iter().enumerate() {
             let mut line_colors = Vec::new();
-            
+
             for (cell_idx, _cell) in line.iter().enumerate() {
-                let colors = mapper.get_style_for_cell(
-                    line_idx,
-                    cell_idx,
-                    style_spans,
-                    &default_colors
-                );
+                let colors =
+                    mapper.get_style_for_cell(line_idx, cell_idx, style_spans, &default_colors);
                 line_colors.push(colors);
             }
-            
+
             line_styles.push(line_colors);
         }
-        
+
         Ok((wrapped_lines, line_styles))
     }
 
@@ -1418,8 +1437,8 @@ impl super::TermWindow {
                     padding: rects.padding,
                     content_rect: rects.content_rect,
                     clip_bounds,
-                    content: ComputedElementContent::MultilineText { 
-                        lines, 
+                    content: ComputedElementContent::MultilineText {
+                        lines,
                         line_height,
                         line_styles: None,
                     },
@@ -1574,12 +1593,12 @@ impl super::TermWindow {
                     style_spans,
                     max_width,
                     context,
-                    &style
+                    &style,
                 )?;
-                
+
                 let line_height = context.height.pixel_cell;
                 let num_lines = lines.len() as f32;
-                
+
                 let pixel_height = num_lines * line_height;
                 let content_rect = euclid::rect(0., 0., max_width, pixel_height);
                 let rects = element.compute_rects(context, content_rect);
@@ -1598,8 +1617,8 @@ impl super::TermWindow {
                     padding: rects.padding,
                     content_rect: rects.content_rect,
                     clip_bounds,
-                    content: ComputedElementContent::MultilineText { 
-                        lines, 
+                    content: ComputedElementContent::MultilineText {
+                        lines,
                         line_height,
                         line_styles: Some(line_styles),
                     },
@@ -1856,42 +1875,54 @@ impl super::TermWindow {
                     }
                 }
             }
-            ComputedElementContent::MultilineText { lines, line_height, line_styles } => {
+            ComputedElementContent::MultilineText {
+                lines,
+                line_height,
+                line_styles,
+            } => {
                 let mut y_offset = 0.0;
 
                 // Use segment batching if we have per-cell styles
                 if let Some(ref styles) = line_styles {
                     // Render with segment batching for better performance
-                    for (line_idx, (line_cells, line_colors)) in lines.iter().zip(styles.iter()).enumerate() {
+                    for (line_idx, (line_cells, line_colors)) in
+                        lines.iter().zip(styles.iter()).enumerate()
+                    {
                         let y = element.content_rect.min_y() + (line_idx as f32 * line_height);
-                        
+
                         // Group consecutive cells with the same color
                         let mut segment_start = 0;
                         while segment_start < line_cells.len() {
                             let start_color = &line_colors[segment_start];
                             let mut segment_end = segment_start + 1;
-                            
+
                             // Find end of this color segment
-                            while segment_end < line_cells.len() && line_colors[segment_end] == *start_color {
+                            while segment_end < line_cells.len()
+                                && line_colors[segment_end] == *start_color
+                            {
                                 segment_end += 1;
                             }
-                            
+
                             // Render this segment with the same color
                             let mut pos_x = element.content_rect.min_x();
                             // Skip to segment start position
                             for i in 0..segment_start {
                                 match &line_cells[i] {
-                                    ElementCell::Sprite(sprite) => pos_x += sprite.coords.width() as f32,
-                                    ElementCell::Glyph(glyph) => pos_x += glyph.x_advance.get() as f32,
+                                    ElementCell::Sprite(sprite) => {
+                                        pos_x += sprite.coords.width() as f32
+                                    }
+                                    ElementCell::Glyph(glyph) => {
+                                        pos_x += glyph.x_advance.get() as f32
+                                    }
                                 }
                             }
-                            
+
                             // Render the segment
                             for cell_idx in segment_start..segment_end {
                                 if pos_x >= element.content_rect.max_x() {
                                     break;
                                 }
-                                
+
                                 match &line_cells[cell_idx] {
                                     ElementCell::Sprite(sprite) => {
                                         let width = sprite.coords.width();
@@ -1909,7 +1940,8 @@ impl super::TermWindow {
                                             pos_x + left + width as f32,
                                             pos_y + height as f32,
                                         );
-                                        self.resolve_text(start_color, inherited_colors).apply(&mut quad);
+                                        self.resolve_text(start_color, inherited_colors)
+                                            .apply(&mut quad);
                                         quad.set_texture(sprite.texture_coords());
                                         quad.set_hsv(None);
                                         pos_x += width as f32;
@@ -1925,12 +1957,12 @@ impl super::TermWindow {
                                             {
                                                 break;
                                             }
-                                            let glyph_x =
-                                                pos_x + (glyph.x_offset + glyph.bearing_x).get() as f32;
-                                            let width =
-                                                texture.coords.size.width as f32 * glyph.scale as f32;
-                                            let height =
-                                                texture.coords.size.height as f32 * glyph.scale as f32;
+                                            let glyph_x = pos_x
+                                                + (glyph.x_offset + glyph.bearing_x).get() as f32;
+                                            let width = texture.coords.size.width as f32
+                                                * glyph.scale as f32;
+                                            let height = texture.coords.size.height as f32
+                                                * glyph.scale as f32;
 
                                             let mut quad = layers.allocate(1)?;
                                             quad.set_position(
@@ -1939,7 +1971,8 @@ impl super::TermWindow {
                                                 glyph_x + left + width,
                                                 pos_y + height,
                                             );
-                                            self.resolve_text(start_color, inherited_colors).apply(&mut quad);
+                                            self.resolve_text(start_color, inherited_colors)
+                                                .apply(&mut quad);
                                             quad.set_texture(texture.texture_coords());
                                             quad.set_has_color(glyph.has_color);
                                             quad.set_hsv(None);
@@ -1948,7 +1981,7 @@ impl super::TermWindow {
                                     }
                                 }
                             }
-                            
+
                             segment_start = segment_end;
                         }
                     }
@@ -1962,61 +1995,62 @@ impl super::TermWindow {
                             if pos_x >= element.content_rect.max_x() {
                                 break;
                             }
-                            
+
                             match cell {
-                            ElementCell::Sprite(sprite) => {
-                                let width = sprite.coords.width();
-                                let height = sprite.coords.height();
-                                let pos_y = top + y;
+                                ElementCell::Sprite(sprite) => {
+                                    let width = sprite.coords.width();
+                                    let height = sprite.coords.height();
+                                    let pos_y = top + y;
 
-                                if pos_x + width as f32 > element.content_rect.max_x() {
-                                    break;
-                                }
-
-                                let mut quad = layers.allocate(2)?;
-                                quad.set_position(
-                                    pos_x + left,
-                                    pos_y,
-                                    pos_x + left + width as f32,
-                                    pos_y + height as f32,
-                                );
-                                self.resolve_text(colors, inherited_colors).apply(&mut quad);
-                                quad.set_texture(sprite.texture_coords());
-                                quad.set_hsv(None);
-                                pos_x += width as f32;
-                            }
-                            ElementCell::Glyph(glyph) => {
-                                if let Some(texture) = glyph.texture.as_ref() {
-                                    let pos_y = y as f32 + top
-                                        - (glyph.y_offset + glyph.bearing_y).get() as f32
-                                        + element.baseline;
-
-                                    if pos_x + glyph.x_advance.get() as f32
-                                        > element.content_rect.max_x()
-                                    {
+                                    if pos_x + width as f32 > element.content_rect.max_x() {
                                         break;
                                     }
-                                    let pos_x =
-                                        pos_x + (glyph.x_offset + glyph.bearing_x).get() as f32;
-                                    let width =
-                                        texture.coords.size.width as f32 * glyph.scale as f32;
-                                    let height =
-                                        texture.coords.size.height as f32 * glyph.scale as f32;
 
-                                    let mut quad = layers.allocate(1)?;
+                                    let mut quad = layers.allocate(2)?;
                                     quad.set_position(
                                         pos_x + left,
                                         pos_y,
-                                        pos_x + left + width,
-                                        pos_y + height,
+                                        pos_x + left + width as f32,
+                                        pos_y + height as f32,
                                     );
                                     self.resolve_text(colors, inherited_colors).apply(&mut quad);
-                                    quad.set_texture(texture.texture_coords());
-                                    quad.set_has_color(glyph.has_color);
+                                    quad.set_texture(sprite.texture_coords());
                                     quad.set_hsv(None);
+                                    pos_x += width as f32;
                                 }
-                                pos_x += glyph.x_advance.get() as f32;
-                            }
+                                ElementCell::Glyph(glyph) => {
+                                    if let Some(texture) = glyph.texture.as_ref() {
+                                        let pos_y = y as f32 + top
+                                            - (glyph.y_offset + glyph.bearing_y).get() as f32
+                                            + element.baseline;
+
+                                        if pos_x + glyph.x_advance.get() as f32
+                                            > element.content_rect.max_x()
+                                        {
+                                            break;
+                                        }
+                                        let pos_x =
+                                            pos_x + (glyph.x_offset + glyph.bearing_x).get() as f32;
+                                        let width =
+                                            texture.coords.size.width as f32 * glyph.scale as f32;
+                                        let height =
+                                            texture.coords.size.height as f32 * glyph.scale as f32;
+
+                                        let mut quad = layers.allocate(1)?;
+                                        quad.set_position(
+                                            pos_x + left,
+                                            pos_y,
+                                            pos_x + left + width,
+                                            pos_y + height,
+                                        );
+                                        self.resolve_text(colors, inherited_colors)
+                                            .apply(&mut quad);
+                                        quad.set_texture(texture.texture_coords());
+                                        quad.set_has_color(glyph.has_color);
+                                        quad.set_hsv(None);
+                                    }
+                                    pos_x += glyph.x_advance.get() as f32;
+                                }
                             }
                         }
                     }

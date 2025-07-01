@@ -2,6 +2,7 @@
 //! Converts markdown text to Elements with proper styling
 
 use crate::color::LinearRgba;
+use crate::sidebar::SidebarFonts;
 use crate::termwindow::box_model::{
     BorderColor, BoxDimension, DisplayType, Element, ElementCell, ElementColors, ElementContent,
     Float, StyleSpan,
@@ -13,11 +14,10 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use syntect::easy::HighlightLines;
-use syntect::highlighting::{Style, ThemeSet, ScopeSelectors};
+use syntect::highlighting::{ScopeSelectors, Style, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 use wezterm_font::LoadedFont;
-use crate::sidebar::SidebarFonts;
 use wezterm_term::color::{ColorPalette, SrgbaTuple};
 
 /// Total chrome size for code blocks (padding + border on both sides)
@@ -112,14 +112,19 @@ impl MarkdownRenderer {
     }
 
     /// Render markdown text with SidebarFonts (includes bold heading font)
-    pub fn render_with_fonts(
-        text: &str,
-        fonts: &SidebarFonts,
-        max_width: Option<f32>,
-    ) -> Element {
+    pub fn render_with_fonts(text: &str, fonts: &SidebarFonts, max_width: Option<f32>) -> Element {
         let mut renderer = Self::new();
-        
-        renderer.render_markdown(text, &fonts.body, Some(&fonts.code), fonts.code_line_height, fonts.code_line_margin, max_width, Some(&fonts.heading), None)
+
+        renderer.render_markdown(
+            text,
+            &fonts.body,
+            Some(&fonts.code),
+            fonts.code_line_height,
+            fonts.code_line_margin,
+            max_width,
+            Some(&fonts.heading),
+            None,
+        )
     }
 
     /// Render markdown text with SidebarFonts and registry
@@ -133,7 +138,16 @@ impl MarkdownRenderer {
         let mut renderer = Self::new();
         renderer.code_block_registry = Some(registry);
         renderer.context_prefix = context.to_string();
-        renderer.render_markdown(text, &fonts.body, Some(&fonts.code), fonts.code_line_height, fonts.code_line_margin, max_width, Some(&fonts.heading), None)
+        renderer.render_markdown(
+            text,
+            &fonts.body,
+            Some(&fonts.code),
+            fonts.code_line_height,
+            fonts.code_line_margin,
+            max_width,
+            Some(&fonts.heading),
+            None,
+        )
     }
 
     /// Render markdown text with SidebarFonts, registry, and color palette
@@ -148,7 +162,16 @@ impl MarkdownRenderer {
         let mut renderer = Self::new();
         renderer.code_block_registry = Some(registry);
         renderer.context_prefix = context.to_string();
-        renderer.render_markdown(text, &fonts.body, Some(&fonts.code), fonts.code_line_height, fonts.code_line_margin, max_width, Some(&fonts.heading), Some(palette))
+        renderer.render_markdown(
+            text,
+            &fonts.body,
+            Some(&fonts.code),
+            fonts.code_line_height,
+            fonts.code_line_margin,
+            max_width,
+            Some(&fonts.heading),
+            Some(palette),
+        )
     }
 
     /// Internal render method
@@ -250,17 +273,20 @@ impl MarkdownRenderer {
                             // Use heading font if available, otherwise use regular font
                             let heading_element_font = heading_font.unwrap_or(font);
                             elements.push(
-                                Element::new(heading_element_font, ElementContent::WrappedText(text))
-                                    .colors(ElementColors {
-                                        text: color.into(),
-                                        ..Default::default()
-                                    })
-                                    .padding(BoxDimension {
-                                        top: Dimension::Pixels(padding),
-                                        bottom: Dimension::Pixels(padding / 2.0),
-                                        ..Default::default()
-                                    })
-                                    .display(DisplayType::Block),
+                                Element::new(
+                                    heading_element_font,
+                                    ElementContent::WrappedText(text),
+                                )
+                                .colors(ElementColors {
+                                    text: color.into(),
+                                    ..Default::default()
+                                })
+                                .padding(BoxDimension {
+                                    top: Dimension::Pixels(padding),
+                                    bottom: Dimension::Pixels(padding / 2.0),
+                                    ..Default::default()
+                                })
+                                .display(DisplayType::Block),
                             );
                             current_paragraph.clear();
                         }
@@ -390,26 +416,26 @@ fn measure_code_block_width(lines: &[&str], font: &Rc<LoadedFont>) -> f32 {
 impl MarkdownRenderer {
     /// Create a syntect theme from WezTerm palette
     fn create_syntect_theme_from_palette(palette: &ColorPalette) -> syntect::highlighting::Theme {
-        use syntect::highlighting::{Theme, ThemeSettings, Color as SyntectColor, StyleModifier};
         use std::str::FromStr;
-        
+        use syntect::highlighting::{Color as SyntectColor, StyleModifier, Theme, ThemeSettings};
+
         let to_syntect_color = |color: SrgbaTuple| -> SyntectColor {
             let (r, g, b, _) = color.to_srgb_u8();
             SyntectColor { r, g, b, a: 255 }
         };
-        
+
         // Apply 0.85 dimming to a color
         // TODO: Make dimming factor configurable via clibuddy.right_sidebar config
         let dim_color = |color: SrgbaTuple| -> SyntectColor {
             let (r, g, b, _) = color.to_srgb_u8();
-            SyntectColor { 
+            SyntectColor {
                 r: (r as f32 * 0.85) as u8,
                 g: (g as f32 * 0.85) as u8,
                 b: (b as f32 * 0.85) as u8,
-                a: 255
+                a: 255,
             }
         };
-        
+
         let mut theme = Theme {
             name: Some("WezTerm Dynamic".to_string()),
             author: None,
@@ -447,25 +473,114 @@ impl MarkdownRenderer {
             },
             scopes: Vec::new(),
         };
-        
-        // Add scope rules mapping to ANSI colors with dimming
+
+        // Helper to dim a color by a custom factor
+        let dim_custom = |color: SrgbaTuple, factor: f32| -> SyntectColor {
+            let (r, g, b, _) = color.to_srgb_u8();
+            SyntectColor {
+                r: (r as f32 * factor) as u8,
+                g: (g as f32 * factor) as u8,
+                b: (b as f32 * factor) as u8,
+                a: 255,
+            }
+        };
+
+        // Add scope rules mapping to theme colors with dimming
         let scope_rules = vec![
-            // Keywords (blue)
-            (vec!["keyword", "storage"], dim_color(palette.colors.0[4])),
-            // Strings (red)
-            (vec!["string", "string.quoted"], dim_color(palette.colors.0[1])),
-            // Comments (green)
-            (vec!["comment"], dim_color(palette.colors.0[2])),
-            // Functions (yellow)
-            (vec!["entity.name.function", "support.function"], dim_color(palette.colors.0[3])),
-            // Numbers (magenta)
-            (vec!["constant.numeric", "constant.language"], dim_color(palette.colors.0[5])),
-            // Types (cyan - optional, not in original mapping)
-            (vec!["entity.name.type", "storage.type"], dim_color(palette.colors.0[6])),
+            // Comments (gray - dimmed foreground for less distraction)
+            (
+                vec!["comment", "comment.line", "comment.block"],
+                dim_custom(palette.foreground, 0.6),
+            ),
+            // Documentation comments (slightly brighter than regular comments)
+            (
+                vec!["comment.block.documentation"],
+                dim_custom(palette.foreground, 0.7),
+            ),
+            // Keywords and control flow (blue)
+            (
+                vec!["keyword", "keyword.control", "storage"],
+                dim_color(palette.colors.0[4]),
+            ),
+            // Strings and characters (green)
+            (
+                vec!["string", "string.quoted", "string.regexp"],
+                dim_color(palette.colors.0[2]),
+            ),
+            // String escapes (brighter green to stand out)
+            (
+                vec!["string.escape", "constant.character.escape"],
+                to_syntect_color(palette.colors.0[2]),
+            ),
+            // Functions and methods (yellow)
+            (
+                vec![
+                    "entity.name.function",
+                    "support.function",
+                    "variable.function",
+                ],
+                dim_color(palette.colors.0[3]),
+            ),
+            // Bash commands (also yellow for consistency)
+            (
+                vec!["variable.function.shell"],
+                dim_color(palette.colors.0[3]),
+            ),
+            // Classes and types (cyan)
+            (
+                vec![
+                    "entity.name.class",
+                    "entity.name.type",
+                    "storage.type",
+                    "support.class",
+                    "support.type",
+                ],
+                dim_color(palette.colors.0[6]),
+            ),
+            // Bash built-ins (cyan to show they're "built-in" like types)
+            (
+                vec!["support.function.shell"],
+                dim_color(palette.colors.0[6]),
+            ),
+            // Constants, numbers, booleans (magenta)
+            (
+                vec![
+                    "constant.numeric",
+                    "constant.language",
+                    "constant.boolean",
+                    "constant.character",
+                    "support.constant",
+                ],
+                dim_color(palette.colors.0[5]),
+            ),
+            // Variables and parameters (subtle red)
+            (
+                vec!["variable", "variable.parameter", "variable.other"],
+                dim_custom(palette.colors.0[1], 0.7),
+            ),
+            // Special variables like 'self', 'this' (normal dimmed red)
+            (vec!["variable.language"], dim_color(palette.colors.0[1])),
+            // Operators (slightly dimmed foreground)
+            (
+                vec!["keyword.operator"],
+                dim_custom(palette.foreground, 0.8),
+            ),
+            // Tags and attributes (for HTML/XML)
+            (vec!["entity.name.tag"], dim_color(palette.colors.0[4])), // Blue like keywords
+            (
+                vec!["entity.other.attribute-name"],
+                dim_color(palette.colors.0[6]),
+            ), // Cyan like types
+            // Punctuation (very subtle foreground)
+            (vec!["punctuation"], dim_custom(palette.foreground, 0.65)),
+            // Invalid/illegal code (bright red to draw attention)
+            (vec!["invalid"], to_syntect_color(palette.colors.0[1])),
+            // Meta scopes (slightly dimmed foreground)
+            (vec!["meta"], dim_custom(palette.foreground, 0.9)),
             // Default foreground
             (vec!["source"], dim_color(palette.foreground)),
         ];
-        
+
         for (scopes, color) in scope_rules {
             for scope in scopes {
                 theme.scopes.push(syntect::highlighting::ThemeItem {
@@ -478,7 +593,7 @@ impl MarkdownRenderer {
                 });
             }
         }
-        
+
         theme
     }
 
@@ -509,11 +624,13 @@ impl MarkdownRenderer {
             default_theme
         };
         let mut highlighter = HighlightLines::new(syntax, theme);
-        
+
         // Debug logging for language detection
-        log::debug!("Code block language: {:?}, using syntax: {}", 
-            language, 
-            syntax.name);
+        log::debug!(
+            "Code block language: {:?}, using syntax: {}",
+            language,
+            syntax.name
+        );
 
         let mut line_elements = Vec::new();
         let mut lines_for_measurement = Vec::new();
@@ -522,17 +639,19 @@ impl MarkdownRenderer {
         for line in LinesWithEndings::from(code) {
             lines_for_measurement.push(line);
             let ranges = highlighter.highlight_line(line, &self.syntax_set).unwrap();
-            
+
             // Debug logging to understand syntax highlighting
-            log::debug!("Syntax highlighting for line '{}': {:?}", 
-                line.trim_end(), 
-                ranges.iter().map(|(style, text)| {
-                    (text, style.foreground, style.font_style)
-                }).collect::<Vec<_>>()
+            log::debug!(
+                "Syntax highlighting for line '{}': {:?}",
+                line.trim_end(),
+                ranges
+                    .iter()
+                    .map(|(style, text)| { (text, style.foreground, style.font_style) })
+                    .collect::<Vec<_>>()
             );
-            
+
             let mut line_parts = Vec::new();
-            
+
             for (style, text) in &ranges {
                 let color = LinearRgba::with_components(
                     style.foreground.r as f32 / 255.0,
@@ -556,18 +675,18 @@ impl MarkdownRenderer {
                 let mut style_spans = Vec::new();
                 let mut combined_text = String::new();
                 let mut byte_offset = 0;
-                
+
                 for (idx, (style, text)) in ranges.iter().enumerate() {
                     let start = byte_offset;
                     let end = byte_offset + text.len();
-                    
+
                     let color = LinearRgba::with_components(
                         style.foreground.r as f32 / 255.0,
                         style.foreground.g as f32 / 255.0,
                         style.foreground.b as f32 / 255.0,
                         style.foreground.a as f32 / 255.0,
                     );
-                    
+
                     style_spans.push(StyleSpan {
                         start,
                         end,
@@ -577,18 +696,18 @@ impl MarkdownRenderer {
                         },
                         font: None, // TODO: Add bold/italic support based on style.bold/style.italic
                     });
-                    
+
                     combined_text.push_str(text);
                     byte_offset = end;
                 }
-                
+
                 // Use StyledWrappedText for syntax highlighting with wrapping
                 let wrapped_line = Element::new(
-                    font, 
-                    ElementContent::StyledWrappedText { 
+                    font,
+                    ElementContent::StyledWrappedText {
                         text: combined_text,
                         style_spans,
-                    }
+                    },
                 )
                 .display(DisplayType::Block)
                 .line_height(Some(code_line_height))
@@ -600,7 +719,7 @@ impl MarkdownRenderer {
                     text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
                     ..Default::default()
                 });
-                
+
                 line_elements.push(wrapped_line);
             }
         }
@@ -668,7 +787,7 @@ impl MarkdownRenderer {
                 let mut container = CodeBlockContainer::new(block_id.clone());
                 container.raw_code = code.to_string();
                 container.language = language.map(|s| s.to_string());
-                
+
                 // Preserve copy success time if it exists
                 if let Some(existing) = reg.get(&block_id) {
                     container.copy_success_time = existing.copy_success_time;
