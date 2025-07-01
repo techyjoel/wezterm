@@ -559,6 +559,10 @@ pub enum ElementContent {
     WrappedText(String), // Automatically wraps at word boundaries, falling back to character boundaries
     Children(Vec<Element>),
     Poly { line_width: isize, poly: SizedPoly },
+    StyledWrappedText {
+        text: String,
+        style_spans: Vec<crate::sidebar::components::markdown::StyleSpan>,
+    },
 }
 
 pub struct LayoutContext<'a> {
@@ -653,6 +657,8 @@ pub enum ComputedElementContent {
     MultilineText {
         lines: Vec<Vec<ElementCell>>,
         line_height: f32,
+        /// Optional per-cell colors for syntax highlighting
+        line_styles: Option<Vec<Vec<ElementColors>>>,
     },
     Children(Vec<ComputedElement>),
     Poly {
@@ -970,6 +976,46 @@ impl super::TermWindow {
         Ok(all_lines)
     }
 
+    /// Wraps styled text with per-span colors and optional fonts
+    pub fn wrap_styled_text(
+        &self,
+        text: &str,
+        default_font: &Rc<LoadedFont>,
+        style_spans: &[crate::sidebar::components::markdown::StyleSpan],
+        max_width: f32,
+        context: &LayoutContext,
+        default_style: &config::TextStyle,
+    ) -> anyhow::Result<(Vec<Vec<ElementCell>>, Option<Vec<Vec<ElementColors>>>)> {
+        // First, wrap the text normally using the default font
+        let wrapped_lines = self.wrap_text(text, default_font, max_width, context, default_style)?;
+        
+        // Create the style mapper
+        let mut mapper = crate::sidebar::components::markdown::AsciiStyleMapper::new(text);
+        mapper.track_wrapping(&wrapped_lines);
+        
+        // Build per-cell styles
+        let mut line_styles = Vec::new();
+        let default_colors = ElementColors::default();
+        
+        for (line_idx, line) in wrapped_lines.iter().enumerate() {
+            let mut line_colors = Vec::new();
+            
+            for (cell_idx, _cell) in line.iter().enumerate() {
+                let colors = mapper.get_style_for_cell(
+                    line_idx,
+                    cell_idx,
+                    style_spans,
+                    &default_colors
+                );
+                line_colors.push(colors);
+            }
+            
+            line_styles.push(line_colors);
+        }
+        
+        Ok((wrapped_lines, Some(line_styles)))
+    }
+
     /// Helper to calculate text width from shaped glyphs
     fn calculate_text_width(
         &self,
@@ -1253,7 +1299,11 @@ impl super::TermWindow {
                     padding: rects.padding,
                     content_rect: rects.content_rect,
                     clip_bounds,
-                    content: ComputedElementContent::MultilineText { lines, line_height },
+                    content: ComputedElementContent::MultilineText { 
+                        lines, 
+                        line_height,
+                        line_styles: None,
+                    },
                 })
             }
             ElementContent::Children(kids) => {
@@ -1394,6 +1444,45 @@ impl super::TermWindow {
                     content: ComputedElementContent::Poly {
                         poly,
                         line_width: *line_width,
+                    },
+                })
+            }
+            ElementContent::StyledWrappedText { text, style_spans } => {
+                // Use wrap_styled_text to get wrapped lines with style information
+                let (lines, line_styles) = self.wrap_styled_text(
+                    text,
+                    &element.font,
+                    style_spans,
+                    max_width,
+                    context,
+                    &style
+                )?;
+                
+                let line_height = context.height.pixel_cell;
+                let num_lines = lines.len() as f32;
+                
+                let pixel_height = num_lines * line_height;
+                let content_rect = euclid::rect(0., 0., max_width, pixel_height);
+                let rects = element.compute_rects(context, content_rect);
+                let clip_bounds = element.compute_clip_bounds(context, &rects);
+
+                Ok(ComputedElement {
+                    item_type: element.item_type.clone(),
+                    zindex: element.zindex + context.zindex,
+                    baseline,
+                    border,
+                    border_corners,
+                    colors: element.colors.clone(),
+                    hover_colors: element.hover_colors.clone(),
+                    bounds: rects.bounds,
+                    border_rect: rects.border_rect,
+                    padding: rects.padding,
+                    content_rect: rects.content_rect,
+                    clip_bounds,
+                    content: ComputedElementContent::MultilineText { 
+                        lines, 
+                        line_height,
+                        line_styles,
                     },
                 })
             }
@@ -1648,17 +1737,23 @@ impl super::TermWindow {
                     }
                 }
             }
-            ComputedElementContent::MultilineText { lines, line_height } => {
+            ComputedElementContent::MultilineText { lines, line_height, line_styles } => {
                 let mut y_offset = 0.0;
 
                 for (line_idx, line_cells) in lines.iter().enumerate() {
                     let mut pos_x = element.content_rect.min_x();
                     let y = element.content_rect.min_y() + (line_idx as f32 * line_height);
 
-                    for cell in line_cells {
+                    for (cell_idx, cell) in line_cells.iter().enumerate() {
                         if pos_x >= element.content_rect.max_x() {
                             break;
                         }
+                        
+                        // Get cell-specific colors if available
+                        let cell_colors = line_styles.as_ref()
+                            .and_then(|styles| styles.get(line_idx))
+                            .and_then(|line| line.get(cell_idx));
+                            
                         match cell {
                             ElementCell::Sprite(sprite) => {
                                 let width = sprite.coords.width();
@@ -1676,7 +1771,12 @@ impl super::TermWindow {
                                     pos_x + left + width as f32,
                                     pos_y + height as f32,
                                 );
-                                self.resolve_text(colors, inherited_colors).apply(&mut quad);
+                                // Use cell-specific colors if available, otherwise use element colors
+                                if let Some(cell_color) = cell_colors {
+                                    self.resolve_text(cell_color, inherited_colors).apply(&mut quad);
+                                } else {
+                                    self.resolve_text(colors, inherited_colors).apply(&mut quad);
+                                }
                                 quad.set_texture(sprite.texture_coords());
                                 quad.set_hsv(None);
                                 pos_x += width as f32;
@@ -1706,7 +1806,12 @@ impl super::TermWindow {
                                         pos_x + left + width,
                                         pos_y + height,
                                     );
-                                    self.resolve_text(colors, inherited_colors).apply(&mut quad);
+                                    // Use cell-specific colors if available, otherwise use element colors
+                                    if let Some(cell_color) = cell_colors {
+                                        self.resolve_text(cell_color, inherited_colors).apply(&mut quad);
+                                    } else {
+                                        self.resolve_text(colors, inherited_colors).apply(&mut quad);
+                                    }
                                     quad.set_texture(texture.texture_coords());
                                     quad.set_has_color(glyph.has_color);
                                     quad.set_hsv(None);

@@ -3,7 +3,7 @@
 
 use crate::color::LinearRgba;
 use crate::termwindow::box_model::{
-    BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent,
+    BorderColor, BoxDimension, DisplayType, Element, ElementCell, ElementColors, ElementContent,
     Float,
 };
 use config::Dimension;
@@ -18,6 +18,106 @@ use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 use wezterm_font::LoadedFont;
 use crate::sidebar::SidebarFonts;
+use unicode_segmentation::UnicodeSegmentation;
+
+/// Style span for tracking syntax highlighting through text wrapping
+#[derive(Debug, Clone)]
+pub struct StyleSpan {
+    pub start: usize,
+    pub end: usize,
+    pub colors: ElementColors,
+    /// Optional font override for bold/italic
+    pub font: Option<Rc<LoadedFont>>,
+}
+
+/// ASCII-only style mapper for syntax highlighting
+pub struct AsciiStyleMapper {
+    text: String,
+    byte_to_grapheme: Vec<usize>,
+    grapheme_to_byte_range: Vec<(usize, usize)>,
+    grapheme_to_cell: Vec<Option<(usize, usize)>>,
+}
+
+impl AsciiStyleMapper {
+    pub fn new(text: &str) -> Self {
+        let mut mapper = Self {
+            text: text.to_string(),
+            byte_to_grapheme: vec![0; text.len()],
+            grapheme_to_byte_range: Vec::new(),
+            grapheme_to_cell: Vec::new(),
+        };
+        
+        // Build byte-grapheme mapping (still needed for wrapping)
+        let mut byte_idx = 0;
+        for (g_idx, grapheme) in text.graphemes(true).enumerate() {
+            let grapheme_bytes = grapheme.len();
+            mapper.grapheme_to_byte_range.push((byte_idx, byte_idx + grapheme_bytes));
+            
+            for b in byte_idx..byte_idx + grapheme_bytes {
+                mapper.byte_to_grapheme[b] = g_idx;
+            }
+            byte_idx += grapheme_bytes;
+        }
+        
+        mapper
+    }
+    
+    pub fn track_wrapping(&mut self, wrapped_lines: &[Vec<ElementCell>]) {
+        self.grapheme_to_cell.clear();
+        self.grapheme_to_cell.resize(self.grapheme_to_byte_range.len(), None);
+        
+        let mut grapheme_idx = 0;
+        
+        for (line_idx, line) in wrapped_lines.iter().enumerate() {
+            for (cell_idx, _cell) in line.iter().enumerate() {
+                if grapheme_idx < self.grapheme_to_cell.len() {
+                    self.grapheme_to_cell[grapheme_idx] = Some((line_idx, cell_idx));
+                    grapheme_idx += 1;
+                }
+            }
+        }
+    }
+    
+    pub fn get_style_for_cell(
+        &self, 
+        line: usize, 
+        cell: usize,
+        style_spans: &[StyleSpan],
+        default_colors: &ElementColors
+    ) -> ElementColors {
+        // Find grapheme for this cell
+        let grapheme_idx = match self.grapheme_to_cell.iter()
+            .position(|&pos| pos == Some((line, cell))) {
+            Some(idx) => idx,
+            None => return default_colors.clone()
+        };
+        
+        // Get byte range for this grapheme
+        let (byte_start, byte_end) = match self.grapheme_to_byte_range.get(grapheme_idx) {
+            Some(range) => range,
+            None => return default_colors.clone()
+        };
+        
+        // ASCII-ONLY CHECK: Skip coloring for non-ASCII
+        let text_slice = &self.text[*byte_start..*byte_end];
+        
+        // Ligatures (multi-char glyphs) get default color
+        if text_slice.len() > 1 {
+            return default_colors.clone();
+        }
+        
+        // Non-ASCII gets default color
+        if !text_slice.chars().all(|c| c.is_ascii_graphic() || c.is_ascii_whitespace()) {
+            return default_colors.clone();
+        }
+        
+        // Find style span for single ASCII characters
+        style_spans.iter()
+            .find(|span| *byte_start >= span.start && *byte_start < span.end)
+            .map(|span| span.colors.clone())
+            .unwrap_or_else(|| default_colors.clone())
+    }
+}
 
 /// Total chrome size for code blocks (padding + border on both sides)
 /// 12px padding + 1px border on each side = 26px total
@@ -399,7 +499,7 @@ impl MarkdownRenderer {
             let ranges = highlighter.highlight_line(line, &self.syntax_set).unwrap();
             let mut line_parts = Vec::new();
 
-            for (style, text) in ranges {
+            for (style, text) in &ranges {
                 let color = LinearRgba::with_components(
                     style.foreground.r as f32 / 255.0,
                     style.foreground.g as f32 / 255.0,
@@ -418,38 +518,54 @@ impl MarkdownRenderer {
             }
 
             if !line_parts.is_empty() {
-                // Combine all segments into a single string for proper wrapping
-                // We'll temporarily lose syntax highlighting but gain proper wrapping
+                // Build style spans from syntax highlighting
+                let mut style_spans = Vec::new();
                 let mut combined_text = String::new();
-                let mut first_color = None;
+                let mut byte_offset = 0;
                 
-                for part in &line_parts {
-                    if let ElementContent::Text(text) = &part.content {
-                        combined_text.push_str(text);
-                        if first_color.is_none() {
-                            first_color = Some(part.colors.clone());
-                        }
+                for (idx, (style, text)) in ranges.iter().enumerate() {
+                    let start = byte_offset;
+                    let end = byte_offset + text.len();
+                    
+                    let color = LinearRgba::with_components(
+                        style.foreground.r as f32 / 255.0,
+                        style.foreground.g as f32 / 255.0,
+                        style.foreground.b as f32 / 255.0,
+                        style.foreground.a as f32 / 255.0,
+                    );
+                    
+                    style_spans.push(StyleSpan {
+                        start,
+                        end,
+                        colors: ElementColors {
+                            text: color.into(),
+                            ..Default::default()
+                        },
+                        font: None, // TODO: Add bold/italic support based on style
+                    });
+                    
+                    combined_text.push_str(text);
+                    byte_offset = end;
+                }
+                
+                // Use StyledWrappedText for syntax highlighting with wrapping
+                let wrapped_line = Element::new(
+                    font, 
+                    ElementContent::StyledWrappedText { 
+                        text: combined_text,
+                        style_spans,
                     }
-                }
-                
-                // Use WrappedText for proper line wrapping
-                let mut wrapped_line = Element::new(font, ElementContent::WrappedText(combined_text))
-                    .display(DisplayType::Block)
-                    .line_height(Some(code_line_height))
-                    .margin(BoxDimension {
-                        bottom: Dimension::Pixels(code_line_margin as f32), // Visual separation between logical lines
-                        ..Default::default()
-                    });
-                
-                // Apply the first segment's color or default
-                if let Some(colors) = first_color {
-                    wrapped_line = wrapped_line.colors(colors);
-                } else {
-                    wrapped_line = wrapped_line.colors(ElementColors {
-                        text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
-                        ..Default::default()
-                    });
-                }
+                )
+                .display(DisplayType::Block)
+                .line_height(Some(code_line_height))
+                .margin(BoxDimension {
+                    bottom: Dimension::Pixels(code_line_margin as f32),
+                    ..Default::default()
+                })
+                .colors(ElementColors {
+                    text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
+                    ..Default::default()
+                });
                 
                 line_elements.push(wrapped_line);
             }
