@@ -14,42 +14,44 @@ This document outlines approaches to achieve syntax highlighting with proper lin
 - ✅ Segment batching for acceptable performance
 - ✅ Clean architecture with StyledWrappedText → MultilineText conversion
 
-### Known Issues (Jul 1, 2025, 10:47AM pacific time)
-1. **Theme Issue**: Using hardcoded syntect theme instead of WezTerm's configured theme
-2. **Wrapping Issue**: Code wraps at word boundaries only, causing poor layout in narrow spaces
-3. **Color Recognition Issue**: Some syntax elements not getting distinct colors (e.g., Python built-ins)
+### Recently Completed (Jul 1, 2025)
+1. ✅ **Segment Batching Bug**: Fixed color comparison that was preventing proper draw call batching
+2. ✅ **Debug Logging**: Added comprehensive syntax highlighting logs (use `WEZTERM_LOG=debug` and grep for "Code block language:" or "Syntax highlighting for line")
+3. ✅ **WezTerm Theme Integration**: Code blocks now use WezTerm's color palette instead of hardcoded theme
+
+### Current Status
+- Syntax highlighting works with WezTerm themes (0.85 dimming applied)
+- Debug logging helps diagnose color detection issues
+- Performance should be improved with correct segment batching
+
+### Known Issues
+1. **Wrapping Issue**: Code wraps at word boundaries only, causing poor layout in narrow spaces
+2. **Color Recognition Issue**: Some syntax elements may not get distinct colors depending on syntect's language detection
 
 ### Next Steps - Priority Tasks
 
-#### 1. Add Debug Logging for Syntax Highlighting (HIGH PRIORITY)
-**Purpose**: Understand why some syntax elements aren't getting distinct colors
-**Task**: Add debug logging to `highlight_code_block` in markdown.rs around line 399:
-```rust
-log::debug!("Line '{}' highlighted as: {:?}", line, 
-    ranges.iter().map(|(style, text)| (text, style.foreground)).collect::<Vec<_>>());
-```
-**Expected Output**: Will show if syntect is detecting different elements but theme makes them same color
-
-#### 2. Use WezTerm Theme for Syntax Highlighting (HIGH PRIORITY)
-**Purpose**: Match syntax colors to configured WezTerm theme instead of hardcoded theme
+#### 1. Investigate Color Detection Issues (HIGH PRIORITY)
+**Purpose**: Understand why some syntax elements get the same color
 **Tasks**:
-- [ ] Create theme converter from WezTerm ColorPalette to syntect Theme
-- [ ] Map WezTerm config-selected theme colors to syntax highlighting roles
-- [ ] Pass palette through render chain to markdown renderer
-- [ ] Have user confirm theme colors are rendering properly
+- [ ] Run with debug logging to see what syntect detects
+- [ ] Check if issue is syntect language detection or theme mapping
+- [ ] May need to adjust scope mappings in `create_syntect_theme_from_palette`
+- [ ] Consider adding more specific scope rules for better color distinction
 
-#### 3. Implement Punctuation-Based Wrapping (HIGH PRIORITY)
+#### 2. Implement Punctuation-Based Wrapping (HIGH PRIORITY)
 **Purpose**: Improve code readability in narrow spaces
+**Key Learning**: Current wrap_text only breaks at whitespace, causing `open(filename,` to stay together
 **Tasks**:
-- [ ] Investigate wrap_text current implementation
-- [ ] Modify wrap_text to break at punctuation boundaries in code blocks
+- [ ] Study wrap_text implementation in wezterm-font/src/shaper/mod.rs
+- [ ] Create wrapper that pre-processes text to insert zero-width spaces at wrap points
 - [ ] Implement wrapping rules:
-  - Break after: `,` `(` `{` `[` operators (`=`, `+`, `-`, etc.)
+  - Break after: `,` `(` `{` `[` and single-char operators (`=`, `+`, `-`)
   - Break before: `.` in method chains
+  - DO NOT break multi-char operators: `->`, `::`, `=>`, `..`, `==`, `!=`, etc.
   - Never break inside string literals or comments
-- [ ] Have user confirm good results
+- [ ] Test with narrow sidebar widths to ensure improved readability
 
-#### 4. Font Variant Support (MEDIUM PRIORITY)
+#### 3. Font Variant Support (MEDIUM PRIORITY)
 **Purpose**: Support bold/italic in syntax highlighting
 **Tasks**:
 - [ ] Detect bold/italic from syntect Style attributes
@@ -57,7 +59,7 @@ log::debug!("Line '{}' highlighted as: {:?}", line,
 - [ ] Implement text shaping with font variants
 - [ ] Have user test with markdown content that uses bold and italic keywords
 
-#### 5. Style Span Validation & Error Handling (MEDIUM PRIORITY)
+#### 4. Style Span Validation & Error Handling (MEDIUM PRIORITY)
 **Purpose**: Ensure robustness and prevent crashes from invalid style spans
 **Tasks**:
 - [ ] Add bounds checking for style span start/end positions
@@ -66,21 +68,29 @@ log::debug!("Line '{}' highlighted as: {:?}", line,
 - [ ] Add error logging for invalid spans
 - [ ] Test with malformed syntax highlighting data
 
-#### 6. Multi-Cell Character Handling (MEDIUM PRIORITY)
-**Purpose**: Fix assumptions about 1 glyph = 1 grapheme
+#### 5. Configure Dimming Factor (LOW PRIORITY)
+**Purpose**: Make the 0.85 dimming factor configurable
 **Tasks**:
-- [ ] Track actual cell width during glyph shaping
-- [ ] Handle tabs properly (expand to N cells)
-- [ ] Handle emoji/wide chars (may span 2+ cells)
-- [ ] Add tests for mixed ASCII/Unicode text
+- [ ] Add config option to clibuddy.right_sidebar for syntax_dimming_factor
+- [ ] Pass config value through to create_syntect_theme_from_palette
+- [ ] Default to 0.85 if not specified
+- [ ] Test with different dimming values (0.7-1.0)
 
-#### 7. Performance Optimization (MEDIUM-LOW PRIORITY)
+#### 6. Document Multi-Cell Character Limitations (LOW PRIORITY)
+**Purpose**: Document that multi-cell characters intentionally get default color
+**Tasks**:
+- [ ] Add documentation explaining ASCII-only design choice
+- [ ] Document that tabs, emoji, and non-ASCII get default color by design
+- [ ] Note that these characters still render and wrap correctly
+- [ ] Add examples showing expected behavior with mixed ASCII/Unicode
+
+#### 7. Performance Optimization (LOW PRIORITY)
 **Purpose**: Optimize O(n) lookup in get_style_for_cell
 **Tasks**:
-- [ ] Profile current performance with large code blocks
-- [ ] Consider interval tree or segment tree for style lookups
-- [ ] Implement caching for repeated lookups
-- [ ] Measure improvement with benchmarks
+- [ ] Profile current performance with typical code blocks (< 1000 lines)
+- [ ] Only optimize if performance is actually a problem
+- [ ] Consider simple optimizations like binary search for sorted spans
+- [ ] Avoid over-engineering for small code blocks in sidebar
 
 #### 8. Background Color Support (LOW PRIORITY)
 **Purpose**: Support selection highlighting and background colors in code
@@ -90,29 +100,33 @@ log::debug!("Line '{}' highlighted as: {:?}", line,
 - [ ] Test with themes that use background highlights
 - [ ] Support selection overlay colors
 
-#### 9. Copy/Paste Integration (LOW PRIORITY)
-**Purpose**: Map visual selection back to original text
-**Tasks**:
-- [ ] Track mapping from rendered cells to original text positions
-- [ ] Handle selection across wrapped lines
-- [ ] Preserve original text including whitespace
-- [ ] Test copy/paste with various code examples
+
+### Implementation Notes
+
+#### Theme Creation Performance
+The `create_syntect_theme_from_palette` creates a new theme on each render. While this could be optimized with caching, it should be profiled first to confirm it's actually a bottleneck.
+
+#### API Design Consideration
+The proliferation of render methods (render, render_with_fonts, render_with_fonts_and_registry, etc.) suggests a future refactor to use a builder pattern or options struct would be beneficial.
 
 ### Testing Checklist
 
-#### Immediate Testing (After Debug Logging)
-- [ ] Update mock data to include the below so the user can visually evaluate:
+#### Debug Logging Testing
+```bash
+# View syntax highlighting debug output
+WEZTERM_LOG=debug ./target/release/wezterm 2>&1 | grep -E "(Code block language:|Syntax highlighting for line)"
+```
+
+#### Visual Testing
 - [ ] Test Python code with built-ins: `open()`, `len()`, `print()`
 - [ ] Test Rust code with keywords: `fn`, `let`, `mut`, `impl`
 - [ ] Test JavaScript with various syntax elements
-- [ ] Test with non-ASCII characters
-- [ ] Compare syntect output with expected highlighting
+- [ ] Test with non-ASCII characters to verify they get default color
+- [ ] Switch WezTerm themes and verify syntax colors change accordingly
 
-#### Visual Testing
-- [ ] Verify all syntax tokens get appropriate colors
-- [ ] Check that punctuation wrapping improves readability
-- [ ] Verify non-ASCII characters remain readable
-- [ ] Test with light and dark WezTerm themes
+#### Performance Testing
+- [ ] Profile theme creation overhead if performance issues are observed
+- [ ] Verify segment batching is working (fewer draw calls)
 
 #### Edge Case Testing
 - [ ] Very long identifiers (e.g., Java class names)

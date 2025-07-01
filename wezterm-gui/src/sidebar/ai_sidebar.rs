@@ -869,6 +869,7 @@ This example demonstrates:
         item: &ActivityItem,
         fonts: &SidebarFonts,
         item_index: usize,
+        palette: &wezterm_term::color::ColorPalette,
     ) -> Element {
         match item {
             ActivityItem::Command {
@@ -956,12 +957,13 @@ This example demonstrates:
 
                     // Use registry if available for horizontal scrolling support
                     if let Some(ref registry) = self.code_block_registry {
-                        MarkdownRenderer::render_with_fonts_and_registry(
+                        MarkdownRenderer::render_with_fonts_registry_and_palette(
                             message,
                             fonts,
                             Some(content_width),
                             Arc::clone(registry),
                             &format!("activity_{}", item_index),
+                            palette,
                         )
                     } else {
                         MarkdownRenderer::render_with_fonts(
@@ -1012,12 +1014,13 @@ This example demonstrates:
                 // Total: 16 + 24 + 2 + 12 = 54px
                 let content_width = sidebar_width - 54.0;
                 let markdown_content = if let Some(ref registry) = self.code_block_registry {
-                    MarkdownRenderer::render_with_fonts_and_registry(
+                    MarkdownRenderer::render_with_fonts_registry_and_palette(
                         content,
                         fonts,
                         Some(content_width),
                         Arc::clone(registry),
                         &format!("suggestion_{}", item_index),
+                        palette,
                     )
                 } else {
                     MarkdownRenderer::render_with_fonts(
@@ -1046,7 +1049,7 @@ This example demonstrates:
     }
 
     /// Get filtered activity items based on current filter
-    fn render_activity_log(&mut self, fonts: &SidebarFonts, available_height: f32) -> Element {
+    fn render_activity_log(&mut self, fonts: &SidebarFonts, available_height: f32, palette: &wezterm_term::color::ColorPalette) -> Element {
         let filtered_items: Vec<&ActivityItem> = self
             .activity_log
             .iter()
@@ -1066,7 +1069,7 @@ This example demonstrates:
             filtered_items
                 .into_iter()
                 .enumerate()
-                .map(|(idx, item)| self.render_activity_item(item, fonts, idx)),
+                .map(|(idx, item)| self.render_activity_item(item, fonts, idx, palette)),
         );
 
         let rendered_items_count = rendered_items.len();
@@ -1171,6 +1174,7 @@ This example demonstrates:
         &mut self,
         fonts: &SidebarFonts,
         window_height: f32,
+        palette: &wezterm_term::color::ColorPalette,
     ) -> Element {
         // Get the dynamic bounds for the activity log
         let bounds = self
@@ -1183,7 +1187,7 @@ This example demonstrates:
         let available_for_log = bounds.size.height;
 
         // Render the activity log content
-        let activity_log = self.render_activity_log(fonts, available_for_log);
+        let activity_log = self.render_activity_log(fonts, available_for_log, palette);
 
         // Wrap in a container with background color
         let container = Element::new(&fonts.body, ElementContent::Children(vec![activity_log]))

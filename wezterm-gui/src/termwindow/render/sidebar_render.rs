@@ -501,6 +501,9 @@ impl crate::TermWindow {
                 code_line_height: self.config.clibuddy.right_sidebar.fonts.code_line_height,
                 code_line_margin: self.config.clibuddy.right_sidebar.fonts.code_line_margin,
             };
+            
+            // Get the color palette for syntax highlighting
+            let palette = self.palette().clone();
 
             // First render the activity log content at z-index 10 (lower layer, will show through the hole)
             log::debug!("Rendering activity log at z-index 10");
@@ -513,7 +516,7 @@ impl crate::TermWindow {
 
                 // Get the activity log element
                 let activity_log_element = ai_sidebar
-                    .render_activity_log_content(&fonts, self.dimensions.pixel_height as f32);
+                    .render_activity_log_content(&fonts, self.dimensions.pixel_height as f32, &palette);
 
                 // Get the activity log bounds to position it correctly
                 let activity_bounds = ai_sidebar

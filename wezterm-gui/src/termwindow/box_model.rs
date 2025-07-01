@@ -1872,7 +1872,7 @@ impl super::TermWindow {
                             let mut segment_end = segment_start + 1;
                             
                             // Find end of this color segment
-                            while segment_end < line_cells.len() && &line_colors[segment_end] == start_color {
+                            while segment_end < line_cells.len() && line_colors[segment_end] == *start_color {
                                 segment_end += 1;
                             }
                             
