@@ -4,7 +4,7 @@
 use crate::color::LinearRgba;
 use crate::termwindow::box_model::{
     BorderColor, BoxDimension, DisplayType, Element, ElementCell, ElementColors, ElementContent,
-    Float,
+    Float, StyleSpan,
 };
 use config::Dimension;
 use pulldown_cmark::{Event, HeadingLevel, Parser, Tag};
@@ -18,106 +18,6 @@ use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 use wezterm_font::LoadedFont;
 use crate::sidebar::SidebarFonts;
-use unicode_segmentation::UnicodeSegmentation;
-
-/// Style span for tracking syntax highlighting through text wrapping
-#[derive(Debug, Clone)]
-pub struct StyleSpan {
-    pub start: usize,
-    pub end: usize,
-    pub colors: ElementColors,
-    /// Optional font override for bold/italic
-    pub font: Option<Rc<LoadedFont>>,
-}
-
-/// ASCII-only style mapper for syntax highlighting
-pub struct AsciiStyleMapper {
-    text: String,
-    byte_to_grapheme: Vec<usize>,
-    grapheme_to_byte_range: Vec<(usize, usize)>,
-    grapheme_to_cell: Vec<Option<(usize, usize)>>,
-}
-
-impl AsciiStyleMapper {
-    pub fn new(text: &str) -> Self {
-        let mut mapper = Self {
-            text: text.to_string(),
-            byte_to_grapheme: vec![0; text.len()],
-            grapheme_to_byte_range: Vec::new(),
-            grapheme_to_cell: Vec::new(),
-        };
-        
-        // Build byte-grapheme mapping (still needed for wrapping)
-        let mut byte_idx = 0;
-        for (g_idx, grapheme) in text.graphemes(true).enumerate() {
-            let grapheme_bytes = grapheme.len();
-            mapper.grapheme_to_byte_range.push((byte_idx, byte_idx + grapheme_bytes));
-            
-            for b in byte_idx..byte_idx + grapheme_bytes {
-                mapper.byte_to_grapheme[b] = g_idx;
-            }
-            byte_idx += grapheme_bytes;
-        }
-        
-        mapper
-    }
-    
-    pub fn track_wrapping(&mut self, wrapped_lines: &[Vec<ElementCell>]) {
-        self.grapheme_to_cell.clear();
-        self.grapheme_to_cell.resize(self.grapheme_to_byte_range.len(), None);
-        
-        let mut grapheme_idx = 0;
-        
-        for (line_idx, line) in wrapped_lines.iter().enumerate() {
-            for (cell_idx, _cell) in line.iter().enumerate() {
-                if grapheme_idx < self.grapheme_to_cell.len() {
-                    self.grapheme_to_cell[grapheme_idx] = Some((line_idx, cell_idx));
-                    grapheme_idx += 1;
-                }
-            }
-        }
-    }
-    
-    pub fn get_style_for_cell(
-        &self, 
-        line: usize, 
-        cell: usize,
-        style_spans: &[StyleSpan],
-        default_colors: &ElementColors
-    ) -> ElementColors {
-        // Find grapheme for this cell
-        let grapheme_idx = match self.grapheme_to_cell.iter()
-            .position(|&pos| pos == Some((line, cell))) {
-            Some(idx) => idx,
-            None => return default_colors.clone()
-        };
-        
-        // Get byte range for this grapheme
-        let (byte_start, byte_end) = match self.grapheme_to_byte_range.get(grapheme_idx) {
-            Some(range) => range,
-            None => return default_colors.clone()
-        };
-        
-        // ASCII-ONLY CHECK: Skip coloring for non-ASCII
-        let text_slice = &self.text[*byte_start..*byte_end];
-        
-        // Ligatures (multi-char glyphs) get default color
-        if text_slice.len() > 1 {
-            return default_colors.clone();
-        }
-        
-        // Non-ASCII gets default color
-        if !text_slice.chars().all(|c| c.is_ascii_graphic() || c.is_ascii_whitespace()) {
-            return default_colors.clone();
-        }
-        
-        // Find style span for single ASCII characters
-        style_spans.iter()
-            .find(|span| *byte_start >= span.start && *byte_start < span.end)
-            .map(|span| span.colors.clone())
-            .unwrap_or_else(|| default_colors.clone())
-    }
-}
 
 /// Total chrome size for code blocks (padding + border on both sides)
 /// 12px padding + 1px border on each side = 26px total
@@ -541,7 +441,7 @@ impl MarkdownRenderer {
                             text: color.into(),
                             ..Default::default()
                         },
-                        font: None, // TODO: Add bold/italic support based on style
+                        font: None, // TODO: Add bold/italic support based on style.bold/style.italic
                     });
                     
                     combined_text.push_str(text);
