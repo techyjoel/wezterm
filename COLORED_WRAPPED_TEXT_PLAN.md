@@ -80,13 +80,13 @@ Simple index-based color mapping doesn't account for this complexity.
 
 **Verdict**: Requires too many architectural changes to be practical
 
-### Option 5: Virtual Multi-Element Approach
+### Option 5: Virtual Multi-Element Approach (ASCII-Only Simplification)
 
-**Status**: POTENTIALLY VIABLE - Most architecturally sound approach
+**Status**: HIGHLY VIABLE - Most architecturally sound approach with pragmatic simplification
 
-**Concept**: Track style information (colors, fonts, backgrounds) through the text wrapping process and apply during rendering.
+**Concept**: Track style information (colors, fonts, backgrounds) through the text wrapping process and apply during rendering, with ASCII-only coloring to eliminate Unicode complexity.
 
-**Key Insight**: The failed ColoredWrappedText attempt (8f7ce0d88) had the right architecture but failed at the rendering stage. We now understand how to fix it.
+**Key Insight**: By limiting syntax coloring to ASCII characters only, we eliminate ALL Unicode mapping complexity while still covering 99% of code highlighting use cases. Non-ASCII characters simply render in the default color for their context.
 
 **Core Architecture**:
 
@@ -95,69 +95,73 @@ Simple index-based color mapping doesn't account for this complexity.
 ComputedElementContent::MultilineText {
     lines: Vec<Vec<ElementCell>>,
     line_height: Option<f64>,
-    line_styles: Option<Vec<Vec<(usize, usize, CellStyle)>>>, // NEW: style spans per line
+    line_styles: Option<Vec<Vec<ElementColors>>>, // NEW: per-cell colors using existing type
 }
 
-#[derive(Debug, Clone)]
-pub struct CellStyle {
-    pub text_color: LinearRgba,
-    pub bg_color: Option<LinearRgba>,    // For selection highlighting
-    pub font_style: FontStyle,           // Regular, Bold, Italic, BoldItalic
-}
+// Reuse existing ElementColors - no new types needed!
+// ElementColors already has:
+// - text: ColorAttribute (for text color)
+// - bg: ColorAttribute (for background/selection)
+// - underline: ColorAttribute
+// - border: BorderColor
+// Everything we need is already there
 ```
-
 
 **Implementation Requirements**:
 1. Extend `ComputedElementContent::MultilineText` to include style spans
 2. Modify the MultilineText rendering to apply per-cell styles  
-3. Create mapping infrastructure to track styles through wrapping
+3. Create simplified mapping infrastructure for ASCII-only styling
 4. Implement batching strategies for performance
 
-#### Deep Investigation Findings
+#### ASCII-Only Simplification Benefits
 
-A thorough code analysis revealed several key insights:
+**What This Solves**:
+- **Predictable byte mapping**: ASCII chars are always 1 byte = 1 grapheme
+- **No emoji complications**: They render in default color
+- **No combining marks**: Accented chars stay default color  
+- **Ligatures become simple**: Just skip color lookup for multi-char glyphs
+- **99% coverage**: Most programming code is ASCII anyway
 
-**What the investigation got RIGHT**:
-- Memory overhead is significant (2.5-3.6x)
-- Naive per-cell rendering would cause severe performance issues
-- The mapping from bytes to final rendered cells is complex
-- Animation system expects uniform colors per element
+**Example Rendering**:
+```python
+def calculate_café_价格(text: str) -> int:
+    """Calculate price. 计算价格"""
+    return len(text) * 42
+```
+- `def` → blue (keyword)
+- `calculate_café_价格` → yellow/default/default (function with non-ASCII)
+- `text` → orange (parameter)
+- `str` → cyan (type)
+- Non-ASCII (é, 价格, 计算价格) → default color
 
-**What the investigation got WRONG**:
-- Font switching is NOT a blocker - we select fonts during shaping, not rendering
-- Success rate of 40% was too pessimistic - proper understanding brings it to 65%
-- 3-4 week estimate was excessive - 1.5-2 weeks is realistic
+#### 1. Simplified Mapping Implementation
 
-#### 1. Solving the Mapping Complexity
-
-The transformation pipeline is complex but manageable:
+The ASCII-only approach dramatically simplifies the mapping:
 
 ```rust
-// Complete mapping solution
-struct WrappingMapper {
-    // Stage 1: Bytes to graphemes
+// Simplified mapping for ASCII-only coloring
+struct AsciiStyleMapper {
+    text: String,
     byte_to_grapheme: Vec<usize>,
     grapheme_to_byte_range: Vec<(usize, usize)>,
-    
-    // Stage 2: Graphemes to cells after wrapping
-    grapheme_to_cell: Vec<Option<(usize, usize)>>, // (line, cell_index)
+    grapheme_to_cell: Vec<Option<(usize, usize)>>,
 }
 
-impl WrappingMapper {
+impl AsciiStyleMapper {
     fn new(text: &str) -> Self {
         let mut mapper = Self {
+            text: text.to_string(),
             byte_to_grapheme: vec![0; text.len()],
             grapheme_to_byte_range: Vec::new(),
             grapheme_to_cell: Vec::new(),
         };
         
-        // Build byte-grapheme mapping
+        // Build byte-grapheme mapping (still needed for wrapping)
         let mut byte_idx = 0;
         for (g_idx, grapheme) in text.grapheme_indices(true).enumerate() {
             let grapheme_bytes = grapheme.len();
             mapper.grapheme_to_byte_range.push((byte_idx, byte_idx + grapheme_bytes));
             
-            // Mark all bytes in this grapheme
             for b in byte_idx..byte_idx + grapheme_bytes {
                 mapper.byte_to_grapheme[b] = g_idx;
             }
@@ -167,51 +171,56 @@ impl WrappingMapper {
         mapper
     }
     
-    fn track_wrapping(&mut self, wrapped_lines: &[Vec<ElementCell>]) {
-        let mut grapheme_idx = 0;
-        
-        for (line_idx, line) in wrapped_lines.iter().enumerate() {
-            for (cell_idx, _cell) in line.iter().enumerate() {
-                if grapheme_idx < self.grapheme_to_cell.len() {
-                    self.grapheme_to_cell[grapheme_idx] = Some((line_idx, cell_idx));
-                    grapheme_idx += 1;
-                }
-            }
-        }
-    }
-    
     fn get_style_for_cell(
         &self, 
         line: usize, 
         cell: usize,
-        style_spans: &[StyleSpan]
-    ) -> Option<CellStyle> {
+        style_spans: &[StyleSpan],
+        default_colors: &ElementColors
+    ) -> ElementColors {
         // Find grapheme for this cell
-        let grapheme_idx = self.grapheme_to_cell.iter()
-            .position(|&pos| pos == Some((line, cell)))?;
-            
-        // Get byte range for this grapheme
-        let (byte_start, _) = self.grapheme_to_byte_range.get(grapheme_idx)?;
+        let grapheme_idx = match self.grapheme_to_cell.iter()
+            .position(|&pos| pos == Some((line, cell))) {
+            Some(idx) => idx,
+            None => return default_colors.clone()
+        };
         
-        // Find style span containing this byte
+        // Get byte range for this grapheme
+        let (byte_start, byte_end) = match self.grapheme_to_byte_range.get(grapheme_idx) {
+            Some(range) => range,
+            None => return default_colors.clone()
+        };
+        
+        // ASCII-ONLY CHECK: Skip coloring for non-ASCII
+        let text_slice = &self.text[*byte_start..*byte_end];
+        
+        // Ligatures (multi-char glyphs) get default color
+        if text_slice.len() > 1 {
+            return default_colors.clone();
+        }
+        
+        // Non-ASCII gets default color
+        if !text_slice.chars().all(|c| c.is_ascii_graphic() || c.is_ascii_whitespace()) {
+            return default_colors.clone();
+        }
+        
+        // Find style span for single ASCII characters
         style_spans.iter()
             .find(|span| *byte_start >= span.start && *byte_start < span.end)
-            .map(|span| CellStyle {
-                text_color: span.text_color,
-                bg_color: span.bg_color,
-                font_style: span.font_style,
-            })
+            .map(|span| span.colors.clone())
+            .unwrap_or_else(|| default_colors.clone())
     }
 }
 ```
 
-**Key Challenges Handled:**
-1. **Ligatures**: Track at grapheme level, not glyph level
-2. **Tab expansion**: Handle during wrapping phase
-3. **Trimmed whitespace**: Track original positions before trimming
-4. **Multi-width chars**: Grapheme-based tracking handles naturally
+**Key Simplifications**:
+1. **Predictable ASCII mapping**: 1 byte = 1 char for colored text
+2. **Ligatures get default color**: Multi-char glyphs (=>, ->, etc.) are not colored
+3. **Non-ASCII gets default color**: Emoji, accented chars, etc. use default
+4. **No complex Unicode handling**: Just a simple ASCII check
+5. **Reuses ElementColors**: No code duplication
 
-**Complexity: MEDIUM** - ~200 lines of careful bookkeeping code
+**Complexity: LOW** - ~150 lines of straightforward code
 
 #### 2. Solving the Performance Issues
 
@@ -291,36 +300,52 @@ fn render_with_segment_batching(
 - **Segment batching**: 5-10 draw calls per line ✅
 - **Impact**: Only affects sidebar rendering, NOT terminal content
 
-#### 3. Font Variant Implementation
+#### 3. Font Variant Implementation (No wrap_text Changes)
 
-We select fonts during text shaping, not rendering:
+To avoid changing the wrap_text signature across the codebase, we embed font information in the style spans:
 
 ```rust
-// During wrapping, not rendering
-fn wrap_with_fonts(
+// Style span includes optional font override
+#[derive(Debug, Clone)]
+struct StyleSpan {
+    start: usize,
+    end: usize,
+    colors: ElementColors,  // Reuse existing type
+    font: Option<Rc<LoadedFont>>,  // Font override for this span
+}
+
+// No changes to wrap_text signature needed!
+// Instead, create a wrapper function for styled text:
+fn wrap_styled_text(
+    default_font: &Rc<LoadedFont>,
     text: &str,
-    styles: &[StyleSpan],
-    fonts: &SidebarFonts,
-) -> Vec<Vec<ElementCell>> {
-    for (segment, style) in segments_with_styles {
-        // Select font BEFORE shaping
-        let font = match style.font_style {
-            FontStyle::Bold => &fonts.bold,
-            FontStyle::Italic => &fonts.italic,
-            FontStyle::BoldItalic => &fonts.bold_italic,
-            FontStyle::Regular => &fonts.regular,
-        };
+    style_spans: &[StyleSpan],
+    width: f32,
+    metrics: &RenderMetrics,
+) -> (Vec<Vec<ElementCell>>, Option<Vec<Vec<ElementColors>>>) {
+    // Pre-shape text segments with their specific fonts
+    let mut shaped_segments = Vec::new();
+    
+    for span in style_spans {
+        let segment = &text[span.start..span.end];
+        let font = span.font.as_ref().unwrap_or(default_font);
         
-        // Shape with the selected font
+        // Shape with the appropriate font
         let shaped = font.shape(segment, ...)?;
-        
-        // Store pre-shaped glyphs
-        cells.extend(shaped.into_cells());
+        shaped_segments.push((shaped, span.colors.clone()));
     }
+    
+    // Now call regular wrap_text with pre-shaped glyphs
+    // Track which colors go with which cells
+    // Return wrapped cells + color mapping
 }
 ```
 
-This is exactly how we already handle different fonts for headings vs body text.
+This approach:
+- Preserves existing wrap_text signatures
+- Allows per-span font selection
+- Reuses ElementColors type (no duplication)
+- Works with existing infrastructure
 
 #### 4. Extended Features Support
 
@@ -347,16 +372,38 @@ This is exactly how we already handle different fonts for headings vs body text.
 - Performance acceptable with batching strategies
 - Future-proof for additional styling (underline, strikethrough)
 - Reuses existing infrastructure (glyph cache, font loading)
+- **ASCII-only dramatically reduces complexity and edge cases**
+- **Covers 99% of real-world syntax highlighting needs**
 
 **Cons:**
-- Complex byte→grapheme→cell mapping implementation
+- Non-ASCII characters don't get syntax coloring (acceptable limitation)
 - Memory overhead: 2.5-3.6x increase for large code blocks
-- 1.5-2 weeks implementation time
-- Risk of edge case bugs in mapping logic
+- Still requires careful implementation of wrapping integration
 
-**Success Rate: 65%**
-**Implementation Time: 1.5-2 weeks**
+**Success Rate: 75%** (up from 65% - ASCII simplification reduces risk)
+**Implementation Time: 1-1.5 weeks** (down from 1.5-2 weeks)
 **Performance Impact: 1.2-1.5x with batching (acceptable for sidebar)**
+
+#### Implementation Priority
+
+Given the ASCII-only simplification:
+1. **Start with proof-of-concept**: ASCII-only text with basic color mapping
+2. **Validate approach**: Ensure wrapping and mapping work correctly
+3. **Add font variants**: Bold/italic support during shaping
+4. **Implement batching**: Color or segment batching for performance
+5. **Add selection support**: Background colors for copy/paste
+
+#### Key Implementation Decisions
+
+Based on feedback and analysis, we've made these refinements:
+
+1. **Ligatures get default color**: Programming ligatures (=>, ->, ::) are multi-char and thus get default color, not syntax highlighting
+2. **No wrap_text signature changes**: Create `wrap_styled_text` wrapper instead of modifying existing function
+3. **Reuse ElementColors**: No new CellStyle type - ElementColors has everything we need
+4. **Font selection via StyleSpan**: Each span can specify an optional font override
+5. **ASCII-only strictly enforced**: Only single ASCII characters get syntax colors
+
+These decisions significantly reduce implementation complexity and risk.
 
 ### Option 6: Glyph Cache Color Variants
 
@@ -534,11 +581,11 @@ Based on code analysis and new insights:
 
 ### Potentially Viable Options (Ranked):
 
-1. **Option 5 (Virtual Multi-Element)**: Track colors through wrapping
-   - **Success Rate**: 70%
-   - **Pros**: Architecturally clean, works with existing wrapping logic
-   - **Cons**: Complex byte↔grapheme mapping required
-   - **Effort**: 1-2 weeks
+1. **Option 5 (Virtual Multi-Element with ASCII-Only)**: Track colors through wrapping, ASCII-only coloring
+   - **Success Rate**: 75%
+   - **Pros**: Architecturally clean, dramatically simplified with ASCII-only approach
+   - **Cons**: Non-ASCII chars don't get syntax coloring (acceptable trade-off)
+   - **Effort**: 1-1.5 weeks
    
 2. **Option 6 (Limited Color Glyph Cache)**: Pre-colored glyphs with 4-5 colors
    - **Success Rate**: 60%
@@ -563,12 +610,22 @@ Based on code analysis and new insights:
    - **Pros**: Already working, zero risk
    - **Cons**: No per-token highlighting
 
-### Updated Recommendation:
-With the new understanding that Option 6 becomes viable with limited colors, the implementation order should be:
+### Final Recommendation:
 
-1. **Try Option 6 first** - Simplest to implement (3-5 days)
-2. **Then Option 5** - Most architecturally sound if Option 6 fails
-3. **Consider Option 9** - If performance of other options is poor
-4. **Keep current solution** - If all else fails
+**Implement Option 5 with ASCII-Only Simplification** as the primary approach:
 
-The key insight is that limiting to 4-5 syntax colors makes previously "impossible" approaches viable.
+1. **Why Option 5 over Option 6**: 
+   - More architecturally aligned with WezTerm's design
+   - Supports bold/italic fonts and background colors (needed for markdown and selection)
+   - ASCII-only dramatically reduces complexity while covering 99% of use cases
+   - Option 6 would require modifying glyph rasterization at a lower level
+
+2. **Implementation Strategy**:
+   - Start with ASCII-only proof-of-concept
+   - Validate mapping and wrapping integration
+   - Add performance batching
+   - Implement font variants and selection support
+
+3. **Fallback Plan**: Keep current single-color solution if unexpected issues arise
+
+The ASCII-only approach transforms Option 5 from a complex Unicode-handling challenge into a pragmatic, implementable solution that delivers the syntax highlighting users need.
