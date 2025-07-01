@@ -701,6 +701,26 @@ impl MarkdownRenderer {
                     byte_offset = end;
                 }
 
+                // Validate style spans before using them
+                if let Err(e) = StyleSpan::validate_spans(&style_spans, combined_text.len()) {
+                    log::error!("Invalid style spans in code block: {}", e);
+                    // Fall back to plain text
+                    line_elements.push(
+                        Element::new(font, ElementContent::WrappedText(combined_text))
+                            .colors(ElementColors {
+                                text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
+                                ..Default::default()
+                            })
+                            .display(DisplayType::Block)
+                            .line_height(Some(code_line_height))
+                            .margin(BoxDimension {
+                                bottom: Dimension::Pixels(code_line_margin as f32),
+                                ..Default::default()
+                            }),
+                    );
+                    continue;
+                }
+                
                 // Use StyledWrappedText for syntax highlighting with wrapping
                 let wrapped_line = Element::new(
                     font,

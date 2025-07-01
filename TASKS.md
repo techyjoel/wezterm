@@ -299,7 +299,7 @@ The implementation is divided into 7 phases:
 **Remaining Phase 2 work**:
 **Known Issues To Address**
 - Multi-line chat input not yet interactive (can't click and type)
-- "View more" modal background isn't working right (needs to be extended to top and bottom of window)
+- "View more" modal background isn't working right. We need to extend the modal background all the way to the top/bottom of the window with a color that fades from the modal background to some darker color at the top and bottom of the modal, to look like a shadow.
 - "View more" modal won't close reliably (either via esc key or clicking on X in top right)
 - Suggestion card is taller now (2 rows) so needs to compress the activity log height some
 - Activity log is mis-aligned in sidebar

@@ -18,41 +18,45 @@ This document outlines approaches to achieve syntax highlighting with proper lin
 1. ✅ **Segment Batching Bug**: Fixed color comparison that was preventing proper draw call batching
 2. ✅ **Debug Logging**: Added comprehensive syntax highlighting logs (use `WEZTERM_LOG=debug` and grep for "Code block language:" or "Syntax highlighting for line")
 3. ✅ **WezTerm Theme Integration**: Code blocks now use WezTerm's color palette instead of hardcoded theme
+4. ✅ **Improved Color Mappings**: Added comprehensive syntax scope mappings with theme-aware colors
+5. ❌ **Punctuation-Based Wrapping**: Attempted but reverted due to complexity and bugs
 
 ### Current Status
-- Syntax highlighting works with WezTerm themes (0.85 dimming applied)
+- Syntax highlighting works with WezTerm themes (comprehensive scope mappings)
 - Debug logging helps diagnose color detection issues
 - Performance should be improved with correct segment batching
+- Whitespace-only text wrapping (standard behavior)
 
 ### Known Issues
-1. **Wrapping Issue**: Code wraps at word boundaries only, causing poor layout in narrow spaces
-2. **Color Recognition Issue**: Some syntax elements may not get distinct colors depending on syntect's language detection
+1. **Wrapping Issue**: Code wraps at word boundaries only, which can cause long function calls to wrap awkwardly
+2. ~~**Color Recognition Issue**: Some syntax elements may not get distinct colors~~ (FIXED with improved mappings)
 
 ### Next Steps - Priority Tasks
 
-#### 1. Investigate Color Detection Issues (HIGH PRIORITY)
+#### 1. ~~Investigate Color Detection Issues~~ (COMPLETED)
 **Purpose**: Understand why some syntax elements get the same color
-**Tasks**:
-- [ ] Run with debug logging to see what syntect detects
-- [ ] Check if issue is syntect language detection or theme mapping
-- [ ] May need to adjust scope mappings in `create_syntect_theme_from_palette`
-- [ ] Consider adding more specific scope rules for better color distinction
+**Status**: Fixed by adding comprehensive scope mappings with theme-aware colors
+**Tasks Completed**:
+- [x] Added debug logging to see what syntect detects
+- [x] Issue was insufficient scope mappings in theme
+- [x] Added comprehensive scope mappings in `create_syntect_theme_from_palette`
+- [x] All common syntax elements now have distinct theme-relative colors
 
-#### 2. Implement Punctuation-Based Wrapping (HIGH PRIORITY)
-**Purpose**: Improve code readability in narrow spaces
+#### 2. ~~Implement Punctuation-Based Wrapping~~ (CANCELLED)
+**Status**: Attempted but reverted due to issues
+**Purpose**: Was to improve code readability in narrow spaces
 **Key Learning**: Current wrap_text only breaks at whitespace, causing `open(filename,` to stay together
-**Tasks**:
-- [ ] Study wrap_text implementation in wezterm-font/src/shaper/mod.rs
-- [ ] Create wrapper that pre-processes text to insert zero-width spaces at wrap points
-- [ ] Implement wrapping rules:
-  - Break after: `,` `(` `{` `[` and single-char operators (`=`, `+`, `-`)
-  - Break before: `.` in method chains
-  - DO NOT break multi-char operators: `->`, `::`, `=>`, `..`, `==`, `!=`, etc.
-  - Never break inside string literals or comments
-- [ ] Test with narrow sidebar widths to ensure improved readability
+**Issues Found**:
+- Tokenizer had bugs causing missing letters
+- Breaking at `-` inside quoted strings (e.g., command-line args like "-L thing") was incorrect
+- Preserving indentation on wrapped lines caused visual confusion (not standard behavior)
+**Decision**: Reverted to whitespace-only wrapping. The complexity and edge cases outweigh the benefits for sidebar use case.
 
 #### 3. Font Variant Support (MEDIUM PRIORITY)
 **Purpose**: Support bold/italic in syntax highlighting
+- WezTerm supports FontWeight and FontStyle (see `config/src/font.rs`)
+- SidebarFonts struct only has heading/body/code fonts currently
+- Would need to load bold/italic variants and apply based on emphasis stack
 **Tasks**:
 - [ ] Detect bold/italic from syntect Style attributes
 - [ ] Load font variants in SidebarFonts (bold, italic, bold-italic)
@@ -92,7 +96,7 @@ This document outlines approaches to achieve syntax highlighting with proper lin
 - [ ] Consider simple optimizations like binary search for sorted spans
 - [ ] Avoid over-engineering for small code blocks in sidebar
 
-#### 8. Background Color Support (LOW PRIORITY)
+#### 8. Background Color Support (MEDIUM PRIORITY)
 **Purpose**: Support selection highlighting and background colors in code
 **Tasks**:
 - [ ] Extend StyleSpan to include background colors

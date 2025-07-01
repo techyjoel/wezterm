@@ -32,6 +32,39 @@ pub struct StyleSpan {
     pub font: Option<Rc<LoadedFont>>,
 }
 
+impl StyleSpan {
+    /// Validate a collection of style spans
+    pub fn validate_spans(spans: &[StyleSpan], text_len: usize) -> Result<(), String> {
+        for (i, span) in spans.iter().enumerate() {
+            // Check individual span validity
+            if span.start >= span.end {
+                return Err(format!(
+                    "Style span {} has invalid range: start {} >= end {}",
+                    i, span.start, span.end
+                ));
+            }
+            
+            if span.end > text_len {
+                return Err(format!(
+                    "Style span {} exceeds text length: end {} > text_len {}",
+                    i, span.end, text_len
+                ));
+            }
+            
+            // Check for overlaps with previous spans
+            for (j, other) in spans[..i].iter().enumerate() {
+                if span.start < other.end && span.end > other.start {
+                    log::debug!(
+                        "Warning: Style spans {} and {} overlap: [{}, {}) and [{}, {})",
+                        j, i, other.start, other.end, span.start, span.end
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 /// ASCII-only style mapper for syntax highlighting
 pub struct AsciiStyleMapper {
     text: String,
@@ -119,6 +152,17 @@ impl AsciiStyleMapper {
             None => return default_colors.clone(),
         };
 
+        // Bounds check before accessing text slice
+        if *byte_start >= self.text.len() || *byte_end > self.text.len() {
+            log::warn!(
+                "Style span byte range [{}, {}) exceeds text length {}",
+                byte_start,
+                byte_end,
+                self.text.len()
+            );
+            return default_colors.clone();
+        }
+
         // ASCII-ONLY CHECK: Skip coloring for non-ASCII
         let text_slice = &self.text[*byte_start..*byte_end];
 
@@ -136,12 +180,23 @@ impl AsciiStyleMapper {
             return default_colors.clone();
         }
 
-        // Find style span for single ASCII characters
-        // Note: This assumes style spans are valid and within text bounds
-        // TODO: Add validation to ensure spans don't exceed text.len()
+        // Find style span for single ASCII characters with validation
         style_spans
             .iter()
-            .find(|span| *byte_start >= span.start && *byte_start < span.end)
+            .find(|span| {
+                // Validate span bounds
+                if span.start > self.text.len() || span.end > self.text.len() {
+                    log::warn!(
+                        "Invalid style span [{}, {}) for text length {}",
+                        span.start,
+                        span.end,
+                        self.text.len()
+                    );
+                    false
+                } else {
+                    *byte_start >= span.start && *byte_start < span.end
+                }
+            })
             .map(|span| span.colors.clone())
             .unwrap_or_else(|| default_colors.clone())
     }
