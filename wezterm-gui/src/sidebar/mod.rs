@@ -17,10 +17,34 @@ pub struct SidebarFonts {
     pub body: Rc<LoadedFont>,
     /// Font for code blocks in markdown
     pub code: Rc<LoadedFont>,
+    /// Bold variant of code font for syntax highlighting
+    pub code_bold: Option<Rc<LoadedFont>>,
+    /// Italic variant of code font for syntax highlighting
+    pub code_italic: Option<Rc<LoadedFont>>,
+    /// Bold-italic variant of code font for syntax highlighting
+    pub code_bold_italic: Option<Rc<LoadedFont>>,
     /// Line height multiplier for code blocks
     pub code_line_height: f64,
     /// Bottom margin between logical lines in code blocks (in pixels)
     pub code_line_margin: f64,
+}
+
+impl SidebarFonts {
+    /// Get the appropriate font variant based on font style flags
+    pub fn get_code_font_variant(&self, style_flags: Option<&crate::termwindow::box_model::FontStyleFlags>) -> &Rc<LoadedFont> {
+        match style_flags {
+            Some(flags) if flags.bold && flags.italic => {
+                self.code_bold_italic.as_ref().unwrap_or(&self.code)
+            }
+            Some(flags) if flags.bold => {
+                self.code_bold.as_ref().unwrap_or(&self.code)
+            }
+            Some(flags) if flags.italic => {
+                self.code_italic.as_ref().unwrap_or(&self.code)
+            }
+            _ => &self.code,
+        }
+    }
 }
 
 pub mod ai_sidebar;

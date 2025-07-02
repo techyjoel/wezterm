@@ -646,7 +646,7 @@ impl MarkdownRenderer {
                 line.trim_end(),
                 ranges
                     .iter()
-                    .map(|(style, text)| { (text, style.foreground, style.font_style) })
+                    .map(|(style, text)| (text, style.foreground, style.font_style))
                     .collect::<Vec<_>>()
             );
 
@@ -687,6 +687,16 @@ impl MarkdownRenderer {
                         style.foreground.a as f32 / 255.0,
                     );
 
+                    // Extract font style flags from syntect
+                    let font_style_flags = if style.font_style.is_empty() {
+                        None
+                    } else {
+                        Some(crate::termwindow::box_model::FontStyleFlags {
+                            bold: style.font_style.contains(syntect::highlighting::FontStyle::BOLD),
+                            italic: style.font_style.contains(syntect::highlighting::FontStyle::ITALIC),
+                        })
+                    };
+
                     style_spans.push(StyleSpan {
                         start,
                         end,
@@ -694,7 +704,8 @@ impl MarkdownRenderer {
                             text: color.into(),
                             ..Default::default()
                         },
-                        font: None, // TODO: Add bold/italic support based on style.bold/style.italic
+                        font: None, // Will be resolved during rendering based on font_style
+                        font_style: font_style_flags,
                     });
 
                     combined_text.push_str(text);

@@ -494,10 +494,19 @@ impl crate::TermWindow {
             let body_font = self.fonts.sidebar_body_font()?;
             let code_font = self.fonts.sidebar_code_font()?;
 
+            // Font variants for syntax highlighting
+            // Note: These are left as None for now. Implementing font variants
+            // requires reshaping text with different fonts, which is complex.
+            // The infrastructure is in place for future implementation.
+            // See COLORED_WRAPPED_TEXT_PLAN.md task #9 for details.
+            
             let fonts = crate::sidebar::SidebarFonts {
                 heading: heading_font.clone(),
                 body: body_font,
                 code: code_font,
+                code_bold: None,
+                code_italic: None,
+                code_bold_italic: None,
                 code_line_height: self.config.clibuddy.right_sidebar.fonts.code_line_height,
                 code_line_margin: self.config.clibuddy.right_sidebar.fonts.code_line_margin,
             };
@@ -860,6 +869,9 @@ impl crate::TermWindow {
                 heading: heading_font.clone(),
                 body: body_font,
                 code: code_font,
+                code_bold: None,
+                code_italic: None,
+                code_bold_italic: None,
                 code_line_height: self.config.clibuddy.right_sidebar.fonts.code_line_height,
                 code_line_margin: self.config.clibuddy.right_sidebar.fonts.code_line_margin,
             };

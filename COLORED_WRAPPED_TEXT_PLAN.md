@@ -52,25 +52,122 @@ This document outlines approaches to achieve syntax highlighting with proper lin
 - Preserving indentation on wrapped lines caused visual confusion (not standard behavior)
 **Decision**: Reverted to whitespace-only wrapping. The complexity and edge cases outweigh the benefits for sidebar use case.
 
-#### 3. Font Variant Support (MEDIUM PRIORITY)
-**Purpose**: Support bold/italic in syntax highlighting
-- WezTerm supports FontWeight and FontStyle (see `config/src/font.rs`)
-- SidebarFonts struct only has heading/body/code fonts currently
-- Would need to load bold/italic variants and apply based on emphasis stack
-**Tasks**:
-- [ ] Detect bold/italic from syntect Style attributes
-- [ ] Load font variants in SidebarFonts (bold, italic, bold-italic)
-- [ ] Implement text shaping with font variants
-- [ ] Have user test with markdown content that uses bold and italic keywords
+#### 3. Font Variant Support (IN PROGRESS)
+**Purpose**: Support bold/italic in markdown text (NOT in code blocks)
+**Status**: Implementing hybrid approach - colors for code blocks, fonts for markdown
 
-#### 4. Style Span Validation & Error Handling (MEDIUM PRIORITY)
-**Purpose**: Ensure robustness and prevent crashes from invalid style spans
+**Previous Attempts** (What didn't work):
+- ❌ Font variants in syntax highlighting - conflicts with color span system
+- ❌ Swapping fonts after shaping - architecturally impossible
+- ❌ Splitting code by style boundaries - breaks text wrapping (same issue as colors)
+
+**Key Insights**:
+1. WezTerm already has working synthetic fonts (FreeType emboldening/skew)
+2. The terminal shapes text segments with different fonts successfully
+3. Mixing font variants with syntax coloring creates complex span intersections
+
+**Final Approach - Hybrid System**:
+
+**Strategy**: Use different styling systems for different content types:
+1. **Code blocks**: Syntax highlighting via colors only (current system)
+2. **Markdown text**: Bold/italic via synthetic fonts
+3. **Inline code**: Monospace font (no styling)
+
+**Why This Works**:
+- No overlap between color spans and font spans
+- Markdown emphasis boundaries are natural (whole words/phrases)
+- Each content type has one clear styling system
+- Aligns with user expectations
+
+**Implementation Plan**:
+
+1. **Load Font Variants** (sidebar_render.rs):
+   ```rust
+   // Body font variants for markdown
+   let body_bold = fonts.resolve_font(&body_style.make_bold())?;
+   let body_italic = fonts.resolve_font(&body_style.make_italic())?;
+   let body_bold_italic = fonts.resolve_font(&body_style.make_bold().make_italic())?;
+   ```
+
+2. **Markdown Rendering** (markdown.rs):
+   - Track emphasis state during parsing (bold/italic stack)
+   - Select appropriate font based on emphasis
+   - Use regular `WrappedText` elements (not `StyledWrappedText`)
+   
+3. **Code Block Rendering**:
+   - Keep current `StyledWrappedText` with color spans
+   - No font variant support needed
+   - Single code font throughout
+
+4. **Inline Code**:
+   - Always use code font
+   - No bold/italic variants
+   - Helps distinguish from emphasized text
+
+**Implementation Details**:
+
+1. **SidebarFonts Structure Extension**:
+   ```rust
+   pub struct SidebarFonts {
+       // Existing fields
+       pub heading: Rc<LoadedFont>,
+       pub body: Rc<LoadedFont>,
+       pub code: Rc<LoadedFont>,
+       // Add body variants
+       pub body_bold: Option<Rc<LoadedFont>>,
+       pub body_italic: Option<Rc<LoadedFont>>,
+       pub body_bold_italic: Option<Rc<LoadedFont>>,
+       // Code variants remain but unused for code blocks
+       pub code_bold: Option<Rc<LoadedFont>>,
+       pub code_italic: Option<Rc<LoadedFont>>,
+       pub code_bold_italic: Option<Rc<LoadedFont>>,
+   }
+   ```
+
+2. **Markdown Parser Changes**:
+   - Remove font style flags from `StyleSpan` in code blocks
+   - For regular text, select font based on `emphasis_stack`:
+     ```rust
+     let font = match (has_bold, has_italic) {
+         (true, true) => fonts.body_bold_italic.as_ref().unwrap_or(&fonts.body),
+         (true, false) => fonts.body_bold.as_ref().unwrap_or(&fonts.body),
+         (false, true) => fonts.body_italic.as_ref().unwrap_or(&fonts.body),
+         (false, false) => &fonts.body,
+     };
+     ```
+
+3. **Inline Code Handling**:
+   ```rust
+   Event::Code(code) => {
+       current_paragraph.push(
+           Element::new(&fonts.code, ElementContent::Text(code.to_string()))
+       );
+   }
+   ```
+
+**Testing Strategy**:
+- Verify code blocks maintain syntax coloring without font changes
+- Test markdown with **bold**, *italic*, and ***bold italic***
+- Ensure inline `code` uses monospace
+- Check fallback behavior when variants can't be created
+
 **Tasks**:
-- [ ] Add bounds checking for style span start/end positions
-- [ ] Validate spans don't exceed text length
-- [ ] Handle overlapping or out-of-order spans gracefully
-- [ ] Add error logging for invalid spans
-- [ ] Test with malformed syntax highlighting data
+- [x] Infrastructure for tracking font styles (already complete)
+- [x] Load synthetic font variants for code (completed, but won't be used)
+- [ ] Load body font variants in sidebar_render.rs
+- [ ] Modify markdown parser to use font variants for emphasis
+- [ ] Ensure inline code uses monospace font
+- [ ] Remove font style handling from code block rendering
+
+#### 4. ~~Style Span Validation & Error Handling~~ (COMPLETED)
+**Purpose**: Ensure robustness and prevent crashes from invalid style spans
+**Status**: Completed
+**Tasks Completed**:
+- [x] Added bounds checking for style span start/end positions
+- [x] Validate spans don't exceed text length
+- [x] Handle overlapping spans with warning logs
+- [x] Add error logging for invalid spans
+- [x] Fall back to plain text rendering on validation failure
 
 #### 5. Configure Dimming Factor (LOW PRIORITY)
 **Purpose**: Make the 0.85 dimming factor configurable
@@ -112,6 +209,22 @@ The `create_syntect_theme_from_palette` creates a new theme on each render. Whil
 
 #### API Design Consideration
 The proliferation of render methods (render, render_with_fonts, render_with_fonts_and_registry, etc.) suggests a future refactor to use a builder pattern or options struct would be beneficial.
+
+#### 9. Implement Font Variant Rendering (LOW PRIORITY - FUTURE)
+**Purpose**: Actually render bold/italic text with different fonts
+**Prerequisites**: Infrastructure from task #3 is already in place
+**Implementation Approach**:
+1. Load font variants in `sidebar_render.rs`:
+   - Get TextStyle from code font
+   - Create modified TextStyles with `make_bold()`, `make_italic()`
+   - Resolve fonts through FontConfiguration
+2. Modify `wrap_styled_text` to handle font changes:
+   - Group consecutive style spans with same FontStyleFlags
+   - Shape each group with appropriate font variant
+   - Maintain mapping through wrapping process
+3. Update rendering to use shaped glyphs (already works)
+**Complexity**: Requires significant changes to text shaping pipeline
+**Note**: Consider if the visual benefit justifies the complexity for sidebar use
 
 ### Testing Checklist
 

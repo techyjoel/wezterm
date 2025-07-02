@@ -22,6 +22,13 @@ use wezterm_font::LoadedFont;
 use wezterm_term::color::{ColorAttribute, ColorPalette};
 use window::bitmaps::atlas::Sprite;
 
+/// Font style flags for syntax highlighting
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FontStyleFlags {
+    pub bold: bool,
+    pub italic: bool,
+}
+
 /// Style span for tracking syntax highlighting through text wrapping
 #[derive(Debug, Clone)]
 pub struct StyleSpan {
@@ -30,6 +37,8 @@ pub struct StyleSpan {
     pub colors: ElementColors,
     /// Optional font override for bold/italic
     pub font: Option<Rc<LoadedFont>>,
+    /// Font style flags (bold/italic) from syntax highlighting
+    pub font_style: Option<FontStyleFlags>,
 }
 
 impl StyleSpan {
@@ -135,7 +144,7 @@ impl AsciiStyleMapper {
         cell: usize,
         style_spans: &[StyleSpan],
         default_colors: &ElementColors,
-    ) -> ElementColors {
+    ) -> (ElementColors, Option<FontStyleFlags>) {
         // Find grapheme for this cell
         let grapheme_idx = match self
             .grapheme_to_cell
@@ -143,13 +152,13 @@ impl AsciiStyleMapper {
             .position(|&pos| pos == Some((line, cell)))
         {
             Some(idx) => idx,
-            None => return default_colors.clone(),
+            None => return (default_colors.clone(), None),
         };
 
         // Get byte range for this grapheme
         let (byte_start, byte_end) = match self.grapheme_to_byte_range.get(grapheme_idx) {
             Some(range) => range,
-            None => return default_colors.clone(),
+            None => return (default_colors.clone(), None),
         };
 
         // Bounds check before accessing text slice
@@ -160,7 +169,7 @@ impl AsciiStyleMapper {
                 byte_end,
                 self.text.len()
             );
-            return default_colors.clone();
+            return (default_colors.clone(), None);
         }
 
         // ASCII-ONLY CHECK: Skip coloring for non-ASCII
@@ -171,17 +180,17 @@ impl AsciiStyleMapper {
         let char_count = text_slice.chars().count();
         if char_count > 1 {
             // This is a ligature or multi-character grapheme
-            return default_colors.clone();
+            return (default_colors.clone(), None);
         }
 
         // Non-ASCII gets default color
         // Whitespace (including tabs) doesn't get syntax coloring
         if !text_slice.chars().all(|c| c.is_ascii_graphic()) {
-            return default_colors.clone();
+            return (default_colors.clone(), None);
         }
 
         // Find style span for single ASCII characters with validation
-        style_spans
+        let found_span = style_spans
             .iter()
             .find(|span| {
                 // Validate span bounds
@@ -196,9 +205,12 @@ impl AsciiStyleMapper {
                 } else {
                     *byte_start >= span.start && *byte_start < span.end
                 }
-            })
-            .map(|span| span.colors.clone())
-            .unwrap_or_else(|| default_colors.clone())
+            });
+            
+        match found_span {
+            Some(span) => (span.colors.clone(), span.font_style),
+            None => (default_colors.clone(), None),
+        }
     }
 }
 
@@ -843,6 +855,8 @@ pub enum ComputedElementContent {
         line_height: f32,
         /// Optional per-cell colors for syntax highlighting
         line_styles: Option<Vec<Vec<ElementColors>>>,
+        /// Optional per-cell font styles for bold/italic
+        line_font_styles: Option<Vec<Vec<Option<FontStyleFlags>>>>,
     },
     Children(Vec<ComputedElement>),
     Poly {
@@ -1181,7 +1195,7 @@ impl super::TermWindow {
         max_width: f32,
         context: &LayoutContext,
         default_style: &config::TextStyle,
-    ) -> anyhow::Result<(Vec<Vec<ElementCell>>, Vec<Vec<ElementColors>>)> {
+    ) -> anyhow::Result<(Vec<Vec<ElementCell>>, Vec<Vec<ElementColors>>, Vec<Vec<Option<FontStyleFlags>>>)> {
         // First, wrap the text normally using the default font
         let wrapped_lines =
             self.wrap_text(text, default_font, max_width, context, default_style)?;
@@ -1190,23 +1204,27 @@ impl super::TermWindow {
         let mut mapper = AsciiStyleMapper::new(text);
         mapper.track_wrapping(&wrapped_lines);
 
-        // Build per-cell styles
+        // Build per-cell styles and font styles
         let mut line_styles = Vec::new();
+        let mut line_font_styles = Vec::new();
         let default_colors = ElementColors::default();
 
         for (line_idx, line) in wrapped_lines.iter().enumerate() {
             let mut line_colors = Vec::new();
+            let mut line_fonts = Vec::new();
 
             for (cell_idx, _cell) in line.iter().enumerate() {
-                let colors =
+                let (colors, font_style) =
                     mapper.get_style_for_cell(line_idx, cell_idx, style_spans, &default_colors);
                 line_colors.push(colors);
+                line_fonts.push(font_style);
             }
 
             line_styles.push(line_colors);
+            line_font_styles.push(line_fonts);
         }
 
-        Ok((wrapped_lines, line_styles))
+        Ok((wrapped_lines, line_styles, line_font_styles))
     }
 
     /// Helper to calculate text width from shaped glyphs
@@ -1496,6 +1514,7 @@ impl super::TermWindow {
                         lines,
                         line_height,
                         line_styles: None,
+                        line_font_styles: None,
                     },
                 })
             }
@@ -1642,7 +1661,7 @@ impl super::TermWindow {
             }
             ElementContent::StyledWrappedText { text, style_spans } => {
                 // Use wrap_styled_text to get wrapped lines with style information
-                let (lines, line_styles) = self.wrap_styled_text(
+                let (lines, line_styles, line_font_styles) = self.wrap_styled_text(
                     text,
                     &element.font,
                     style_spans,
@@ -1676,6 +1695,7 @@ impl super::TermWindow {
                         lines,
                         line_height,
                         line_styles: Some(line_styles),
+                        line_font_styles: Some(line_font_styles),
                     },
                 })
             }
@@ -1934,6 +1954,7 @@ impl super::TermWindow {
                 lines,
                 line_height,
                 line_styles,
+                line_font_styles,
             } => {
                 let mut y_offset = 0.0;
 
