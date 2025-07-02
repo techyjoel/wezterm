@@ -20,25 +20,46 @@ This document tracks our efforts to implement syntax highlighting and font varia
    - `SidebarFonts` struct properly configured
    - Markdown component creates style spans with font references
 
-### Critical Issues Blocking Font Variants
+3. **Critical Fixes Applied**:
+   - ✅ Fixed invisible bold/italic text by setting explicit text color instead of inherited
+   - ✅ Fixed `OutOfTextureSpace` error propagation to allow glyph cache resizing
+   - ❌ Progressive character loss issue remains unsolved
 
-#### Issue 1: Texture Size Exceeded Error
-```
-ERROR Failed to shape segment "OpenSSL error" to cells: Texture Size exceeded, need Some(256)
-```
-- **What's happening**: When trying to render bold/italic font glyphs, the glyph cache texture atlas is full
-- **Impact**: Even with fallback to default font, text becomes invisible
-- **Root cause**: WezTerm's glyph cache has limited texture space (256x256?)
-- **Why fallback fails**: Unknown - fallback code executes but text remains invisible
+### Critical Issue: Progressive Character Loss Pattern
 
-#### Issue 2: Progressive Character Loss on Wrapped Lines
-- **Symptom**: Comment line `# This is a very long line that should...` shows:
-  - Line 1: `# This is a very long` (correct)
-  - Line 2: `ine that should` (missing 'l' - 1st char)
-  - Line 3: `efinitely trigger` (missing 'd' - 2nd char)
-  - Line 4: `rizontal scrolling in` (missing 'ho' - 3rd char)
-- **Pattern**: Each wrapped continuation line loses N characters where N = line number - 1
-- **Root cause**: Byte offset calculation error in wrapping logic
+#### The Pattern
+The issue affects BOTH styled text (bold/italic) AND code blocks. On wrapped lines:
+- **Line 1**: Displays correctly
+- **Line 2**: Missing 1st character of EACH WORD (but space is still occupied)
+- **Line 3**: Missing 2nd character of EACH WORD (but space is still occupied)
+- **Line 4**: Missing 3rd character of EACH WORD (but space is still occupied)
+- Pattern continues...
+
+Example: "line that should" displays as " ine  hat  hould" (missing 'l', 't', 's', has blank spaces)
+
+#### Key Observations
+1. The pattern is too specific to be accidental - Nth line missing Nth char of each word
+2. Affects `StyledWrappedText` but NOT plain `WrappedText`
+3. Characters are not deleted - the space is occupied but character is invisible
+4. Both markdown styled text AND syntax-highlighted code blocks affected
+
+#### What We've Tried
+1. **Fixed byte offset tracking** - Multiple attempts to fix `line_start_pos` calculation
+2. **Fixed space skipping logic** - Ensured `skip_spaces` is calculated correctly
+3. **Fixed style span position mapping** - Adjusted for space-skipped text
+4. **Added extensive debug logging** - Confirmed text extraction is correct
+5. **Fixed cluster position handling** - Verified glyph shaping is working
+
+#### Current Understanding
+- Text extraction is CORRECT: "line that should" is properly extracted
+- Glyph shaping is CORRECT: 16 glyphs are created for 16 characters
+- Cell creation is CORRECT: 16 cells are created
+- But rendering shows systematic character invisibility
+
+This suggests the issue is either:
+1. In how cells are positioned/rendered
+2. In how the glyph cache handles certain glyphs
+3. In some interaction between line number and character rendering
 
 ### Syntax Highlighting (Code Blocks) ✅
 - **Status**: WORKING - ASCII-only implementation
@@ -49,11 +70,17 @@ ERROR Failed to shape segment "OpenSSL error" to cells: Texture Size exceeded, n
   - Non-ASCII/whitespace/ligatures get default color by design
   - Segment batching for performance
   - Theme integration with WezTerm color palettes
+- **Issue**: Also affected by the progressive character loss pattern
 
-### Font Variants (Markdown Text) ❌
-- **Status**: NOT WORKING - Two blocking issues prevent any text with font variants from displaying
-- **Infrastructure**: Complete - fonts load, style spans created, shaping attempted
-- **Blocking issues**: See Critical Issues above
+### Font Variants (Markdown Text) ✅/❌
+- **Status**: PARTIALLY WORKING
+- **What works**:
+  - Bold/italic text is now VISIBLE (fixed transparent color issue)
+  - Fonts load correctly
+  - Style spans are created properly
+  - Text shaping works
+- **What doesn't work**:
+  - Progressive character loss pattern affects all styled text
 
 ### Recently Completed (Jul 1-2 2025)
 1. ✅ **Segment Batching Bug** – fixed color-comparison logic; draw-call batching now triggers correctly.  
@@ -67,69 +94,57 @@ ERROR Failed to shape segment "OpenSSL error" to cells: Texture Size exceeded, n
 
 **Key Debug Commands:**
 ```bash
-# Basic logging for wrapped lines and font usage
-WEZTERM_LOG=debug ./target/release/wezterm 2>&1 | grep -E "(shape_line_with_styles:|Using style span font|Failed to shape segment)"
+# Check wrapped lines and font usage
+WEZTERM_LOG=debug ./target/release/wezterm 2>&1 | grep -E "(shape_line_with_styles:|Using style span font|Wrapped line)"
 
-# Check texture size errors and fallback
-WEZTERM_LOG=debug ./target/release/wezterm 2>&1 | grep -E "(Texture Size exceeded|Fallback also failed)"
+# Look for the specific problem pattern
+WEZTERM_LOG=debug ./target/release/wezterm 2>&1 | grep "line that should"
 
-# Verify specific wrapped line offsets
-WEZTERM_LOG=debug ./target/release/wezterm 2>&1 | grep -E "shape_line_with_styles: byte_offset=(22|39|58)"
+# Check for any warnings or errors
+WEZTERM_LOG=debug ./target/release/wezterm 2>&1 | grep -E "(WARN|ERROR|Large leading_space_bytes)"
 ```
 
-**Current Behavior:**
-1. Font variants load successfully (`bold=true, italic=true, bold_italic=true`)
-2. Style spans are created correctly with font references
-3. Text is shaped and cells are created (23 cells for "I see you're getting an")
-4. But styled text is invisible due to texture size error
-5. Fallback to default font doesn't make text visible
+### Technical Fixes Applied
 
-### Technical Analysis
+#### Fix 1: Transparent Text Color (SOLVED)
+- **Problem**: Style spans used `ElementColors::default()` with `text: Inherited`
+- **Solution**: Set explicit text color `LinearRgba::with_components(0.9, 0.9, 0.9, 1.0)`
+- **File**: `markdown.rs` line ~450
 
-**Texture Size Issue:**
-- The glyph cache appears to have a 256x256 texture limit
-- When bold/italic glyphs are cached, it exceeds this limit
-- The error propagates even with fallback handling
-- Possible solutions:
-  1. Increase glyph cache texture size
-  2. Clear/compact glyph cache before rendering sidebar
-  3. Use a separate glyph cache for sidebar fonts
+#### Fix 2: Texture Size Error Propagation (SOLVED)
+- **Problem**: `shape_line_with_styles()` caught and suppressed `OutOfTextureSpace` errors
+- **Solution**: Check for `OutOfTextureSpace` and propagate instead of suppressing
+- **File**: `box_model.rs` lines ~1620-1650
 
-**Character Loss Issue:**
-The byte offset calculation has a cumulative error. Current logic:
-1. `line_start_pos` tracks position in line
-2. When skipping spaces: `line_start_pos = current_pos` (after skip)
-3. `byte_offset = line_byte_start + actual_line_start`
-4. But `actual_line_start` calculation is incorrect
+#### Fix 3: Progressive Character Loss (UNSOLVED)
+Multiple attempts made:
+1. **Byte offset tracking** - Tried various approaches to track `line_start_pos`
+2. **Space adjustment** - Fixed style span position mapping for space-skipped text
+3. **Wrap position handling** - Tried both skipping and not skipping wrap space
+4. **Debug verification** - Confirmed text extraction and shaping are correct
 
-**Why Bold/Italic Text Is Invisible:**
-Even when fallback to default font is triggered, the text doesn't appear. This suggests:
-1. The error handling might be breaking the render pipeline
-2. The computed element might have incorrect bounds
-3. The cells might be created but not rendered
+The pattern persists: Nth wrapped line missing Nth character of each word.
 
-### Next Steps to Investigate
+### Next Steps to Investigate Progressive Character Loss
 
-**For Texture Size Issue:**
-1. Find where glyph cache size is configured (likely in `glyphcache.rs` or `renderstate.rs`)
-2. Check if cache can be increased or if there's a config option
-3. Investigate why fallback doesn't work - cells might be empty or have zero size
-4. Consider pre-loading common glyphs to avoid runtime allocation
+**Critical Pattern Analysis:**
+The Nth wrapped line is missing the Nth character of EACH WORD. This is too specific to be a simple offset error. Since:
+- Text extraction is correct
+- Glyph shaping is correct (16 glyphs for "line that should")
+- Cell creation is correct (16 cells created)
+- But rendering shows blank spaces for specific characters
 
-**For Character Loss Issue:**
-1. Add detailed logging of byte positions at each step of wrapping
-2. The issue appears to be cumulative - each line loses more characters
-3. Focus on the relationship between:
-   - `current_pos` (position in line being processed)
-   - `line_start_pos` (where the wrapped line starts)
-   - `skip_spaces` (spaces to skip at line start)
-   - `actual_line_start` calculation
+**Hypotheses to Test:**
+1. **Per-word offset accumulation**: Something is applying an offset based on line number to each word
+2. **Glyph cache key collision**: The Nth character might be getting a bad cache entry
+3. **Rendering position calculation**: Cell positions might be offset by line number
+4. **Style span interaction**: The pattern only affects `StyledWrappedText`, not plain text
 
-**For Rendering Investigation:**
-1. Check if cells have valid bounds/positions
-2. Verify the computed element has correct dimensions
-3. Look for z-index or clipping issues
-4. Check if the render pipeline skips elements with errors
+**Next Investigation Steps:**
+1. Check if glyph cache keys include any line number information
+2. Trace cell positioning calculations during rendering
+3. Look for any place where line number affects character rendering
+4. Test if the issue occurs without style spans (plain text with uniform font)
 
 ### Key Code Locations
 

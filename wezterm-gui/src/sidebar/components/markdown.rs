@@ -445,10 +445,15 @@ impl MarkdownRenderer {
                         };
 
                         // Store text with its font
+                        // Use explicit text color to avoid transparent text
+                        let text_colors = ElementColors {
+                            text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
+                            ..Default::default()
+                        };
                         current_paragraph.push((
                             text.to_string(),
                             text_font,
-                            ElementColors::default(),
+                            text_colors,
                         ));
                     }
                 }
