@@ -337,5 +337,8 @@ Keep implementation without font variants.
 - [ ] Performance optimization for style lookups
 - [ ] Background color support for selections, extend `StyleSpan` to carry bg; update `MultilineText` renderer; needed for selection highlight
 
+### Font color fix
+- [ ] Some text is hard-coded with LinearRgba::with_components(0.9, 0.9, 0.9, 1.0), should come from theme.
+
 ### Font Variant Perfection
 - [ ] Support font changes mid-word
