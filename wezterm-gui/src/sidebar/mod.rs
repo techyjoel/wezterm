@@ -15,13 +15,19 @@ pub struct SidebarFonts {
     pub heading: Rc<LoadedFont>,
     /// Font for body text (status chips, filter chips, content)
     pub body: Rc<LoadedFont>,
+    /// Bold variant of body font for markdown emphasis
+    pub body_bold: Option<Rc<LoadedFont>>,
+    /// Italic variant of body font for markdown emphasis
+    pub body_italic: Option<Rc<LoadedFont>>,
+    /// Bold-italic variant of body font for markdown emphasis
+    pub body_bold_italic: Option<Rc<LoadedFont>>,
     /// Font for code blocks in markdown
     pub code: Rc<LoadedFont>,
-    /// Bold variant of code font for syntax highlighting
+    /// Bold variant of code font (kept for future use, not used in code blocks)
     pub code_bold: Option<Rc<LoadedFont>>,
-    /// Italic variant of code font for syntax highlighting
+    /// Italic variant of code font (kept for future use, not used in code blocks)
     pub code_italic: Option<Rc<LoadedFont>>,
-    /// Bold-italic variant of code font for syntax highlighting
+    /// Bold-italic variant of code font (kept for future use, not used in code blocks)
     pub code_bold_italic: Option<Rc<LoadedFont>>,
     /// Line height multiplier for code blocks
     pub code_line_height: f64,
@@ -30,19 +36,28 @@ pub struct SidebarFonts {
 }
 
 impl SidebarFonts {
-    /// Get the appropriate font variant based on font style flags
-    pub fn get_code_font_variant(&self, style_flags: Option<&crate::termwindow::box_model::FontStyleFlags>) -> &Rc<LoadedFont> {
+    /// Get the appropriate code font variant based on font style flags
+    pub fn get_code_font_variant(
+        &self,
+        style_flags: Option<&crate::termwindow::box_model::FontStyleFlags>,
+    ) -> &Rc<LoadedFont> {
         match style_flags {
             Some(flags) if flags.bold && flags.italic => {
                 self.code_bold_italic.as_ref().unwrap_or(&self.code)
             }
-            Some(flags) if flags.bold => {
-                self.code_bold.as_ref().unwrap_or(&self.code)
-            }
-            Some(flags) if flags.italic => {
-                self.code_italic.as_ref().unwrap_or(&self.code)
-            }
+            Some(flags) if flags.bold => self.code_bold.as_ref().unwrap_or(&self.code),
+            Some(flags) if flags.italic => self.code_italic.as_ref().unwrap_or(&self.code),
             _ => &self.code,
+        }
+    }
+
+    /// Get the appropriate body font variant for markdown emphasis
+    pub fn get_body_font_for_emphasis(&self, bold: bool, italic: bool) -> &Rc<LoadedFont> {
+        match (bold, italic) {
+            (true, true) => self.body_bold_italic.as_ref().unwrap_or(&self.body),
+            (true, false) => self.body_bold.as_ref().unwrap_or(&self.body),
+            (false, true) => self.body_italic.as_ref().unwrap_or(&self.body),
+            (false, false) => &self.body,
         }
     }
 }

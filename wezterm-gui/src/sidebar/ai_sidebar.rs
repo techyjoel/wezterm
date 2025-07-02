@@ -350,13 +350,13 @@ This should resolve your OpenSSL linking error. If problems persist, check your 
 
 The fastest way to resolve this is usually:
 
-1. First, check if OpenSSL is installed:
+1. First, *check* if OpenSSL is installed:
    ```bash
    brew list openssl
    brew list | grep openssl
    ```
 
-2. If not installed, run:
+2. If **not installed**, run:
    ```bash
    brew install openssl@3
    # or for older projects:

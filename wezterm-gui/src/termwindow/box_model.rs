@@ -16,7 +16,7 @@ use std::rc::Rc;
 use termwiz::cell::{grapheme_column_width, unicode_column_width, Presentation};
 use termwiz::surface::Line;
 use unicode_segmentation::UnicodeSegmentation;
-use wezterm_font::shaper::GlyphInfo;
+use wezterm_font::shaper::{Direction, GlyphInfo};
 use wezterm_font::units::PixelUnit;
 use wezterm_font::LoadedFont;
 use wezterm_term::color::{ColorAttribute, ColorPalette};
@@ -52,20 +52,25 @@ impl StyleSpan {
                     i, span.start, span.end
                 ));
             }
-            
+
             if span.end > text_len {
                 return Err(format!(
                     "Style span {} exceeds text length: end {} > text_len {}",
                     i, span.end, text_len
                 ));
             }
-            
+
             // Check for overlaps with previous spans
             for (j, other) in spans[..i].iter().enumerate() {
                 if span.start < other.end && span.end > other.start {
                     log::debug!(
                         "Warning: Style spans {} and {} overlap: [{}, {}) and [{}, {})",
-                        j, i, other.start, other.end, span.start, span.end
+                        j,
+                        i,
+                        other.start,
+                        other.end,
+                        span.start,
+                        span.end
                     );
                 }
             }
@@ -190,23 +195,21 @@ impl AsciiStyleMapper {
         }
 
         // Find style span for single ASCII characters with validation
-        let found_span = style_spans
-            .iter()
-            .find(|span| {
-                // Validate span bounds
-                if span.start > self.text.len() || span.end > self.text.len() {
-                    log::warn!(
-                        "Invalid style span [{}, {}) for text length {}",
-                        span.start,
-                        span.end,
-                        self.text.len()
-                    );
-                    false
-                } else {
-                    *byte_start >= span.start && *byte_start < span.end
-                }
-            });
-            
+        let found_span = style_spans.iter().find(|span| {
+            // Validate span bounds
+            if span.start > self.text.len() || span.end > self.text.len() {
+                log::warn!(
+                    "Invalid style span [{}, {}) for text length {}",
+                    span.start,
+                    span.end,
+                    self.text.len()
+                );
+                false
+            } else {
+                *byte_start >= span.start && *byte_start < span.end
+            }
+        });
+
         match found_span {
             Some(span) => (span.colors.clone(), span.font_style),
             None => (default_colors.clone(), None),
@@ -457,6 +460,13 @@ pub struct ElementColors {
     pub border: BorderColor,
     pub bg: InheritableColor,
     pub text: InheritableColor,
+}
+
+impl ElementColors {
+    /// Check if this has default values
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
 }
 
 struct ResolvedColor {
@@ -871,6 +881,19 @@ pub enum ElementCell {
     Glyph(Rc<CachedGlyph>),
 }
 
+/// Represents a wrapped line of text with its byte offsets
+#[derive(Debug, Clone)]
+struct WrappedLine {
+    /// Byte offset in the original text where this line starts
+    byte_offset: usize,
+    /// Byte offset in the original text where this line ends (exclusive)
+    byte_end: usize,
+    /// Whether to skip leading spaces when rendering
+    skip_leading_spaces: bool,
+    /// Number of bytes to skip at start (for leading space handling)
+    leading_space_bytes: usize,
+}
+
 #[derive(Debug)]
 struct Rects {
     padding: RectF,
@@ -1195,21 +1218,41 @@ impl super::TermWindow {
         max_width: f32,
         context: &LayoutContext,
         default_style: &config::TextStyle,
-    ) -> anyhow::Result<(Vec<Vec<ElementCell>>, Vec<Vec<ElementColors>>, Vec<Vec<Option<FontStyleFlags>>>)> {
-        // First, wrap the text normally using the default font
-        let wrapped_lines =
-            self.wrap_text(text, default_font, max_width, context, default_style)?;
+    ) -> anyhow::Result<(
+        Vec<Vec<ElementCell>>,
+        Vec<Vec<ElementColors>>,
+        Vec<Vec<Option<FontStyleFlags>>>,
+    )> {
+        // Step 1: Wrap using uniform width estimates
+        let char_width = context.metrics.cell_size.width as f32;
+        let wrapped_lines = self.wrap_text_with_estimates(text, char_width, max_width);
 
-        // Create the style mapper
+        // Step 2: Shape each wrapped line with appropriate fonts
+        let mut shaped_lines = Vec::new();
+        for line in &wrapped_lines {
+            let shaped = self.shape_line_with_styles(
+                line,
+                style_spans,
+                default_font,
+                context,
+                default_style,
+                text,
+            )?;
+            shaped_lines.push(shaped);
+        }
+
+        // Step 3: Build style mappings
+        // Create the style mapper for colors
         let mut mapper = AsciiStyleMapper::new(text);
-        mapper.track_wrapping(&wrapped_lines);
+        // Track wrapping using the shaped lines to maintain compatibility
+        mapper.track_wrapping(&shaped_lines);
 
         // Build per-cell styles and font styles
         let mut line_styles = Vec::new();
         let mut line_font_styles = Vec::new();
         let default_colors = ElementColors::default();
 
-        for (line_idx, line) in wrapped_lines.iter().enumerate() {
+        for (line_idx, line) in shaped_lines.iter().enumerate() {
             let mut line_colors = Vec::new();
             let mut line_fonts = Vec::new();
 
@@ -1224,7 +1267,7 @@ impl super::TermWindow {
             line_font_styles.push(line_fonts);
         }
 
-        Ok((wrapped_lines, line_styles, line_font_styles))
+        Ok((shaped_lines, line_styles, line_font_styles))
     }
 
     /// Helper to calculate text width from shaped glyphs
@@ -1311,6 +1354,318 @@ impl super::TermWindow {
             }
         }
 
+        Ok(cells)
+    }
+
+    /// Wraps text using uniform width estimates to determine line breaks
+    fn wrap_text_with_estimates(
+        &self,
+        text: &str,
+        char_width: f32,
+        max_width: f32,
+    ) -> Vec<WrappedLine> {
+        let mut wrapped_lines = Vec::new();
+        let mut byte_offset = 0;
+
+        // Split by newlines first to preserve line structure
+        for line_text in text.lines() {
+            let line_byte_start = byte_offset;
+            let line_byte_len = line_text.len();
+
+            if line_text.is_empty() {
+                // Preserve empty lines
+                wrapped_lines.push(WrappedLine {
+                    byte_offset: line_byte_start,
+                    byte_end: line_byte_start,
+                    skip_leading_spaces: false,
+                    leading_space_bytes: 0,
+                });
+                byte_offset += 1; // Account for newline
+                continue;
+            }
+
+            let mut current_pos = 0; // byte position within line
+            let mut current_width = 0.0;
+            let mut line_count = 0; // track if this is a continuation line
+
+            // Calculate initial indentation width (but don't skip it in position)
+            let leading_spaces = line_text.len() - line_text.trim_start().len();
+            if leading_spaces > 0 {
+                current_width += leading_spaces as f32 * char_width;
+                // Don't update current_pos - we want to include the indentation in the first line
+            }
+
+            while current_pos < line_byte_len {
+                let mut line_start_pos = current_pos;
+                let mut line_width = current_width;
+                let mut last_space_pos = None;
+                let mut last_space_width = current_width;
+
+                // For continuation lines, skip leading spaces
+                let mut skip_spaces = 0;
+                if line_count > 0 {
+                    // Skip leading spaces on continuation lines
+                    let remaining = &line_text[current_pos..];
+                    let trimmed = remaining.trim_start();
+                    skip_spaces = remaining.len() - trimmed.len();
+                    current_pos += skip_spaces;
+                    line_start_pos = current_pos;
+                    line_width = 0.0;
+                }
+
+                // Find where to wrap this line
+                let mut char_indices = line_text[current_pos..].char_indices();
+                let mut wrap_pos = current_pos;
+
+                for (byte_idx, ch) in char_indices {
+                    let actual_pos = current_pos + byte_idx;
+                    let ch_width = char_width;
+
+                    // Check if adding this character would exceed width
+                    if line_width + ch_width > max_width && line_width > 0.0 {
+                        // Need to wrap
+                        if let Some(space_pos) = last_space_pos {
+                            // Wrap at last space
+                            wrap_pos = space_pos;
+                            current_width = last_space_width;
+                        } else {
+                            // No space found, wrap at current position
+                            wrap_pos = actual_pos;
+                        }
+                        break;
+                    }
+
+                    line_width += ch_width;
+                    wrap_pos = actual_pos + ch.len_utf8();
+
+                    if ch == ' ' {
+                        last_space_pos = Some(actual_pos);
+                        last_space_width = line_width;
+                    }
+                }
+
+                // Create wrapped line
+                // Note: line_start_pos has already been adjusted for skipped spaces
+                // So we need to use the original position before space skipping for byte_offset
+                let actual_line_start = if line_count > 0 && skip_spaces > 0 {
+                    line_start_pos - skip_spaces
+                } else {
+                    line_start_pos
+                };
+                
+                wrapped_lines.push(WrappedLine {
+                    byte_offset: line_byte_start + actual_line_start,
+                    byte_end: line_byte_start + wrap_pos,
+                    skip_leading_spaces: line_count > 0,
+                    leading_space_bytes: skip_spaces,
+                });
+
+                // Move to next line
+                line_count += 1;
+                
+                // Skip the space that caused the wrap if present
+                if wrap_pos < line_byte_len && line_text.as_bytes()[wrap_pos] == b' ' {
+                    current_pos = wrap_pos + 1;
+                } else {
+                    current_pos = wrap_pos;
+                }
+                current_width = 0.0;
+            }
+
+            byte_offset = line_byte_start + line_byte_len + 1; // +1 for newline
+        }
+
+        wrapped_lines
+    }
+
+    /// Shapes a wrapped line with the appropriate fonts based on style spans
+    fn shape_line_with_styles(
+        &self,
+        line: &WrappedLine,
+        style_spans: &[StyleSpan],
+        default_font: &Rc<LoadedFont>,
+        context: &LayoutContext,
+        style: &config::TextStyle,
+        original_text: &str,
+    ) -> anyhow::Result<Vec<ElementCell>> {
+        let mut cells = Vec::new();
+
+        // Extract the line text from the original with bounds checking
+        if line.byte_offset > original_text.len() || line.byte_end > original_text.len() {
+            log::error!(
+                "Invalid byte offsets: offset={}, end={}, text_len={}",
+                line.byte_offset,
+                line.byte_end,
+                original_text.len()
+            );
+            return Ok(cells);
+        }
+        let full_line_text = &original_text[line.byte_offset..line.byte_end];
+
+        // Apply space skipping if needed
+        let line_text = if line.skip_leading_spaces && line.leading_space_bytes > 0 {
+            if line.leading_space_bytes > full_line_text.len() {
+                log::error!(
+                    "Invalid leading_space_bytes: {} > line length {}",
+                    line.leading_space_bytes,
+                    full_line_text.len()
+                );
+                full_line_text
+            } else {
+                &full_line_text[line.leading_space_bytes..]
+            }
+        } else {
+            full_line_text
+        };
+
+        if line_text.is_empty() {
+            return Ok(cells);
+        }
+
+        log::debug!(
+            "shape_line_with_styles: byte_offset={}, byte_end={}, skip={}, skip_bytes={}, line_text={:?}, full_line={:?}",
+            line.byte_offset, line.byte_end, line.skip_leading_spaces, line.leading_space_bytes, line_text, full_line_text
+        );
+
+        // Calculate the effective byte offset after space skipping
+        let effective_byte_offset = line.byte_offset
+            + if line.skip_leading_spaces {
+                line.leading_space_bytes
+            } else {
+                0
+            };
+
+        // Find which style spans overlap with this line
+        let mut segments = Vec::new();
+        let mut last_end = 0;
+
+        for span in style_spans {
+            // Check if span overlaps with this line
+            if span.end <= effective_byte_offset || span.start >= line.byte_end {
+                continue;
+            }
+
+            // Calculate overlap within the line text
+            let start_in_line = if span.start > effective_byte_offset {
+                span.start - effective_byte_offset
+            } else {
+                0
+            };
+
+            let end_in_line = if span.end < line.byte_end {
+                (span.end - effective_byte_offset).min(line_text.len())
+            } else {
+                line_text.len()
+            };
+
+            // Add unstyled segment before this span if needed
+            if start_in_line > last_end {
+                segments.push((last_end, start_in_line, None));
+            }
+
+            // Add styled segment
+            if start_in_line < end_in_line {
+                segments.push((start_in_line, end_in_line, Some(span)));
+                last_end = end_in_line;
+            }
+        }
+
+        // Add final unstyled segment if needed
+        if last_end < line_text.len() {
+            segments.push((last_end, line_text.len(), None));
+        }
+
+        // If no segments, shape entire line with default font
+        if segments.is_empty() {
+            segments.push((0, line_text.len(), None));
+        }
+
+        // Shape each segment with its appropriate font
+        for (start, end, style_span) in segments {
+            if start >= end {
+                continue; // Skip empty segments
+            }
+
+            let segment_text = &line_text[start..end];
+            let font = if let Some(span) = style_span {
+                if let Some(span_font) = &span.font {
+                    log::debug!(
+                        "Using style span font for segment {:?}",
+                        segment_text
+                    );
+                    span_font
+                } else {
+                    default_font
+                }
+            } else {
+                default_font
+            };
+
+            // Shape the segment
+            let window = self.window.as_ref().unwrap().clone();
+            let infos = font.shape(
+                segment_text,
+                move || window.notify(TermWindowNotif::InvalidateShapeCache),
+                BlockKey::filter_out_synthetic,
+                None,
+                wezterm_bidi::Direction::LeftToRight,
+                None,
+                None,
+            )?;
+
+            log::debug!(
+                "Shaped segment {:?} with {} glyphs",
+                segment_text,
+                infos.len()
+            );
+
+            // Convert to cells
+            let segment_cells = match self.shape_text_to_cells(segment_text, &infos, font, context, style) {
+                Ok(cells) => cells,
+                Err(e) => {
+                    log::error!(
+                        "Failed to shape segment {:?} to cells: {}. Falling back to default font.",
+                        segment_text, e
+                    );
+                    // Fallback: try with default font
+                    if !Rc::ptr_eq(font, default_font) {
+                        let window = self.window.as_ref().unwrap().clone();
+                        let fallback_infos = default_font.shape(
+                            segment_text,
+                            move || window.notify(TermWindowNotif::InvalidateShapeCache),
+                            BlockKey::filter_out_synthetic,
+                            None,
+                            wezterm_bidi::Direction::LeftToRight,
+                            None,
+                            None,
+                        )?;
+                        match self.shape_text_to_cells(segment_text, &fallback_infos, default_font, context, style) {
+                            Ok(cells) => cells,
+                            Err(e2) => {
+                                log::error!("Fallback also failed: {}", e2);
+                                vec![] // Return empty rather than fail the entire line
+                            }
+                        }
+                    } else {
+                        vec![] // Return empty rather than fail the entire line
+                    }
+                }
+            };
+            
+            log::debug!(
+                "Created {} cells for segment {:?}",
+                segment_cells.len(),
+                segment_text
+            );
+            
+            cells.extend(segment_cells);
+        }
+
+        log::debug!(
+            "shape_line_with_styles complete: created {} total cells",
+            cells.len()
+        );
+        
         Ok(cells)
     }
 

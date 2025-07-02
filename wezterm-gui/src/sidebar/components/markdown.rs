@@ -72,7 +72,7 @@ impl MarkdownRenderer {
     /// Render markdown text to an Element tree
     pub fn render(text: &str, font: &Rc<LoadedFont>) -> Element {
         let mut renderer = Self::new();
-        renderer.render_markdown(text, font, None, 1.0, 3.0, None, None, None)
+        renderer.render_markdown(text, None, font, None, 1.0, 3.0, None, None, None)
     }
 
     /// Render markdown text with a specific code font
@@ -82,7 +82,17 @@ impl MarkdownRenderer {
         code_font: &Rc<LoadedFont>,
     ) -> Element {
         let mut renderer = Self::new();
-        renderer.render_markdown(text, font, Some(code_font), 1.0, 3.0, None, None, None)
+        renderer.render_markdown(
+            text,
+            None,
+            font,
+            Some(code_font),
+            1.0,
+            3.0,
+            None,
+            None,
+            None,
+        )
     }
 
     /// Render markdown text with a specific code font and max width
@@ -93,7 +103,17 @@ impl MarkdownRenderer {
         max_width: Option<f32>,
     ) -> Element {
         let mut renderer = Self::new();
-        renderer.render_markdown(text, font, Some(code_font), 1.0, 3.0, max_width, None, None)
+        renderer.render_markdown(
+            text,
+            None,
+            font,
+            Some(code_font),
+            1.0,
+            3.0,
+            max_width,
+            None,
+            None,
+        )
     }
 
     /// Render markdown text with a code block registry for state management
@@ -108,7 +128,75 @@ impl MarkdownRenderer {
         let mut renderer = Self::new();
         renderer.code_block_registry = Some(registry);
         renderer.context_prefix = context.to_string();
-        renderer.render_markdown(text, font, Some(code_font), 1.0, 3.0, max_width, None, None)
+        renderer.render_markdown(
+            text,
+            None,
+            font,
+            Some(code_font),
+            1.0,
+            3.0,
+            max_width,
+            None,
+            None,
+        )
+    }
+
+    /// Build a paragraph element from collected segments
+    fn build_paragraph_element(
+        segments: &[(String, &Rc<LoadedFont>, ElementColors)],
+        default_font: &Rc<LoadedFont>,
+    ) -> Element {
+        let mut combined_text = String::new();
+        let mut style_spans = Vec::new();
+
+        for (text, text_font, colors) in segments {
+            let start = combined_text.len();
+            combined_text.push_str(text);
+            let end = combined_text.len();
+
+            // Add style span if using different font or colors
+            if !Rc::ptr_eq(text_font, default_font) || !colors.is_default() {
+                style_spans.push(StyleSpan {
+                    start,
+                    end,
+                    colors: colors.clone(),
+                    font: Some((*text_font).clone()),
+                    font_style: None,
+                });
+            }
+        }
+
+        let spans_count = style_spans.len();
+        let text_len = combined_text.len();
+        
+        let element = if !style_spans.is_empty() {
+            Element::new(
+                default_font,
+                ElementContent::StyledWrappedText {
+                    text: combined_text,
+                    style_spans,
+                },
+            )
+        } else {
+            Element::new(default_font, ElementContent::WrappedText(combined_text))
+        };
+
+        log::debug!(
+            "Created paragraph element with {} style spans, text length: {}",
+            spans_count,
+            text_len
+        );
+        
+        element
+            .colors(ElementColors {
+                text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
+                ..Default::default()
+            })
+            .padding(BoxDimension {
+                bottom: Dimension::Pixels(8.0),
+                ..Default::default()
+            })
+            .display(DisplayType::Block)
     }
 
     /// Render markdown text with SidebarFonts (includes bold heading font)
@@ -117,6 +205,7 @@ impl MarkdownRenderer {
 
         renderer.render_markdown(
             text,
+            Some(fonts),
             &fonts.body,
             Some(&fonts.code),
             fonts.code_line_height,
@@ -140,6 +229,7 @@ impl MarkdownRenderer {
         renderer.context_prefix = context.to_string();
         renderer.render_markdown(
             text,
+            Some(fonts),
             &fonts.body,
             Some(&fonts.code),
             fonts.code_line_height,
@@ -164,6 +254,7 @@ impl MarkdownRenderer {
         renderer.context_prefix = context.to_string();
         renderer.render_markdown(
             text,
+            Some(fonts),
             &fonts.body,
             Some(&fonts.code),
             fonts.code_line_height,
@@ -178,6 +269,7 @@ impl MarkdownRenderer {
     fn render_markdown(
         &mut self,
         text: &str,
+        fonts: Option<&SidebarFonts>,
         font: &Rc<LoadedFont>,
         code_font: Option<&Rc<LoadedFont>>,
         code_line_height: f64,
@@ -188,7 +280,7 @@ impl MarkdownRenderer {
     ) -> Element {
         let parser = Parser::new(text);
         let mut elements = Vec::new();
-        let mut current_paragraph = Vec::new();
+        let mut current_paragraph: Vec<(String, &Rc<LoadedFont>, ElementColors)> = Vec::new();
         let mut in_code_block = false;
         let mut code_block_lang = None;
         let mut code_block_content = String::new();
@@ -231,26 +323,14 @@ impl MarkdownRenderer {
                 Event::End(tag) => match tag {
                     Tag::Paragraph => {
                         if !current_paragraph.is_empty() {
-                            let text = current_paragraph.join("");
-                            elements.push(
-                                Element::new(font, ElementContent::WrappedText(text))
-                                    .colors(ElementColors {
-                                        text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0)
-                                            .into(),
-                                        ..Default::default()
-                                    })
-                                    .padding(BoxDimension {
-                                        bottom: Dimension::Pixels(8.0),
-                                        ..Default::default()
-                                    })
-                                    .display(DisplayType::Block),
-                            );
+                            let paragraph_element =
+                                Self::build_paragraph_element(&current_paragraph, font);
+                            elements.push(paragraph_element);
                             current_paragraph.clear();
                         }
                     }
                     Tag::Heading(level, _, _) => {
                         if !current_paragraph.is_empty() {
-                            let text = current_paragraph.join("");
                             let (size, color, padding) = match level {
                                 HeadingLevel::H1 => (
                                     1.5,
@@ -272,22 +352,30 @@ impl MarkdownRenderer {
 
                             // Use heading font if available, otherwise use regular font
                             let heading_element_font = heading_font.unwrap_or(font);
-                            elements.push(
-                                Element::new(
-                                    heading_element_font,
-                                    ElementContent::WrappedText(text),
-                                )
-                                .colors(ElementColors {
-                                    text: color.into(),
-                                    ..Default::default()
-                                })
-                                .padding(BoxDimension {
-                                    top: Dimension::Pixels(padding),
-                                    bottom: Dimension::Pixels(padding / 2.0),
-                                    ..Default::default()
-                                })
-                                .display(DisplayType::Block),
-                            );
+
+                            // Build heading text from segments
+                            let mut combined_text = String::new();
+                            for (text, _, _) in &current_paragraph {
+                                combined_text.push_str(text);
+                            }
+
+                            // Headings use WrappedText for proper wrapping
+                            let heading_element = Element::new(
+                                heading_element_font,
+                                ElementContent::WrappedText(combined_text),
+                            )
+                            .colors(ElementColors {
+                                text: color.into(),
+                                ..Default::default()
+                            })
+                            .padding(BoxDimension {
+                                top: Dimension::Pixels(padding),
+                                bottom: Dimension::Pixels(padding / 2.0),
+                                ..Default::default()
+                            })
+                            .display(DisplayType::Block);
+
+                            elements.push(heading_element);
                             current_paragraph.clear();
                         }
                         heading_level = None;
@@ -335,35 +423,54 @@ impl MarkdownRenderer {
                     if in_code_block {
                         code_block_content.push_str(&text);
                     } else {
-                        // Apply emphasis styles
-                        let styled_text = if emphasis_stack
+                        // Determine if we have bold and/or italic emphasis
+                        let has_bold = emphasis_stack
                             .iter()
-                            .any(|e| matches!(e, TextEmphasis::Bold))
-                        {
-                            // TODO: Apply bold styling when font variants are supported
-                            text.to_string()
-                        } else if emphasis_stack
+                            .any(|e| matches!(e, TextEmphasis::Bold));
+                        let has_italic = emphasis_stack
                             .iter()
-                            .any(|e| matches!(e, TextEmphasis::Italic))
-                        {
-                            // TODO: Apply italic styling when font variants are supported
-                            text.to_string()
+                            .any(|e| matches!(e, TextEmphasis::Italic));
+
+                        // Select the appropriate font based on emphasis
+                        let text_font = if let Some(fonts) = fonts {
+                            fonts.get_body_font_for_emphasis(has_bold, has_italic)
                         } else {
-                            text.to_string()
+                            if has_bold || has_italic {
+                                log::warn!(
+                                    "Font emphasis requested (bold={}, italic={}) but SidebarFonts not provided",
+                                    has_bold, has_italic
+                                );
+                            }
+                            font
                         };
-                        current_paragraph.push(styled_text);
+
+                        // Store text with its font
+                        current_paragraph.push((
+                            text.to_string(),
+                            text_font,
+                            ElementColors::default(),
+                        ));
                     }
                 }
                 Event::Code(code) => {
-                    // Inline code - for now just add as formatted text
-                    // TODO: Implement proper inline code with code font
-                    current_paragraph.push(format!("`{}`", code));
+                    // Inline code - use code font with special colors
+                    let code_colors = ElementColors {
+                        text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
+                        bg: LinearRgba::with_components(0.15, 0.15, 0.15, 1.0).into(),
+                        ..Default::default()
+                    };
+
+                    current_paragraph.push((
+                        code.to_string(),
+                        code_font.unwrap_or(font),
+                        code_colors,
+                    ));
                 }
                 Event::SoftBreak => {
-                    current_paragraph.push(" ".to_string());
+                    current_paragraph.push((" ".to_string(), font, ElementColors::default()));
                 }
                 Event::HardBreak => {
-                    current_paragraph.push("\n".to_string());
+                    current_paragraph.push(("\n".to_string(), font, ElementColors::default()));
                 }
                 _ => {}
             }
@@ -371,15 +478,8 @@ impl MarkdownRenderer {
 
         // Handle any remaining paragraph content
         if !current_paragraph.is_empty() {
-            let text = current_paragraph.join("");
-            elements.push(
-                Element::new(font, ElementContent::WrappedText(text))
-                    .colors(ElementColors {
-                        text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
-                        ..Default::default()
-                    })
-                    .display(DisplayType::Block),
-            );
+            let paragraph_element = Self::build_paragraph_element(&current_paragraph, font);
+            elements.push(paragraph_element);
         }
 
         // Wrap all elements in a container
@@ -687,16 +787,7 @@ impl MarkdownRenderer {
                         style.foreground.a as f32 / 255.0,
                     );
 
-                    // Extract font style flags from syntect
-                    let font_style_flags = if style.font_style.is_empty() {
-                        None
-                    } else {
-                        Some(crate::termwindow::box_model::FontStyleFlags {
-                            bold: style.font_style.contains(syntect::highlighting::FontStyle::BOLD),
-                            italic: style.font_style.contains(syntect::highlighting::FontStyle::ITALIC),
-                        })
-                    };
-
+                    // Code blocks use colors only, no font variants
                     style_spans.push(StyleSpan {
                         start,
                         end,
@@ -704,8 +795,8 @@ impl MarkdownRenderer {
                             text: color.into(),
                             ..Default::default()
                         },
-                        font: None, // Will be resolved during rendering based on font_style
-                        font_style: font_style_flags,
+                        font: None,
+                        font_style: None, // No font variants in code blocks
                     });
 
                     combined_text.push_str(text);
@@ -731,7 +822,7 @@ impl MarkdownRenderer {
                     );
                     continue;
                 }
-                
+
                 // Use StyledWrappedText for syntax highlighting with wrapping
                 let wrapped_line = Element::new(
                     font,

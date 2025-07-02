@@ -494,19 +494,26 @@ impl crate::TermWindow {
             let body_font = self.fonts.sidebar_body_font()?;
             let code_font = self.fonts.sidebar_code_font()?;
 
-            // Font variants for syntax highlighting
-            // Note: These are left as None for now. Implementing font variants
-            // requires reshaping text with different fonts, which is complex.
-            // The infrastructure is in place for future implementation.
-            // See COLORED_WRAPPED_TEXT_PLAN.md task #9 for details.
-            
+            // Load synthetic font variants
+            let (
+                body_bold,
+                body_italic,
+                body_bold_italic,
+                code_bold,
+                code_italic,
+                code_bold_italic,
+            ) = self.load_sidebar_font_variants(&body_font, &code_font);
+
             let fonts = crate::sidebar::SidebarFonts {
                 heading: heading_font.clone(),
                 body: body_font,
+                body_bold,
+                body_italic,
+                body_bold_italic,
                 code: code_font,
-                code_bold: None,
-                code_italic: None,
-                code_bold_italic: None,
+                code_bold,
+                code_italic,
+                code_bold_italic,
                 code_line_height: self.config.clibuddy.right_sidebar.fonts.code_line_height,
                 code_line_margin: self.config.clibuddy.right_sidebar.fonts.code_line_margin,
             };
@@ -865,13 +872,26 @@ impl crate::TermWindow {
             let body_font = self.fonts.sidebar_body_font()?;
             let code_font = self.fonts.sidebar_code_font()?;
 
+            // Load synthetic font variants
+            let (
+                body_bold,
+                body_italic,
+                body_bold_italic,
+                code_bold,
+                code_italic,
+                code_bold_italic,
+            ) = self.load_sidebar_font_variants(&body_font, &code_font);
+
             let fonts = crate::sidebar::SidebarFonts {
                 heading: heading_font.clone(),
                 body: body_font,
+                body_bold,
+                body_italic,
+                body_bold_italic,
                 code: code_font,
-                code_bold: None,
-                code_italic: None,
-                code_bold_italic: None,
+                code_bold,
+                code_italic,
+                code_bold_italic,
                 code_line_height: self.config.clibuddy.right_sidebar.fonts.code_line_height,
                 code_line_margin: self.config.clibuddy.right_sidebar.fonts.code_line_margin,
             };
@@ -920,5 +940,46 @@ impl crate::TermWindow {
         }
 
         Ok(())
+    }
+
+    /// Load synthetic font variants for sidebar markdown rendering
+    fn load_sidebar_font_variants(
+        &self,
+        body_font: &Rc<LoadedFont>,
+        code_font: &Rc<LoadedFont>,
+    ) -> (
+        Option<Rc<LoadedFont>>, // body_bold
+        Option<Rc<LoadedFont>>, // body_italic
+        Option<Rc<LoadedFont>>, // body_bold_italic
+        Option<Rc<LoadedFont>>, // code_bold
+        Option<Rc<LoadedFont>>, // code_italic
+        Option<Rc<LoadedFont>>, // code_bold_italic
+    ) {
+        let body_style = body_font.style();
+        let code_style = code_font.style();
+
+        let body_bold = self.fonts.resolve_font(&body_style.make_bold()).ok();
+        let body_italic = self.fonts.resolve_font(&body_style.make_italic()).ok();
+        let body_bold_italic = self.fonts
+            .resolve_font(&body_style.make_bold().make_italic())
+            .ok();
+        
+        log::debug!(
+            "Loaded sidebar font variants: bold={}, italic={}, bold_italic={}",
+            body_bold.is_some(),
+            body_italic.is_some(),
+            body_bold_italic.is_some()
+        );
+        
+        (
+            body_bold,
+            body_italic,
+            body_bold_italic,
+            self.fonts.resolve_font(&code_style.make_bold()).ok(),
+            self.fonts.resolve_font(&code_style.make_italic()).ok(),
+            self.fonts
+                .resolve_font(&code_style.make_bold().make_italic())
+                .ok(),
+        )
     }
 }
