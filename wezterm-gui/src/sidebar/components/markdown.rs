@@ -168,7 +168,7 @@ impl MarkdownRenderer {
 
         let spans_count = style_spans.len();
         let text_len = combined_text.len();
-        
+
         let element = if !style_spans.is_empty() {
             Element::new(
                 default_font,
@@ -186,7 +186,7 @@ impl MarkdownRenderer {
             spans_count,
             text_len
         );
-        
+
         element
             .colors(ElementColors {
                 text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
@@ -450,11 +450,7 @@ impl MarkdownRenderer {
                             text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
                             ..Default::default()
                         };
-                        current_paragraph.push((
-                            text.to_string(),
-                            text_font,
-                            text_colors,
-                        ));
+                        current_paragraph.push((text.to_string(), text_font, text_colors));
                     }
                 }
                 Event::Code(code) => {

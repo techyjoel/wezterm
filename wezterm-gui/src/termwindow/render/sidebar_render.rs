@@ -960,17 +960,18 @@ impl crate::TermWindow {
 
         let body_bold = self.fonts.resolve_font(&body_style.make_bold()).ok();
         let body_italic = self.fonts.resolve_font(&body_style.make_italic()).ok();
-        let body_bold_italic = self.fonts
+        let body_bold_italic = self
+            .fonts
             .resolve_font(&body_style.make_bold().make_italic())
             .ok();
-        
+
         log::debug!(
             "Loaded sidebar font variants: bold={}, italic={}, bold_italic={}",
             body_bold.is_some(),
             body_italic.is_some(),
             body_bold_italic.is_some()
         );
-        
+
         (
             body_bold,
             body_italic,

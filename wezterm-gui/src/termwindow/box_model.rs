@@ -113,6 +113,54 @@ impl AsciiStyleMapper {
         mapper
     }
 
+    pub fn track_wrapping_with_lines(
+        &mut self,
+        wrapped_lines: &[Vec<ElementCell>],
+        wrapped_line_info: &[WrappedLine],
+    ) {
+        self.grapheme_to_cell.clear();
+        self.grapheme_to_cell
+            .resize(self.grapheme_to_byte_range.len(), None);
+
+        // Process each wrapped line accounting for skipped spaces
+        for (line_idx, (line_cells, line_info)) in wrapped_lines
+            .iter()
+            .zip(wrapped_line_info.iter())
+            .enumerate()
+        {
+            // Find the starting grapheme index for this line
+            let line_start_byte =
+                if line_info.skip_leading_spaces && line_info.leading_space_bytes > 0 {
+                    line_info.byte_offset + line_info.leading_space_bytes
+                } else {
+                    line_info.byte_offset
+                };
+
+            // Get the grapheme index for the first non-skipped byte
+            let mut grapheme_idx = if line_start_byte < self.byte_to_grapheme.len() {
+                self.byte_to_grapheme[line_start_byte]
+            } else {
+                continue;
+            };
+
+            // Map cells to graphemes for this line
+            for (cell_idx, cell) in line_cells.iter().enumerate() {
+                match cell {
+                    ElementCell::Glyph(_glyph) => {
+                        if grapheme_idx < self.grapheme_to_cell.len() {
+                            self.grapheme_to_cell[grapheme_idx] = Some((line_idx, cell_idx));
+                            grapheme_idx += 1;
+                        }
+                    }
+                    ElementCell::Sprite(_) => {
+                        // Sprites are block drawing chars that already had their
+                        // grapheme mapped when they were a glyph, don't advance
+                    }
+                }
+            }
+        }
+    }
+
     pub fn track_wrapping(&mut self, wrapped_lines: &[Vec<ElementCell>]) {
         self.grapheme_to_cell.clear();
         self.grapheme_to_cell
@@ -1244,8 +1292,8 @@ impl super::TermWindow {
         // Step 3: Build style mappings
         // Create the style mapper for colors
         let mut mapper = AsciiStyleMapper::new(text);
-        // Track wrapping using the shaped lines to maintain compatibility
-        mapper.track_wrapping(&shaped_lines);
+        // Track wrapping using the shaped lines with line info to handle skipped spaces
+        mapper.track_wrapping_with_lines(&shaped_lines, &wrapped_lines);
 
         // Build per-cell styles and font styles
         let mut line_styles = Vec::new();
@@ -1329,7 +1377,6 @@ impl super::TermWindow {
         let mut cells = Vec::new();
         let mut glyph_cache = context.gl_state.glyph_cache.borrow_mut();
 
-
         for info in infos {
             // Check if it's a unicode block glyph
             let cell_start = &text[info.cluster as usize..];
@@ -1397,23 +1444,20 @@ impl super::TermWindow {
             }
 
             while current_pos < line_byte_len {
-                // For continuation lines, skip leading spaces
+                // Store the actual start position of this line segment
+                let line_start_pos = current_pos;
+
+                // For continuation lines, calculate and skip leading spaces
                 let mut skip_spaces = 0;
-                let line_start_pos_before_skip = current_pos;
-                if line_count > 0 {
-                    // Skip leading spaces on continuation lines
+                if line_count > 0 && current_pos < line_byte_len {
+                    // Count leading spaces from the current position
                     let remaining = &line_text[current_pos..];
                     let trimmed = remaining.trim_start();
                     skip_spaces = remaining.len() - trimmed.len();
-                    
-                    
+
                     // Advance current_pos past spaces for wrapping calculations
                     current_pos += skip_spaces;
                 }
-                
-                // line_start_pos should point to where we'll start extracting text
-                // For continuation lines with spaces, this is before the spaces
-                let line_start_pos = line_start_pos_before_skip;
                 let mut line_width = if line_count > 0 { 0.0 } else { current_width };
                 let mut last_space_pos = None;
                 let mut last_space_width = current_width;
@@ -1450,17 +1494,13 @@ impl super::TermWindow {
                 }
 
                 // Create wrapped line
-                // line_start_pos points to the beginning of the line (including spaces)
-                // For continuation lines, we track skip_spaces separately
-                let actual_line_start = line_start_pos;
-                
                 let wrapped_line = WrappedLine {
-                    byte_offset: line_byte_start + actual_line_start,
+                    byte_offset: line_byte_start + line_start_pos,
                     byte_end: line_byte_start + wrap_pos,
                     skip_leading_spaces: line_count > 0,
                     leading_space_bytes: skip_spaces,
                 };
-                
+
                 // Debug wrapped line creation
                 if line_count > 0 {
                     let wrapped_text = &text[wrapped_line.byte_offset..wrapped_line.byte_end];
@@ -1473,12 +1513,12 @@ impl super::TermWindow {
                         wrapped_text
                     );
                 }
-                
+
                 wrapped_lines.push(wrapped_line);
 
                 // Move to next line
                 line_count += 1;
-                
+
                 // Set position for next line
                 // Skip the space that caused the wrap if present
                 if wrap_pos < line_byte_len && line_text.as_bytes()[wrap_pos] == b' ' {
@@ -1539,15 +1579,8 @@ impl super::TermWindow {
             return Ok(cells);
         }
 
-        // Check if leading_space_bytes might be set to line number
-        if line.skip_leading_spaces && line.leading_space_bytes > 1 {
-            log::warn!(
-                "Large leading_space_bytes={} for line starting at byte_offset={}",
-                line.leading_space_bytes,
-                line.byte_offset
-            );
-        }
-        
+        // Debug check for unusually large space counts (removed - the logic is now correct)
+
         log::debug!(
             "shape_line_with_styles: byte_offset={}, byte_end={}, skip={}, skip_bytes={}, line_text={:?}, full_line={:?}",
             line.byte_offset, line.byte_end, line.skip_leading_spaces, line.leading_space_bytes, line_text, full_line_text
@@ -1561,7 +1594,6 @@ impl super::TermWindow {
         let mut segments = Vec::new();
         let mut last_end = 0;
 
-
         for span in style_spans {
             // Check if span overlaps with this line
             if span.end <= effective_byte_offset || span.start >= line.byte_end {
@@ -1574,29 +1606,31 @@ impl super::TermWindow {
             } else {
                 0
             };
-            
+
             let end_in_original = if span.end < line.byte_end {
                 span.end - effective_byte_offset
             } else {
                 line.byte_end - effective_byte_offset
             };
-            
+
             // Adjust positions for the space-skipped line_text
-            let start_in_line = if line.skip_leading_spaces && start_in_original >= line.leading_space_bytes {
-                start_in_original - line.leading_space_bytes
-            } else if line.skip_leading_spaces && start_in_original < line.leading_space_bytes {
-                0
-            } else {
-                start_in_original
-            };
-            
-            let end_in_line = if line.skip_leading_spaces && end_in_original >= line.leading_space_bytes {
-                (end_in_original - line.leading_space_bytes).min(line_text.len())
-            } else if line.skip_leading_spaces && end_in_original < line.leading_space_bytes {
-                0
-            } else {
-                end_in_original.min(line_text.len())
-            };
+            let start_in_line =
+                if line.skip_leading_spaces && start_in_original >= line.leading_space_bytes {
+                    start_in_original - line.leading_space_bytes
+                } else if line.skip_leading_spaces && start_in_original < line.leading_space_bytes {
+                    0
+                } else {
+                    start_in_original
+                };
+
+            let end_in_line =
+                if line.skip_leading_spaces && end_in_original >= line.leading_space_bytes {
+                    (end_in_original - line.leading_space_bytes).min(line_text.len())
+                } else if line.skip_leading_spaces && end_in_original < line.leading_space_bytes {
+                    0
+                } else {
+                    end_in_original.min(line_text.len())
+                };
 
             // Add unstyled segment before this span if needed
             if start_in_line > last_end {
@@ -1627,14 +1661,10 @@ impl super::TermWindow {
             }
 
             let segment_text = &line_text[start..end];
-            
-            
+
             let font = if let Some(span) = style_span {
                 if let Some(span_font) = &span.font {
-                    log::debug!(
-                        "Using style span font for segment {:?}",
-                        segment_text
-                    );
+                    log::debug!("Using style span font for segment {:?}", segment_text);
                     span_font
                 } else {
                     default_font
@@ -1662,54 +1692,65 @@ impl super::TermWindow {
             );
 
             // Convert to cells
-            let segment_cells = match self.shape_text_to_cells(segment_text, &infos, font, context, style) {
-                Ok(cells) => cells,
-                Err(e) => {
-                    // Check if this is an OutOfTextureSpace error that needs to propagate
-                    if e.root_cause().downcast_ref::<OutOfTextureSpace>().is_some() {
-                        return Err(e);
-                    }
-                    
-                    // For other errors, try fallback logic
-                    log::error!(
+            let segment_cells =
+                match self.shape_text_to_cells(segment_text, &infos, font, context, style) {
+                    Ok(cells) => cells,
+                    Err(e) => {
+                        // Check if this is an OutOfTextureSpace error that needs to propagate
+                        if e.root_cause().downcast_ref::<OutOfTextureSpace>().is_some() {
+                            return Err(e);
+                        }
+
+                        // For other errors, try fallback logic
+                        log::error!(
                         "Failed to shape segment {:?} to cells: {}. Falling back to default font.",
                         segment_text, e
                     );
-                    // Fallback: try with default font
-                    if !Rc::ptr_eq(font, default_font) {
-                        let window = self.window.as_ref().unwrap().clone();
-                        let fallback_infos = default_font.shape(
-                            segment_text,
-                            move || window.notify(TermWindowNotif::InvalidateShapeCache),
-                            BlockKey::filter_out_synthetic,
-                            None,
-                            wezterm_bidi::Direction::LeftToRight,
-                            None,
-                            None,
-                        )?;
-                        match self.shape_text_to_cells(segment_text, &fallback_infos, default_font, context, style) {
-                            Ok(cells) => cells,
-                            Err(e2) => {
-                                // Also check for OutOfTextureSpace in fallback
-                                if e2.root_cause().downcast_ref::<OutOfTextureSpace>().is_some() {
-                                    return Err(e2);
+                        // Fallback: try with default font
+                        if !Rc::ptr_eq(font, default_font) {
+                            let window = self.window.as_ref().unwrap().clone();
+                            let fallback_infos = default_font.shape(
+                                segment_text,
+                                move || window.notify(TermWindowNotif::InvalidateShapeCache),
+                                BlockKey::filter_out_synthetic,
+                                None,
+                                wezterm_bidi::Direction::LeftToRight,
+                                None,
+                                None,
+                            )?;
+                            match self.shape_text_to_cells(
+                                segment_text,
+                                &fallback_infos,
+                                default_font,
+                                context,
+                                style,
+                            ) {
+                                Ok(cells) => cells,
+                                Err(e2) => {
+                                    // Also check for OutOfTextureSpace in fallback
+                                    if e2
+                                        .root_cause()
+                                        .downcast_ref::<OutOfTextureSpace>()
+                                        .is_some()
+                                    {
+                                        return Err(e2);
+                                    }
+                                    log::error!("Fallback also failed: {}", e2);
+                                    vec![] // Return empty rather than fail the entire line
                                 }
-                                log::error!("Fallback also failed: {}", e2);
-                                vec![] // Return empty rather than fail the entire line
                             }
+                        } else {
+                            vec![] // Return empty rather than fail the entire line
                         }
-                    } else {
-                        vec![] // Return empty rather than fail the entire line
                     }
-                }
-            };
-            
+                };
+
             log::debug!(
                 "Created {} cells for segment {:?}",
                 segment_cells.len(),
                 segment_text
             );
-            
+
             cells.extend(segment_cells);
         }
 
@@ -1717,7 +1758,7 @@ impl super::TermWindow {
             "shape_line_with_styles complete: created {} total cells",
             cells.len()
         );
-        
+
         Ok(cells)
     }
 
