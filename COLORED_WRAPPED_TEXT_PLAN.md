@@ -59,19 +59,21 @@ This document tracks our efforts to implement syntax highlighting and font varia
 6. ✅ **Progressive Character Loss Fix** – Fixed grapheme-to-cell mapping for skipped spaces
 7. ✅ **Font Width Calculation** – Implemented actual font measurement instead of using terminal cell width
 8. ✅ **Text Clipping Fix** – Removed content boundary restrictions to allow proper rendering
-9. ✅ **Performance Optimization** – Added font width caching and monospace optimization
+9. ✅ **Performance Optimization** – Added font width caching (thread-local) and monospace optimization
 10. ✅ **Syntax Dimming Factor** – Made configurable via `clibuddy.right_sidebar.fonts.syntax_dimming_factor`
 11. ✅ **Character Loss at Wrap Points** – Fixed wrap position calculation bug
 12. ✅ **Restored Markdown Styling** – Fixed regression that broke bold/italic support
+13. ✅ **Missing Characters in Markdown** – Fixed color inheritance issue where unstyled text was transparent
 
 ### Key Technical Solutions
 
-1. **Character Width Calculation**: The `calculate_average_char_width()` function measures actual font metrics using a representative text sample with caching
+1. **Character Width Calculation**: The `calculate_average_char_width()` function measures actual font metrics using a representative text sample with thread-local caching
 2. **Grapheme Tracking**: The `track_wrapping_with_lines()` method properly accounts for skipped leading spaces on wrapped lines
 3. **Text Rendering**: Removed clipping restrictions to allow text to render into padding areas when needed (prevents character loss)
 4. **Font Selection**: Style spans correctly specify fonts for bold/italic text rendering
 5. **Monospace Optimization**: Code blocks bypass width calculation for monospace fonts
 6. **Per-Token Highlighting**: Fixed wrap position tracking to maintain per-token syntax colors
+7. **Color Inheritance**: Fixed by passing element colors to `wrap_styled_text` as default for unstyled segments
 
 ### Technical Fixes Applied
 
@@ -84,6 +86,11 @@ This document tracks our efforts to implement syntax highlighting and font varia
 - **Problem**: `shape_line_with_styles()` caught and suppressed `OutOfTextureSpace` errors
 - **Solution**: Check for `OutOfTextureSpace` and propagate instead of suppressing
 - **File**: `box_model.rs` lines ~1620-1650
+
+#### Fix 3: Color Inheritance for Unstyled Text (SOLVED)
+- **Problem**: Unstyled text segments used `ElementColors::default()` which inherits color, resulting in transparent text when no parent exists
+- **Solution**: Pass element's colors to `wrap_styled_text()` as default for unstyled segments
+- **File**: `box_model.rs` - added `element_colors` parameter to `wrap_styled_text()`
 
 ### Key Code Locations
 
@@ -274,11 +281,11 @@ Keep implementation without font variants.
 - [ ] Font colors should come from theme instead of hardcoded values (currently using 0.9, 0.9, 0.9)
 - [ ] Support font changes mid-word (e.g., "**bo**ld") - currently changes apply to whole words
 - [ ] Background color support for text selections
-- [ ] Consider making WIDTH_CORRECTION_FACTOR configurable (currently 1.05)
+- [ ] Consider making WIDTH_CORRECTION_FACTOR configurable (currently 1.02)
 - [ ] Calculate code block chrome dynamically instead of hardcoded 26px
 
 ### Performance Optimizations
-- [ ] Consider using thread-local storage for font width cache instead of global mutex
+- [x] ~~Consider using thread-local storage for font width cache instead of global mutex~~ - Implemented
 - [ ] Implement LRU eviction for font width cache instead of simple clear-all
 
 ### Documentation

@@ -136,6 +136,11 @@ impl MarkdownRenderer {
             }
         }
 
+        // Validate style spans
+        if let Err(e) = StyleSpan::validate_spans(&style_spans, combined_text.len()) {
+            log::error!("Invalid style spans in paragraph: {}", e);
+        }
+
         let spans_count = style_spans.len();
         let text_len = combined_text.len();
 

@@ -14,7 +14,6 @@ use finl_unicode::grapheme_clusters::Graphemes;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::Mutex;
 use termwiz::cell::{grapheme_column_width, unicode_column_width, Presentation};
 use termwiz::surface::Line;
 use unicode_segmentation::UnicodeSegmentation;
@@ -27,9 +26,9 @@ use window::bitmaps::atlas::{OutOfTextureSpace, Sprite};
 /// Maximum number of fonts to cache character widths for
 const FONT_WIDTH_CACHE_SIZE: usize = 100;
 
-lazy_static::lazy_static! {
+thread_local! {
     /// Cache for font character widths to avoid re-calculating on every wrap
-    static ref FONT_WIDTH_CACHE: Mutex<HashMap<LoadedFontId, f32>> = Mutex::new(HashMap::new());
+    static FONT_WIDTH_CACHE: RefCell<HashMap<LoadedFontId, f32>> = RefCell::new(HashMap::new());
 }
 
 /// Font style flags for syntax highlighting
@@ -1268,6 +1267,11 @@ impl super::TermWindow {
     }
 
     /// Wraps styled text with per-span colors and optional fonts
+    /// 
+    /// # Parameters
+    /// - `element_colors`: The element's colors to use as default for unstyled text segments.
+    ///   This parameter was added to fix a bug where unstyled text would inherit transparent
+    ///   color when there was no parent element to inherit from.
     pub fn wrap_styled_text(
         &self,
         text: &str,
@@ -1276,6 +1280,7 @@ impl super::TermWindow {
         max_width: f32,
         context: &LayoutContext,
         default_style: &config::TextStyle,
+        element_colors: &ElementColors,
     ) -> anyhow::Result<(
         Vec<Vec<ElementCell>>,
         Vec<Vec<ElementColors>>,
@@ -1324,7 +1329,8 @@ impl super::TermWindow {
         // Build per-cell styles and font styles
         let mut line_styles = Vec::new();
         let mut line_font_styles = Vec::new();
-        let default_colors = ElementColors::default();
+        // Use the element's colors as default for unstyled text
+        let default_colors = element_colors.clone();
 
         for (line_idx, line) in shaped_lines.iter().enumerate() {
             let mut line_colors = Vec::new();
@@ -1354,12 +1360,10 @@ impl super::TermWindow {
         let font_id = font.id();
         
         // Check cache first
-        {
-            let cache = FONT_WIDTH_CACHE.lock()
-                .expect("Font width cache mutex poisoned");
-            if let Some(&width) = cache.get(&font_id) {
-                return Ok(width);
-            }
+        if let Some(width) = FONT_WIDTH_CACHE.with(|cache| {
+            cache.borrow().get(&font_id).copied()
+        }) {
+            return Ok(width);
         }
         
         // Use a representative sample of characters to estimate average width
@@ -1393,9 +1397,8 @@ impl super::TermWindow {
         let avg_width = raw_avg_width * WIDTH_CORRECTION_FACTOR;
         
         // Store in cache with simple eviction policy
-        {
-            let mut cache = FONT_WIDTH_CACHE.lock()
-                .expect("Font width cache mutex poisoned");
+        FONT_WIDTH_CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
             
             // Simple eviction: clear cache if it gets too large
             if cache.len() >= FONT_WIDTH_CACHE_SIZE {
@@ -1403,7 +1406,7 @@ impl super::TermWindow {
             }
             
             cache.insert(font_id, avg_width);
-        }
+        });
         
         Ok(avg_width)
     }
@@ -1668,6 +1671,8 @@ impl super::TermWindow {
         let mut segments = Vec::new();
         let mut last_end = 0;
 
+        // First, collect all style spans that affect this line
+        let mut line_spans = Vec::new();
         for span in style_spans {
             // Check if span overlaps with this line
             if span.end <= effective_byte_offset || span.start >= line.byte_end {
@@ -1688,35 +1693,47 @@ impl super::TermWindow {
             };
 
             // Adjust positions for the space-skipped line_text
-            let start_in_line =
-                if line.skip_leading_spaces && start_in_original >= line.leading_space_bytes {
+            let start_in_line = if line.skip_leading_spaces && line.leading_space_bytes > 0 {
+                if start_in_original >= line.leading_space_bytes {
                     start_in_original - line.leading_space_bytes
-                } else if line.skip_leading_spaces && start_in_original < line.leading_space_bytes {
-                    0
                 } else {
-                    start_in_original
-                };
+                    0
+                }
+            } else {
+                start_in_original
+            };
 
-            let end_in_line =
-                if line.skip_leading_spaces && end_in_original >= line.leading_space_bytes {
+            let end_in_line = if line.skip_leading_spaces && line.leading_space_bytes > 0 {
+                if end_in_original > line.leading_space_bytes {
                     (end_in_original - line.leading_space_bytes).min(line_text.len())
-                } else if line.skip_leading_spaces && end_in_original < line.leading_space_bytes {
-                    0
                 } else {
-                    end_in_original.min(line_text.len())
-                };
+                    0
+                }
+            } else {
+                end_in_original.min(line_text.len())
+            };
 
-            // Add unstyled segment before this span if needed
-            if start_in_line > last_end {
-                segments.push((last_end, start_in_line, None));
+            // Only add if the span covers some actual text
+            if start_in_line < end_in_line && end_in_line <= line_text.len() {
+                line_spans.push((start_in_line, end_in_line, span));
+            }
+        }
+
+        // Sort spans by start position
+        line_spans.sort_by_key(|&(start, _, _)| start);
+
+        // Build segments ensuring complete coverage
+        for &(start, end, span) in &line_spans {
+            // Add unstyled segment before this span if there's a gap
+            if start > last_end {
+                segments.push((last_end, start, None));
             }
 
             // Add styled segment
-            if start_in_line < end_in_line {
-                segments.push((start_in_line, end_in_line, Some(span)));
-                last_end = end_in_line;
-            }
+            segments.push((start, end, Some(span)));
+            last_end = end.max(last_end);
         }
+
 
         // Add final unstyled segment if needed
         if last_end < line_text.len() {
@@ -1728,10 +1745,22 @@ impl super::TermWindow {
             segments.push((0, line_text.len(), None));
         }
 
+
         // Shape each segment with its appropriate font
         for (start, end, style_span) in segments {
             if start >= end {
                 continue; // Skip empty segments
+            }
+
+            // Validate byte boundaries
+            if !line_text.is_char_boundary(start) || !line_text.is_char_boundary(end) {
+                log::error!(
+                    "Invalid byte boundaries for segment: start={}, end={}, line_len={}. \
+                     This indicates a bug in segment calculation.",
+                    start, end, line_text.len()
+                );
+                // Skip this segment to avoid panic
+                continue;
             }
 
             let segment_text = &line_text[start..end];
@@ -2173,6 +2202,7 @@ impl super::TermWindow {
                     max_width,
                     context,
                     &style,
+                    &element.colors,
                 )?;
 
                 let line_height = context.height.pixel_cell;
