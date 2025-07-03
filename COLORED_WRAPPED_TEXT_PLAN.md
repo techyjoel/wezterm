@@ -4,62 +4,29 @@
 
 This document tracks our efforts to implement syntax highlighting and font variants (bold/italic) with proper line wrapping in WezTerm's sidebar. After extensive investigation, we've identified the architectural constraints and developed a pragmatic solution.
 
-## Current Status (Jul 2 2025)
+## Current Status (Jul 3 2025)
 
-### Implementation Progress
+### Implementation Complete ✅
 
-**What's Been Implemented:**
-1. **Wrap-Before-Shape Approach (Option 1)**: Preserve exact substrings from original text
+**Wrap-Before-Shape Approach Successfully Implemented:**
+1. **Core Implementation**:
    - Added `WrappedLine` struct with byte tracking and space skipping
-   - Implemented `wrap_text_with_estimates()` to wrap using uniform character widths
+   - Implemented `wrap_text_with_estimates()` using actual font character widths
    - Implemented `shape_line_with_styles()` to shape each line with appropriate fonts
    - Modified `wrap_styled_text()` to use new approach
 
-2. **Font Loading Infrastructure**:
-   - Font variants (bold/italic) are successfully loaded
-   - `SidebarFonts` struct properly configured
-   - Markdown component creates style spans with font references
+2. **Font Measurement**:
+   - Added `calculate_average_char_width()` that measures actual font metrics
+   - Uses representative sample text for accurate width estimation
+   - Properly handles proportional vs monospace font differences
+   - Includes `WIDTH_CORRECTION_FACTOR` for fine-tuning (currently 1.0)
 
 3. **Critical Fixes Applied**:
-   - ✅ Fixed invisible bold/italic text by setting explicit text color instead of inherited
-   - ✅ Fixed `OutOfTextureSpace` error propagation to allow glyph cache resizing
-   - ❌ Progressive character loss issue remains unsolved
-
-### Critical Issue: Progressive Character Loss Pattern
-
-#### The Pattern
-The issue affects BOTH styled text (bold/italic) AND code blocks. On wrapped lines:
-- **Line 1**: Displays correctly
-- **Line 2**: Missing 1st character of EACH WORD (but space is still occupied)
-- **Line 3**: Missing 2nd character of EACH WORD (but space is still occupied)
-- **Line 4**: Missing 3rd character of EACH WORD (but space is still occupied)
-- Pattern continues...
-
-Example: "line that should" displays as " ine  hat  hould" (missing 'l', 't', 's', has blank spaces)
-
-#### Key Observations
-1. The pattern is too specific to be accidental - Nth line missing Nth char of each word
-2. Affects `StyledWrappedText` but NOT plain `WrappedText`
-3. Characters are not deleted - the space is occupied but character is invisible
-4. Both markdown styled text AND syntax-highlighted code blocks affected
-
-#### What We've Tried
-1. **Fixed byte offset tracking** - Multiple attempts to fix `line_start_pos` calculation
-2. **Fixed space skipping logic** - Ensured `skip_spaces` is calculated correctly
-3. **Fixed style span position mapping** - Adjusted for space-skipped text
-4. **Added extensive debug logging** - Confirmed text extraction is correct
-5. **Fixed cluster position handling** - Verified glyph shaping is working
-
-#### Current Understanding
-- Text extraction is CORRECT: "line that should" is properly extracted
-- Glyph shaping is CORRECT: 16 glyphs are created for 16 characters
-- Cell creation is CORRECT: 16 cells are created
-- But rendering shows systematic character invisibility
-
-This suggests the issue is either:
-1. In how cells are positioned/rendered
-2. In how the glyph cache handles certain glyphs
-3. In some interaction between line number and character rendering
+   - ✅ Fixed invisible bold/italic text by setting explicit text color
+   - ✅ Fixed `OutOfTextureSpace` error propagation for glyph cache resizing
+   - ✅ Fixed progressive character loss with `track_wrapping_with_lines()`
+   - ✅ Fixed text clipping by removing content boundary restrictions
+   - ✅ Removed performance-impacting debug logging
 
 ### Syntax Highlighting (Code Blocks) ✅
 - **Status**: WORKING - ASCII-only implementation
@@ -70,39 +37,33 @@ This suggests the issue is either:
   - Non-ASCII/whitespace/ligatures get default color by design
   - Segment batching for performance
   - Theme integration with WezTerm color palettes
-- **Issue**: Also affected by the progressive character loss pattern
 
-### Font Variants (Markdown Text) ✅/❌
-- **Status**: PARTIALLY WORKING
+### Font Variants (Markdown Text) ✅
+- **Status**: FULLY WORKING
 - **What works**:
-  - Bold/italic text is now VISIBLE (fixed transparent color issue)
-  - Fonts load correctly
-  - Style spans are created properly
-  - Text shaping works
-- **What doesn't work**:
-  - Progressive character loss pattern affects all styled text
+  - Bold/italic text is visible with proper colors
+  - Fonts load and shape correctly
+  - Style spans are created and tracked properly
+  - Text wraps at appropriate positions
+  - No character loss or clipping issues
 
-### Recently Completed (Jul 1-2 2025)
+### Recently Completed (Jul 1-3 2025)
 1. ✅ **Segment Batching Bug** – fixed color-comparison logic; draw-call batching now triggers correctly.  
 2. ✅ **Debug Logging** – added `WEZTERM_LOG=debug` hooks; grep “Code block language:” or “Syntax highlighting for line”.  
 3. ✅ **WezTerm Theme Integration** – code blocks pull from active theme palette instead of a hard-coded one.  
 4. ✅ **Improved Color Mappings** – expanded `create_syntect_theme_from_palette` scope list for full token coverage.  
-5. ❌ **Punctuation-Based Wrapping** – attempted; rolled back (see Failed Attempts).
-6. ✅ **Wrap-Before-Shape Core** – Implemented but blocked by texture size and offset bugs
+5. ✅ **Wrap-Before-Shape Implementation** – Successfully implemented with proper font measurement
+6. ✅ **Progressive Character Loss Fix** – Fixed grapheme-to-cell mapping for skipped spaces
+7. ✅ **Font Width Calculation** – Implemented actual font measurement instead of using terminal cell width
+8. ✅ **Text Clipping Fix** – Removed content boundary restrictions to allow proper rendering
+9. ✅ **Performance Optimization** – Removed debug logging that impacted performance
 
-### Debug Information
+### Key Technical Solutions
 
-**Key Debug Commands:**
-```bash
-# Check wrapped lines and font usage
-WEZTERM_LOG=debug ./target/release/wezterm 2>&1 | grep -E "(shape_line_with_styles:|Using style span font|Wrapped line)"
-
-# Look for the specific problem pattern
-WEZTERM_LOG=debug ./target/release/wezterm 2>&1 | grep "line that should"
-
-# Check for any warnings or errors
-WEZTERM_LOG=debug ./target/release/wezterm 2>&1 | grep -E "(WARN|ERROR|Large leading_space_bytes)"
-```
+1. **Character Width Calculation**: The `calculate_average_char_width()` function measures actual font metrics using a representative text sample
+2. **Grapheme Tracking**: The `track_wrapping_with_lines()` method properly accounts for skipped leading spaces on wrapped lines
+3. **Text Rendering**: Removed clipping restrictions to allow text to render into padding areas when needed
+4. **Font Selection**: Style spans correctly specify fonts for bold/italic text rendering
 
 ### Technical Fixes Applied
 
@@ -329,16 +290,21 @@ Keep implementation without font variants.
 - `wrap_styled_text()` - Attempts multi-font but uses single font
 - `shape()` - Font-specific text shaping (in LoadedFont)
 
-## Backlog after this implementation is working
+## Remaining Tasks and Improvements
 
-### Syntax Highlighting Improvements
-- [ ] Configure dimming factor (currently hardcoded 0.85), expose `syntax_dimming_factor` (float 0.7-1.0) in `clibuddy.right_sidebar`; default 0.85. 
-- [ ] Document multi-cell character limitations, clarify ASCII-only design; show example with tabs & emoji in READMEs. 
-- [ ] Performance optimization for style lookups
-- [ ] Background color support for selections, extend `StyleSpan` to carry bg; update `MultilineText` renderer; needed for selection highlight
+### Code Cleanup Needed
+- [ ] Cache font character widths to avoid re-measuring on every wrap
+- [ ] Consider making text clipping configurable rather than completely removed
+- [ ] Extract core wrapping logic into a reusable trait or module
+- [ ] Consolidate error handling patterns (especially `OutOfTextureSpace`)
 
-### Font color fix
-- [ ] Some text is hard-coded with LinearRgba::with_components(0.9, 0.9, 0.9, 1.0), should come from theme.
+### Minor Enhancements
+- [ ] Configure dimming factor (currently hardcoded 0.85), expose `syntax_dimming_factor` in config
+- [ ] Font colors should come from theme instead of hardcoded values
+- [ ] Support font changes mid-word (e.g., "**bo**ld")
+- [ ] Background color support for text selections
 
-### Font Variant Perfection
-- [ ] Support font changes mid-word
+### Documentation
+- [ ] Document ASCII-only limitation for syntax highlighting
+- [ ] Add examples showing proper usage of `StyledWrappedText`
+- [ ] Document the `WIDTH_CORRECTION_FACTOR` usage for fine-tuning

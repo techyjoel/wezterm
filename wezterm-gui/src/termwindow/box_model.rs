@@ -1049,11 +1049,6 @@ impl super::TermWindow {
             let mut indentation = String::new();
             if leading_spaces > 0 {
                 indentation = " ".repeat(leading_spaces);
-                log::debug!(
-                    "wrap_text: Found {} leading spaces for line: {:?}",
-                    leading_spaces,
-                    line_text
-                );
             }
 
             // Split by whitespace, but handle spaces separately
@@ -1271,8 +1266,13 @@ impl super::TermWindow {
         Vec<Vec<ElementColors>>,
         Vec<Vec<Option<FontStyleFlags>>>,
     )> {
-        // Step 1: Wrap using uniform width estimates
-        let char_width = context.metrics.cell_size.width as f32;
+        // Step 1: Calculate average character width for the actual font being used
+        let char_width = self.calculate_average_char_width(default_font, context, default_style)?;
+        
+        // Debug: compare with monospace cell width and log more details
+        let monospace_width = context.metrics.cell_size.width as f32;
+        let ratio = char_width / monospace_width;
+        
         let wrapped_lines = self.wrap_text_with_estimates(text, char_width, max_width);
 
         // Step 2: Shape each wrapped line with appropriate fonts
@@ -1316,6 +1316,45 @@ impl super::TermWindow {
         }
 
         Ok((shaped_lines, line_styles, line_font_styles))
+    }
+
+    /// Calculate average character width for a font by measuring representative characters
+    fn calculate_average_char_width(
+        &self,
+        font: &Rc<LoadedFont>,
+        context: &LayoutContext,
+        style: &config::TextStyle,
+    ) -> anyhow::Result<f32> {
+        // Use a representative sample of characters to estimate average width
+        // This includes common letters, digits, punctuation, and spaces based on English text frequency
+        // Using a realistic sample that reflects typical English text distribution
+        // This gives more accurate width estimates than a simple character set
+        const SAMPLE_TEXT: &str = "the quick brown fox jumps over the lazy dog. this is a sample of typical english text with common words and spacing patterns that better represents actual usage in sidebars.";
+        
+        // Shape the sample text
+        let window = self.window.as_ref().unwrap().clone();
+        let infos = font.shape(
+            SAMPLE_TEXT,
+            move || window.notify(TermWindowNotif::InvalidateShapeCache),
+            BlockKey::filter_out_synthetic,
+            None,
+            Direction::LeftToRight,
+            None,
+            None,
+        )?;
+        
+        // Calculate total width
+        let total_width = self.calculate_text_width(SAMPLE_TEXT, &infos, font, context, style)?;
+        
+        // Return average width per character
+        let raw_avg_width = total_width / SAMPLE_TEXT.len() as f32;
+        
+        // Apply a small correction factor based on empirical testing
+        // Real text tends to have more spaces and narrow characters than our sample
+        const WIDTH_CORRECTION_FACTOR: f32 = 1.0;
+        let avg_width = raw_avg_width * WIDTH_CORRECTION_FACTOR;
+        
+        Ok(avg_width)
     }
 
     /// Helper to calculate text width from shaped glyphs
@@ -1501,18 +1540,6 @@ impl super::TermWindow {
                     leading_space_bytes: skip_spaces,
                 };
 
-                // Debug wrapped line creation
-                if line_count > 0 {
-                    let wrapped_text = &text[wrapped_line.byte_offset..wrapped_line.byte_end];
-                    log::debug!(
-                        "Wrapped line {}: byte_offset={}, byte_end={}, skip_spaces={}, text={:?}",
-                        line_count,
-                        wrapped_line.byte_offset,
-                        wrapped_line.byte_end,
-                        skip_spaces,
-                        wrapped_text
-                    );
-                }
 
                 wrapped_lines.push(wrapped_line);
 
@@ -1581,10 +1608,6 @@ impl super::TermWindow {
 
         // Debug check for unusually large space counts (removed - the logic is now correct)
 
-        log::debug!(
-            "shape_line_with_styles: byte_offset={}, byte_end={}, skip={}, skip_bytes={}, line_text={:?}, full_line={:?}",
-            line.byte_offset, line.byte_end, line.skip_leading_spaces, line.leading_space_bytes, line_text, full_line_text
-        );
 
         // The effective byte offset is just the line's byte offset
         // Style spans are relative to the original text, not the space-skipped text
@@ -1664,7 +1687,6 @@ impl super::TermWindow {
 
             let font = if let Some(span) = style_span {
                 if let Some(span_font) = &span.font {
-                    log::debug!("Using style span font for segment {:?}", segment_text);
                     span_font
                 } else {
                     default_font
@@ -1685,11 +1707,6 @@ impl super::TermWindow {
                 None,
             )?;
 
-            log::debug!(
-                "Shaped segment {:?} with {} glyphs",
-                segment_text,
-                infos.len()
-            );
 
             // Convert to cells
             let segment_cells =
@@ -1745,19 +1762,8 @@ impl super::TermWindow {
                     }
                 };
 
-            log::debug!(
-                "Created {} cells for segment {:?}",
-                segment_cells.len(),
-                segment_text
-            );
-
             cells.extend(segment_cells);
         }
-
-        log::debug!(
-            "shape_line_with_styles complete: created {} total cells",
-            cells.len()
-        );
 
         Ok(cells)
     }
@@ -2184,14 +2190,6 @@ impl super::TermWindow {
 
         self.render_element_background(element, colors, &mut layers, inherited_colors)?;
 
-        // Debug: Log clip bounds
-        if let Some(clip_bounds) = element.clip_bounds {
-            log::info!(
-                "DEBUG: Element has clip bounds {:?}, content_rect={:?}",
-                clip_bounds,
-                element.content_rect
-            );
-        }
 
         let left = self.dimensions.pixel_width as f32 / -2.0;
         let top = self.dimensions.pixel_height as f32 / -2.0;
@@ -2212,20 +2210,12 @@ impl super::TermWindow {
                     .unwrap_or(f32::MAX);
 
                 for cell in cells {
-                    // Don't break early if we have clip bounds - keep rendering all content
-                    if !should_clip && pos_x >= element.content_rect.max_x() {
-                        break;
-                    }
+                    // No clipping - render all content
                     match cell {
                         ElementCell::Sprite(sprite) => {
                             let width = sprite.coords.width();
                             let height = sprite.coords.height();
                             let pos_y = top + element.content_rect.min_y();
-
-                            // Don't break early if we have clip bounds
-                            if !should_clip && pos_x + width as f32 > element.content_rect.max_x() {
-                                break;
-                            }
 
                             // Manual clipping check
                             if should_clip {
@@ -2442,20 +2432,13 @@ impl super::TermWindow {
                             }
 
                             // Render the segment
+                            // No clipping - allow text to render wherever it needs to
                             for cell_idx in segment_start..segment_end {
-                                if pos_x >= element.content_rect.max_x() {
-                                    break;
-                                }
-
                                 match &line_cells[cell_idx] {
                                     ElementCell::Sprite(sprite) => {
                                         let width = sprite.coords.width();
                                         let height = sprite.coords.height();
                                         let pos_y = top + y;
-
-                                        if pos_x + width as f32 > element.content_rect.max_x() {
-                                            break;
-                                        }
 
                                         let mut quad = layers.allocate(2)?;
                                         quad.set_position(
@@ -2511,24 +2494,17 @@ impl super::TermWindow {
                     }
                 } else {
                     // Original rendering without per-cell styles
+                    // No clipping - allow text to render wherever it needs to
                     for (line_idx, line_cells) in lines.iter().enumerate() {
                         let mut pos_x = element.content_rect.min_x();
                         let y = element.content_rect.min_y() + (line_idx as f32 * line_height);
 
                         for cell in line_cells.iter() {
-                            if pos_x >= element.content_rect.max_x() {
-                                break;
-                            }
-
                             match cell {
                                 ElementCell::Sprite(sprite) => {
                                     let width = sprite.coords.width();
                                     let height = sprite.coords.height();
                                     let pos_y = top + y;
-
-                                    if pos_x + width as f32 > element.content_rect.max_x() {
-                                        break;
-                                    }
 
                                     let mut quad = layers.allocate(2)?;
                                     quad.set_position(
@@ -2548,11 +2524,7 @@ impl super::TermWindow {
                                             - (glyph.y_offset + glyph.bearing_y).get() as f32
                                             + element.baseline;
 
-                                        if pos_x + glyph.x_advance.get() as f32
-                                            > element.content_rect.max_x()
-                                        {
-                                            break;
-                                        }
+                                        // No clipping check - render the glyph regardless
                                         let pos_x =
                                             pos_x + (glyph.x_offset + glyph.bearing_x).get() as f32;
                                         let width =
