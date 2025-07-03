@@ -77,36 +77,6 @@ This document tracks our efforts to implement syntax highlighting and font varia
 - **Solution**: Check for `OutOfTextureSpace` and propagate instead of suppressing
 - **File**: `box_model.rs` lines ~1620-1650
 
-#### Fix 3: Progressive Character Loss (UNSOLVED)
-Multiple attempts made:
-1. **Byte offset tracking** - Tried various approaches to track `line_start_pos`
-2. **Space adjustment** - Fixed style span position mapping for space-skipped text
-3. **Wrap position handling** - Tried both skipping and not skipping wrap space
-4. **Debug verification** - Confirmed text extraction and shaping are correct
-
-The pattern persists: Nth wrapped line missing Nth character of each word.
-
-### Next Steps to Investigate Progressive Character Loss
-
-**Critical Pattern Analysis:**
-The Nth wrapped line is missing the Nth character of EACH WORD. This is too specific to be a simple offset error. Since:
-- Text extraction is correct
-- Glyph shaping is correct (16 glyphs for "line that should")
-- Cell creation is correct (16 cells created)
-- But rendering shows blank spaces for specific characters
-
-**Hypotheses to Test:**
-1. **Per-word offset accumulation**: Something is applying an offset based on line number to each word
-2. **Glyph cache key collision**: The Nth character might be getting a bad cache entry
-3. **Rendering position calculation**: Cell positions might be offset by line number
-4. **Style span interaction**: The pattern only affects `StyledWrappedText`, not plain text
-
-**Next Investigation Steps:**
-1. Check if glyph cache keys include any line number information
-2. Trace cell positioning calculations during rendering
-3. Look for any place where line number affects character rendering
-4. Test if the issue occurs without style spans (plain text with uniform font)
-
 ### Key Code Locations
 
 - **Wrap-Before-Shape**: `wezterm-gui/src/termwindow/box_model.rs`
@@ -294,11 +264,10 @@ Keep implementation without font variants.
 
 ### Code Cleanup Needed
 - [ ] Cache font character widths to avoid re-measuring on every wrap
-- [ ] Consider making text clipping configurable rather than completely removed
-- [ ] Extract core wrapping logic into a reusable trait or module
 - [ ] Consolidate error handling patterns (especially `OutOfTextureSpace`)
 
 ### Minor Enhancements
+- [ ] Bypass variable-width-font calculation and method(s) for code-block text (which uses fixed-width font). See file status in prior git commits for reference (may need to look back 5+ commits).
 - [ ] Configure dimming factor (currently hardcoded 0.85), expose `syntax_dimming_factor` in config
 - [ ] Font colors should come from theme instead of hardcoded values
 - [ ] Support font changes mid-word (e.g., "**bo**ld")
@@ -306,5 +275,3 @@ Keep implementation without font variants.
 
 ### Documentation
 - [ ] Document ASCII-only limitation for syntax highlighting
-- [ ] Add examples showing proper usage of `StyledWrappedText`
-- [ ] Document the `WIDTH_CORRECTION_FACTOR` usage for fine-tuning
