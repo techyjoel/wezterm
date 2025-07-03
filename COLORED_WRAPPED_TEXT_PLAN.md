@@ -278,15 +278,10 @@ Keep implementation without font variants.
 ## Remaining Tasks and Improvements
 
 ### Minor Enhancements
-- [ ] Font colors should come from theme instead of hardcoded values (currently using 0.9, 0.9, 0.9)
-- [ ] Support font changes mid-word (e.g., "**bo**ld") - currently changes apply to whole words
-- [ ] Background color support for text selections
-- [ ] Consider making WIDTH_CORRECTION_FACTOR configurable (currently 1.02)
+- [ ] All font colors should come from theme instead of any hardcoded values (may currently be using 0.9, 0.9, 0.9)
+- [ ] Support font changes mid-word if can be done without complexity (e.g., "**bo**ld") - currently changes apply to whole words. If too compelex or risky, skip
+- [ ] Makie WIDTH_CORRECTION_FACTOR configurable in our LUA file (currently 1.02) (and put a comment describing what it does and what all it affects)
 - [ ] Calculate code block chrome dynamically instead of hardcoded 26px
-
-### Performance Optimizations
-- [x] ~~Consider using thread-local storage for font width cache instead of global mutex~~ - Implemented
-- [ ] Implement LRU eviction for font width cache instead of simple clear-all
 
 ### Documentation
 - [ ] Document the wrap-before-shape approach for future contributors

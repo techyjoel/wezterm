@@ -284,7 +284,7 @@ The implementation is divided into 7 phases:
   - Cache syntax highlighted code blocks
   - Implement dirty tracking to only re-render changed content
   - Consider using a render cache keyed by content hash
-  - **Rationale**: As of the time of this writing the sidebar re-renders all markdown on every frame causing performance issues
+  - **Rationale**: As of the time of this writing the sidebar re-renders all markdown on every frame causing performance issues. If that's no longer the case, or performance isn't likely to be an issue, then this could be postponed.
 
 ### 2.5 Basic Config System Integration
 - [x] **2.5.1** Integrate AI components into the Wezterm config system
@@ -298,14 +298,15 @@ The implementation is divided into 7 phases:
 
 **Remaining Phase 2 work**:
 **Known Issues To Address**
-- Multi-line chat input not yet interactive (can't click and type)
-- "View more" modal background isn't working right. We need to extend the modal background all the way to the top/bottom of the window with a color that fades from the modal background to some darker color at the top and bottom of the modal, to look like a shadow.
-- "View more" modal won't close reliably (either via esc key or clicking on X in top right)
-- Suggestion card is taller now (2 rows) so needs to compress the activity log height some
-- Activity log is mis-aligned in sidebar
-- Activity log filter chips should be below the suggestion card
-- Fix margin, padding, and alignent of all items in sidebar to make some more compact and make room for the activity log
-- Make sidebar default width 50px wider, and make adjustable by dragging on divider between sidebar and terminal area.
+- [ ] No text in the sidebar can be selected/higlighted for copy/paste. All text should be selectable.
+- [ ] Multi-line chat input not yet interactive (can't click and type)
+- [ ] "View more" modal background isn't working right. We need to extend the modal background all the way to the top/bottom of the window with a color that fades from the modal background to some darker color at the top and bottom of the modal, to look like a shadow. See MODALS.md for more details.
+- [ ] "View more" modal won't close reliably (either via esc key or clicking on X in top right)
+- [ ] Suggestion card is taller now (2 rows) so needs to compress the activity log height some
+- [ ] Activity log is mis-aligned in sidebar
+- [ ] Activity log filter chips should be below the suggestion card
+- [ ] Fix margin, padding, and alignent of all items in sidebar to make some more compact and make room for the activity log. Get user to provide screenshots for analysis.
+- [ ] Make sidebar default width 50px wider, and make adjustable by dragging on divider between sidebar and terminal area. Change font size used in sidebar from the current -1 (configurable) to same as terminal area if dragged very wide (e.g. 400px or wider), set to -2 if at narrowest point (so, ditch the configurable value in lua settings since will be doing this)
 
 ---
 
