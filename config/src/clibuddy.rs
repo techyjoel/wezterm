@@ -109,6 +109,13 @@ pub struct SidebarFontConfig {
     /// Bottom margin between logical lines in code blocks (in pixels)
     #[dynamic(default = "default_code_line_margin")]
     pub code_line_margin: f64,
+
+    /// Dimming factor for syntax highlighting colors (0.0-1.0, default 0.85)
+    #[dynamic(
+        default = "default_syntax_dimming_factor",
+        validate = "validate_dimming_factor"
+    )]
+    pub syntax_dimming_factor: f64,
 }
 
 impl Default for SidebarFontConfig {
@@ -119,6 +126,7 @@ impl Default for SidebarFontConfig {
             font_family: None,
             code_line_height: default_code_line_height(),
             code_line_margin: default_code_line_margin(),
+            syntax_dimming_factor: default_syntax_dimming_factor(),
         }
     }
 }
@@ -264,4 +272,18 @@ fn validate_line_height(value: &f64) -> Result<(), String> {
 
 fn default_code_line_margin() -> f64 {
     3.0 // Visual separation between logical lines in code blocks
+}
+
+fn default_syntax_dimming_factor() -> f64 {
+    0.85 // Dim syntax highlighting colors to distinguish code from regular text
+}
+
+fn validate_dimming_factor(value: &f64) -> Result<(), String> {
+    if *value < 0.0 || *value > 1.0 {
+        return Err(format!(
+            "syntax_dimming_factor must be between 0.0 and 1.0, got {}",
+            value
+        ));
+    }
+    Ok(())
 }

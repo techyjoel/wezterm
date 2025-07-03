@@ -33,6 +33,8 @@ pub struct SidebarFonts {
     pub code_line_height: f64,
     /// Bottom margin between logical lines in code blocks (in pixels)
     pub code_line_margin: f64,
+    /// Dimming factor for syntax highlighting colors (0.0-1.0)
+    pub syntax_dimming_factor: f64,
 }
 
 impl SidebarFonts {

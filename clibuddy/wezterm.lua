@@ -569,7 +569,8 @@ config.clibuddy = {
             font_size_reduction = clibuddy_config.right_sidebar.fonts.font_size_reduction,
             font_family = clibuddy_config.right_sidebar.fonts.font_family,
             code_line_height = clibuddy_config.right_sidebar.fonts.code_line_height or 0.8,
-            code_line_margin = clibuddy_config.right_sidebar.fonts.code_line_margin or 4.0
+            code_line_margin = clibuddy_config.right_sidebar.fonts.code_line_margin or 4.0,
+            syntax_dimming_factor = clibuddy_config.right_sidebar.fonts.syntax_dimming_factor or 0.85
         },
     }
 }

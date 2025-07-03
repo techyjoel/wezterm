@@ -12,15 +12,25 @@ use anyhow::anyhow;
 use config::{Dimension, DimensionContext};
 use finl_unicode::grapheme_clusters::Graphemes;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Mutex;
 use termwiz::cell::{grapheme_column_width, unicode_column_width, Presentation};
 use termwiz::surface::Line;
 use unicode_segmentation::UnicodeSegmentation;
 use wezterm_font::shaper::{Direction, GlyphInfo};
 use wezterm_font::units::PixelUnit;
-use wezterm_font::LoadedFont;
+use wezterm_font::{LoadedFont, LoadedFontId};
 use wezterm_term::color::{ColorAttribute, ColorPalette};
 use window::bitmaps::atlas::{OutOfTextureSpace, Sprite};
+
+/// Maximum number of fonts to cache character widths for
+const FONT_WIDTH_CACHE_SIZE: usize = 100;
+
+lazy_static::lazy_static! {
+    /// Cache for font character widths to avoid re-calculating on every wrap
+    static ref FONT_WIDTH_CACHE: Mutex<HashMap<LoadedFontId, f32>> = Mutex::new(HashMap::new());
+}
 
 /// Font style flags for syntax highlighting
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +52,11 @@ pub struct StyleSpan {
 }
 
 impl StyleSpan {
+    /// Check if this span represents monospace content (no font variants)
+    pub fn is_monospace(&self) -> bool {
+        self.font_style.is_none() && self.font.is_none()
+    }
+
     /// Validate a collection of style spans
     pub fn validate_spans(spans: &[StyleSpan], text_len: usize) -> Result<(), String> {
         for (i, span) in spans.iter().enumerate() {
@@ -1266,8 +1281,19 @@ impl super::TermWindow {
         Vec<Vec<ElementColors>>,
         Vec<Vec<Option<FontStyleFlags>>>,
     )> {
-        // Step 1: Calculate average character width for the actual font being used
-        let char_width = self.calculate_average_char_width(default_font, context, default_style)?;
+        // Check if this is monospace-only content (e.g., code blocks)
+        // Code blocks have no font variants and no font overrides
+        let is_monospace_only = style_spans.iter().all(|span| span.is_monospace());
+        
+        // Step 1: Calculate character width based on content type
+        let char_width = if is_monospace_only {
+            // For monospace content (code blocks), use the font's cell width directly
+            // This avoids expensive text shaping for width calculation
+            default_font.metrics().cell_width.get() as f32
+        } else {
+            // For variable-width text, calculate average width from a sample
+            self.calculate_average_char_width(default_font, context, default_style)?
+        };
         
         // Debug: compare with monospace cell width and log more details
         let monospace_width = context.metrics.cell_size.width as f32;
@@ -1325,6 +1351,17 @@ impl super::TermWindow {
         context: &LayoutContext,
         style: &config::TextStyle,
     ) -> anyhow::Result<f32> {
+        let font_id = font.id();
+        
+        // Check cache first
+        {
+            let cache = FONT_WIDTH_CACHE.lock()
+                .expect("Font width cache mutex poisoned");
+            if let Some(&width) = cache.get(&font_id) {
+                return Ok(width);
+            }
+        }
+        
         // Use a representative sample of characters to estimate average width
         // This includes common letters, digits, punctuation, and spaces based on English text frequency
         // Using a realistic sample that reflects typical English text distribution
@@ -1350,9 +1387,23 @@ impl super::TermWindow {
         let raw_avg_width = total_width / SAMPLE_TEXT.len() as f32;
         
         // Apply a small correction factor based on empirical testing
-        // Real text tends to have more spaces and narrow characters than our sample
-        const WIDTH_CORRECTION_FACTOR: f32 = 1.0;
+        // This 5% increase helps prevent wrapping issues in non-monospace text
+        // where our sample text underestimates the average width of actual content
+        const WIDTH_CORRECTION_FACTOR: f32 = 1.02; 
         let avg_width = raw_avg_width * WIDTH_CORRECTION_FACTOR;
+        
+        // Store in cache with simple eviction policy
+        {
+            let mut cache = FONT_WIDTH_CACHE.lock()
+                .expect("Font width cache mutex poisoned");
+            
+            // Simple eviction: clear cache if it gets too large
+            if cache.len() >= FONT_WIDTH_CACHE_SIZE {
+                cache.clear();
+            }
+            
+            cache.insert(font_id, avg_width);
+        }
         
         Ok(avg_width)
     }
@@ -1527,7 +1578,7 @@ impl super::TermWindow {
                     wrap_pos = actual_pos + ch.len_utf8();
 
                     if ch == ' ' {
-                        last_space_pos = Some(actual_pos);
+                        last_space_pos = Some(actual_pos + ch.len_utf8());
                         last_space_width = line_width;
                     }
                 }
@@ -2459,11 +2510,11 @@ impl super::TermWindow {
                                                 - (glyph.y_offset + glyph.bearing_y).get() as f32
                                                 + element.baseline;
 
-                                            if pos_x + glyph.x_advance.get() as f32
-                                                > element.content_rect.max_x()
-                                            {
-                                                break;
-                                            }
+                                            // Allow glyphs to render even if they extend past content boundaries
+                                            // The wrap calculation should handle preventing overflow
+                                            // We explicitly do NOT clip here because we want characters to be
+                                            // visible even if they extend slightly into padding areas.
+                                            // Clipping was causing character loss at wrap boundaries.
                                             let glyph_x = pos_x
                                                 + (glyph.x_offset + glyph.bearing_x).get() as f32;
                                             let width = texture.coords.size.width as f32

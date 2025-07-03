@@ -516,6 +516,7 @@ impl crate::TermWindow {
                 code_bold_italic,
                 code_line_height: self.config.clibuddy.right_sidebar.fonts.code_line_height,
                 code_line_margin: self.config.clibuddy.right_sidebar.fonts.code_line_margin,
+                syntax_dimming_factor: self.config.clibuddy.right_sidebar.fonts.syntax_dimming_factor,
             };
 
             // Get the color palette for syntax highlighting
@@ -894,6 +895,7 @@ impl crate::TermWindow {
                 code_bold_italic,
                 code_line_height: self.config.clibuddy.right_sidebar.fonts.code_line_height,
                 code_line_margin: self.config.clibuddy.right_sidebar.fonts.code_line_margin,
+                syntax_dimming_factor: self.config.clibuddy.right_sidebar.fonts.syntax_dimming_factor,
             };
 
             // Get modal elements

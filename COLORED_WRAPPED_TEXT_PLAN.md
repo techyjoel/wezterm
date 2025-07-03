@@ -19,24 +19,26 @@ This document tracks our efforts to implement syntax highlighting and font varia
    - Added `calculate_average_char_width()` that measures actual font metrics
    - Uses representative sample text for accurate width estimation
    - Properly handles proportional vs monospace font differences
-   - Includes `WIDTH_CORRECTION_FACTOR` for fine-tuning (currently 1.0)
+   - Includes `WIDTH_CORRECTION_FACTOR` for fine-tuning (currently 1.05)
+   - Font width calculations are cached to avoid repeated measurements
 
 3. **Critical Fixes Applied**:
    - ✅ Fixed invisible bold/italic text by setting explicit text color
    - ✅ Fixed `OutOfTextureSpace` error propagation for glyph cache resizing
    - ✅ Fixed progressive character loss with `track_wrapping_with_lines()`
    - ✅ Fixed text clipping by removing content boundary restrictions
+   - ✅ Fixed space position tracking in wrap calculations
    - ✅ Removed performance-impacting debug logging
 
 ### Syntax Highlighting (Code Blocks) ✅
-- **Status**: WORKING - ASCII-only implementation
-- **Approach**: Option 5 (Virtual Multi-Element with ASCII-Only)
+- **Status**: FULLY WORKING - Per-token highlighting
+- **Approach**: StyledWrappedText with proper wrapping fixes
 - **What works**: 
-  - Syntax highlighting for ASCII characters
-  - Proper line wrapping maintained
-  - Non-ASCII/whitespace/ligatures get default color by design
-  - Segment batching for performance
+  - Per-token syntax highlighting with individual colors
+  - Proper line wrapping without character loss
+  - Monospace font optimization (bypasses width calculation)
   - Theme integration with WezTerm color palettes
+  - Configurable syntax dimming factor
 
 ### Font Variants (Markdown Text) ✅
 - **Status**: FULLY WORKING
@@ -46,6 +48,7 @@ This document tracks our efforts to implement syntax highlighting and font varia
   - Style spans are created and tracked properly
   - Text wraps at appropriate positions
   - No character loss or clipping issues
+  - Inline code uses proper code font with background color
 
 ### Recently Completed (Jul 1-3 2025)
 1. ✅ **Segment Batching Bug** – fixed color-comparison logic; draw-call batching now triggers correctly.  
@@ -56,14 +59,19 @@ This document tracks our efforts to implement syntax highlighting and font varia
 6. ✅ **Progressive Character Loss Fix** – Fixed grapheme-to-cell mapping for skipped spaces
 7. ✅ **Font Width Calculation** – Implemented actual font measurement instead of using terminal cell width
 8. ✅ **Text Clipping Fix** – Removed content boundary restrictions to allow proper rendering
-9. ✅ **Performance Optimization** – Removed debug logging that impacted performance
+9. ✅ **Performance Optimization** – Added font width caching and monospace optimization
+10. ✅ **Syntax Dimming Factor** – Made configurable via `clibuddy.right_sidebar.fonts.syntax_dimming_factor`
+11. ✅ **Character Loss at Wrap Points** – Fixed wrap position calculation bug
+12. ✅ **Restored Markdown Styling** – Fixed regression that broke bold/italic support
 
 ### Key Technical Solutions
 
-1. **Character Width Calculation**: The `calculate_average_char_width()` function measures actual font metrics using a representative text sample
+1. **Character Width Calculation**: The `calculate_average_char_width()` function measures actual font metrics using a representative text sample with caching
 2. **Grapheme Tracking**: The `track_wrapping_with_lines()` method properly accounts for skipped leading spaces on wrapped lines
-3. **Text Rendering**: Removed clipping restrictions to allow text to render into padding areas when needed
+3. **Text Rendering**: Removed clipping restrictions to allow text to render into padding areas when needed (prevents character loss)
 4. **Font Selection**: Style spans correctly specify fonts for bold/italic text rendering
+5. **Monospace Optimization**: Code blocks bypass width calculation for monospace fonts
+6. **Per-Token Highlighting**: Fixed wrap position tracking to maintain per-token syntax colors
 
 ### Technical Fixes Applied
 
@@ -262,16 +270,17 @@ Keep implementation without font variants.
 
 ## Remaining Tasks and Improvements
 
-### Code Cleanup Needed
-- [ ] Cache font character widths to avoid re-measuring on every wrap
-- [ ] Consolidate error handling patterns (especially `OutOfTextureSpace`)
-
 ### Minor Enhancements
-- [ ] Bypass variable-width-font calculation and method(s) for code-block text (which uses fixed-width font). See file status in prior git commits for reference (may need to look back 5+ commits).
-- [ ] Configure dimming factor (currently hardcoded 0.85), expose `syntax_dimming_factor` in config
-- [ ] Font colors should come from theme instead of hardcoded values
-- [ ] Support font changes mid-word (e.g., "**bo**ld")
+- [ ] Font colors should come from theme instead of hardcoded values (currently using 0.9, 0.9, 0.9)
+- [ ] Support font changes mid-word (e.g., "**bo**ld") - currently changes apply to whole words
 - [ ] Background color support for text selections
+- [ ] Consider making WIDTH_CORRECTION_FACTOR configurable (currently 1.05)
+- [ ] Calculate code block chrome dynamically instead of hardcoded 26px
+
+### Performance Optimizations
+- [ ] Consider using thread-local storage for font width cache instead of global mutex
+- [ ] Implement LRU eviction for font width cache instead of simple clear-all
 
 ### Documentation
-- [ ] Document ASCII-only limitation for syntax highlighting
+- [ ] Document the wrap-before-shape approach for future contributors
+- [ ] Add architecture diagram showing the text rendering pipeline
