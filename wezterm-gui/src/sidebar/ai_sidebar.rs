@@ -26,6 +26,7 @@ use crate::termwindow::UIItemType;
 use anyhow::Result;
 use config::{Dimension, DimensionContext};
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
@@ -1194,6 +1195,13 @@ This example demonstrates:
         window_height: f32,
         palette: &wezterm_term::color::ColorPalette,
     ) -> Element {
+        // Performance Note: This method is called on every paint frame, causing markdown
+        // to be re-rendered 60+ times per second. Future optimizations could include:
+        // 1. Caching rendered Elements (requires making Element Send+Sync)
+        // 2. Only rendering visible items (viewport culling)
+        // 3. Detecting when content/theme/size hasn't changed
+        // 4. Moving markdown parsing to a background thread
+        // For now, we rely on the efficiency of the markdown parser and renderer.
         // Get the dynamic bounds for the activity log
         let bounds = self
             .get_activity_log_bounds(window_height)

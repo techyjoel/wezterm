@@ -448,6 +448,9 @@ local clibuddy_config = {
             -- font_family = 'Roboto',  -- Optional: override font family (defaults to Roboto)
             code_line_height = 0.8,  -- Line height multiplier for code blocks (0.5-2.0)
             code_line_margin = 4.0,  -- Bottom margin between logical lines in code blocks (pixels)
+            -- width_correction_factor = 1.02,  -- Width correction factor for text wrapping (0.8-1.5, default 1.02)
+                                                -- Helps prevent unwanted wrapping in proportional fonts
+                                                -- Increase if text wraps too early, decrease if it overflows
         },
         -- Toggle button
         button = {
@@ -570,7 +573,8 @@ config.clibuddy = {
             font_family = clibuddy_config.right_sidebar.fonts.font_family,
             code_line_height = clibuddy_config.right_sidebar.fonts.code_line_height or 0.8,
             code_line_margin = clibuddy_config.right_sidebar.fonts.code_line_margin or 4.0,
-            syntax_dimming_factor = clibuddy_config.right_sidebar.fonts.syntax_dimming_factor or 0.85
+            syntax_dimming_factor = clibuddy_config.right_sidebar.fonts.syntax_dimming_factor or 0.85,
+            width_correction_factor = clibuddy_config.right_sidebar.fonts.width_correction_factor or 1.02
         },
     }
 }

@@ -14,7 +14,9 @@
 //! - Modal overlays: z-indices 20-23
 
 use crate::quad::{QuadTrait, TripleLayerQuadAllocator, TripleLayerQuadAllocatorTrait};
-use crate::termwindow::box_model::{Element, ElementColors, ElementContent, LayoutContext};
+use crate::termwindow::box_model::{
+    set_width_correction_factor, Element, ElementColors, ElementContent, LayoutContext,
+};
 use crate::termwindow::render::neon::{NeonRenderer, NeonStyle};
 use crate::termwindow::{UIItem, UIItemType};
 use crate::utilsprites::RenderMetrics;
@@ -546,6 +548,12 @@ impl crate::TermWindow {
                     .right_sidebar
                     .fonts
                     .syntax_dimming_factor,
+                width_correction_factor: self
+                    .config
+                    .clibuddy
+                    .right_sidebar
+                    .fonts
+                    .width_correction_factor,
             };
 
             // Get the color palette for syntax highlighting
@@ -561,6 +569,9 @@ impl crate::TermWindow {
                 // If needs_animation is false, has_animation remains None and animations stop
 
                 // Get the activity log element
+                // Set the width correction factor before rendering markdown
+                set_width_correction_factor(fonts.width_correction_factor as f32);
+
                 let activity_log_element = ai_sidebar.render_activity_log_content(
                     &fonts,
                     self.dimensions.pixel_height as f32,
@@ -930,7 +941,16 @@ impl crate::TermWindow {
                     .right_sidebar
                     .fonts
                     .syntax_dimming_factor,
+                width_correction_factor: self
+                    .config
+                    .clibuddy
+                    .right_sidebar
+                    .fonts
+                    .width_correction_factor,
             };
+
+            // Set the width correction factor before rendering modals
+            set_width_correction_factor(fonts.width_correction_factor as f32);
 
             // Get modal elements
             let modal_elements =

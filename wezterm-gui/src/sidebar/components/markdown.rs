@@ -20,9 +20,17 @@ use syntect::util::LinesWithEndings;
 use wezterm_font::LoadedFont;
 use wezterm_term::color::{ColorPalette, SrgbaTuple};
 
-/// Total chrome size for code blocks (padding + border on both sides)
-/// 12px padding + 1px border on each side = 26px total
-const CODE_BLOCK_CHROME_SIZE: f32 = 26.0;
+/// Default padding for code blocks (in pixels)
+const CODE_BLOCK_PADDING: f32 = 12.0;
+
+/// Default border width for code blocks (in pixels)
+const CODE_BLOCK_BORDER: f32 = 1.0;
+
+/// Calculate the total chrome size for code blocks (padding + border on both sides)
+fn calculate_code_block_chrome() -> f32 {
+    // Each side has padding and border, so multiply by 2
+    (CODE_BLOCK_PADDING + CODE_BLOCK_BORDER) * 2.0
+}
 
 /// Container for managing code block state (primarily for copy button)
 #[derive(Debug, Clone)]
@@ -59,6 +67,18 @@ pub struct MarkdownRenderer {
 }
 
 impl MarkdownRenderer {
+    /// Get theme foreground color with optional dimming
+    fn get_theme_foreground(palette: Option<&ColorPalette>, dimming_factor: f32) -> LinearRgba {
+        if let Some(palette) = palette {
+            // Apply dimming in sRGB space for perceptually correct results
+            let dimmed = palette.foreground.mul_alpha(dimming_factor);
+            dimmed.to_linear()
+        } else {
+            // Fallback to default gray if no palette provided
+            LinearRgba::with_components(0.9, 0.9, 0.9, 1.0)
+        }
+    }
+
     /// Create a new markdown renderer with syntax highlighting support
     fn new() -> Self {
         Self {
@@ -145,6 +165,8 @@ impl MarkdownRenderer {
     fn build_paragraph_element(
         segments: &[(String, &Rc<LoadedFont>, ElementColors)],
         default_font: &Rc<LoadedFont>,
+        palette: Option<&ColorPalette>,
+        dimming_factor: f32,
     ) -> Element {
         let mut combined_text = String::new();
         let mut style_spans = Vec::new();
@@ -194,7 +216,7 @@ impl MarkdownRenderer {
 
         element
             .colors(ElementColors {
-                text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
+                text: Self::get_theme_foreground(palette, dimming_factor).into(),
                 ..Default::default()
             })
             .padding(BoxDimension {
@@ -328,8 +350,15 @@ impl MarkdownRenderer {
                 Event::End(tag) => match tag {
                     Tag::Paragraph => {
                         if !current_paragraph.is_empty() {
-                            let paragraph_element =
-                                Self::build_paragraph_element(&current_paragraph, font);
+                            let dimming_factor = fonts
+                                .map(|f| f.syntax_dimming_factor as f32)
+                                .unwrap_or(0.85);
+                            let paragraph_element = Self::build_paragraph_element(
+                                &current_paragraph,
+                                font,
+                                palette,
+                                dimming_factor,
+                            );
                             elements.push(paragraph_element);
                             current_paragraph.clear();
                         }
@@ -342,23 +371,42 @@ impl MarkdownRenderer {
                                 combined_text.push_str(text);
                             }
 
+                            let dimming_factor = fonts
+                                .map(|f| f.syntax_dimming_factor as f32)
+                                .unwrap_or(0.85);
                             let (size, color, padding) = match level {
-                                HeadingLevel::H1 => (
-                                    1.5,
-                                    LinearRgba::with_components(0.95, 0.95, 0.95, 1.0),
-                                    16.0,
-                                ),
+                                HeadingLevel::H1 => {
+                                    // Headings are slightly brighter than body text
+                                    (
+                                        1.5,
+                                        Self::get_theme_foreground(
+                                            palette,
+                                            (dimming_factor + 0.15).min(1.0),
+                                        ),
+                                        16.0,
+                                    )
+                                }
                                 HeadingLevel::H2 => (
                                     1.3,
-                                    LinearRgba::with_components(0.93, 0.93, 0.93, 1.0),
+                                    Self::get_theme_foreground(
+                                        palette,
+                                        (dimming_factor + 0.10).min(1.0),
+                                    ),
                                     14.0,
                                 ),
                                 HeadingLevel::H3 => (
                                     1.1,
-                                    LinearRgba::with_components(0.91, 0.91, 0.91, 1.0),
+                                    Self::get_theme_foreground(
+                                        palette,
+                                        (dimming_factor + 0.06).min(1.0),
+                                    ),
                                     12.0,
                                 ),
-                                _ => (1.0, LinearRgba::with_components(0.9, 0.9, 0.9, 1.0), 10.0),
+                                _ => (
+                                    1.0,
+                                    Self::get_theme_foreground(palette, dimming_factor),
+                                    10.0,
+                                ),
                             };
 
                             // Use heading font if available, otherwise use regular font
@@ -450,8 +498,11 @@ impl MarkdownRenderer {
 
                         // Store text with its font
                         // Use explicit text color to avoid transparent text
+                        let dimming_factor = fonts
+                            .map(|f| f.syntax_dimming_factor as f32)
+                            .unwrap_or(0.85);
                         let text_colors = ElementColors {
-                            text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
+                            text: Self::get_theme_foreground(palette, dimming_factor).into(),
                             ..Default::default()
                         };
                         current_paragraph.push((text.to_string(), text_font, text_colors));
@@ -483,7 +534,11 @@ impl MarkdownRenderer {
 
         // Handle any remaining paragraph content
         if !current_paragraph.is_empty() {
-            let paragraph_element = Self::build_paragraph_element(&current_paragraph, font);
+            let dimming_factor = fonts
+                .map(|f| f.syntax_dimming_factor as f32)
+                .unwrap_or(0.85);
+            let paragraph_element =
+                Self::build_paragraph_element(&current_paragraph, font, palette, dimming_factor);
             elements.push(paragraph_element);
         }
 
@@ -520,7 +575,10 @@ fn measure_code_block_width(lines: &[&str], font: &Rc<LoadedFont>) -> f32 {
 
 impl MarkdownRenderer {
     /// Create a syntect theme from WezTerm palette
-    fn create_syntect_theme_from_palette(palette: &ColorPalette) -> syntect::highlighting::Theme {
+    fn create_syntect_theme_from_palette(
+        palette: &ColorPalette,
+        dimming_factor: f32,
+    ) -> syntect::highlighting::Theme {
         use std::str::FromStr;
         use syntect::highlighting::{Color as SyntectColor, StyleModifier, Theme, ThemeSettings};
 
@@ -529,14 +587,13 @@ impl MarkdownRenderer {
             SyntectColor { r, g, b, a: 255 }
         };
 
-        // Apply 0.85 dimming to a color
-        // TODO: Make dimming factor configurable via clibuddy.right_sidebar config
+        // Apply dimming to a color
         let dim_color = |color: SrgbaTuple| -> SyntectColor {
             let (r, g, b, _) = color.to_srgb_u8();
             SyntectColor {
-                r: (r as f32 * 0.85) as u8,
-                g: (g as f32 * 0.85) as u8,
-                b: (b as f32 * 0.85) as u8,
+                r: (r as f32 * dimming_factor) as u8,
+                g: (g as f32 * dimming_factor) as u8,
+                b: (b as f32 * dimming_factor) as u8,
                 a: 255,
             }
         };
@@ -724,7 +781,10 @@ impl MarkdownRenderer {
         let default_theme = &self.theme_set.themes["base16-ocean.dark"];
         let dynamic_theme;
         let theme = if let Some(palette) = palette {
-            dynamic_theme = Self::create_syntect_theme_from_palette(palette);
+            let dimming_factor = fonts
+                .map(|f| f.syntax_dimming_factor as f32)
+                .unwrap_or(0.85);
+            dynamic_theme = Self::create_syntect_theme_from_palette(palette, dimming_factor);
             &dynamic_theme
         } else {
             default_theme
@@ -740,10 +800,9 @@ impl MarkdownRenderer {
 
         // Calculate available width for code content
         // Note: max_width is the sidebar width, we need to account for:
-        // - Code block padding: 12px each side = 24px
-        // - Code block border: 1px each side = 2px
+        // - Code block padding and border on each side
         // - Sidebar margins/padding
-        let code_block_chrome = 26.0; // padding + border
+        let code_block_chrome = calculate_code_block_chrome();
         let available_width = max_width.map(|w| {
             let adjusted = w - code_block_chrome;
             log::debug!(
@@ -895,10 +954,9 @@ impl MarkdownRenderer {
 
         // Get the actual available width for code content
         // Note: max_width is the sidebar width, we need to account for:
-        // - Code block padding: 12px each side = 24px
-        // - Code block border: 1px each side = 2px
+        // - Code block padding and border on each side
         // - Sidebar margins/padding
-        let code_block_chrome = 26.0; // padding + border
+        let code_block_chrome = calculate_code_block_chrome();
         let available_width = max_width.map(|w| {
             let adjusted = w - code_block_chrome;
             log::debug!(
@@ -948,8 +1006,8 @@ impl MarkdownRenderer {
                 border: BorderColor::new(LinearRgba::with_components(0.2, 0.2, 0.25, 0.5)),
                 ..Default::default()
             })
-            .padding(BoxDimension::new(Dimension::Pixels(12.0)))
-            .border(BoxDimension::new(Dimension::Pixels(1.0)))
+            .padding(BoxDimension::new(Dimension::Pixels(CODE_BLOCK_PADDING)))
+            .border(BoxDimension::new(Dimension::Pixels(CODE_BLOCK_BORDER)))
             .margin(BoxDimension {
                 top: Dimension::Pixels(8.0),
                 bottom: Dimension::Pixels(8.0),
@@ -975,13 +1033,19 @@ impl MarkdownRenderer {
         let copy_button = Element::new(font, ElementContent::Text(button_text))
             .colors(ElementColors {
                 bg: LinearRgba::with_components(0.2, 0.2, 0.25, 0.9).into(),
-                text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
+                text: Self::get_theme_foreground(
+                    palette,
+                    fonts
+                        .map(|f| f.syntax_dimming_factor as f32)
+                        .unwrap_or(0.85),
+                )
+                .into(),
                 border: BorderColor::new(LinearRgba::with_components(0.3, 0.3, 0.35, 0.8)),
                 ..Default::default()
             })
             .hover_colors(Some(ElementColors {
                 bg: LinearRgba::with_components(0.25, 0.25, 0.3, 0.95).into(),
-                text: LinearRgba::with_components(1.0, 1.0, 1.0, 1.0).into(),
+                text: Self::get_theme_foreground(palette, 1.0).into(),
                 border: BorderColor::new(LinearRgba::with_components(0.4, 0.4, 0.45, 0.9)),
                 ..Default::default()
             }))

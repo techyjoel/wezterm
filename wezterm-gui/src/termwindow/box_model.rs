@@ -52,6 +52,26 @@ const FONT_WIDTH_CACHE_SIZE: usize = 100;
 thread_local! {
     /// Cache for font character widths to avoid re-calculating on every wrap
     static FONT_WIDTH_CACHE: RefCell<HashMap<LoadedFontId, f32>> = RefCell::new(HashMap::new());
+
+    /// Thread-local width correction factor for text wrapping calculations
+    /// Default is 1.02 (2% extra width)
+    ///
+    /// Note: We use thread-local storage here because box_model doesn't have access
+    /// to the config directly, and LayoutContext doesn't carry config data.
+    /// This is set by the sidebar renderer before rendering markdown content.
+    /// While not ideal architecturally, it's a pragmatic solution that avoids
+    /// significant refactoring of the rendering pipeline.
+    static WIDTH_CORRECTION_FACTOR: RefCell<f32> = RefCell::new(1.02);
+}
+
+/// Set the width correction factor for the current thread
+pub fn set_width_correction_factor(factor: f32) {
+    WIDTH_CORRECTION_FACTOR.with(|f| *f.borrow_mut() = factor);
+}
+
+/// Get the current width correction factor
+fn get_width_correction_factor() -> f32 {
+    WIDTH_CORRECTION_FACTOR.with(|f| *f.borrow())
 }
 
 /// Font style flags for syntax highlighting
@@ -1421,11 +1441,11 @@ impl super::TermWindow {
         // Return average width per character
         let raw_avg_width = total_width / SAMPLE_TEXT.len() as f32;
 
-        // Apply a small correction factor based on empirical testing
-        // This 5% increase helps prevent wrapping issues in non-monospace text
+        // Apply a correction factor based on empirical testing
+        // This increase helps prevent wrapping issues in non-monospace text
         // where our sample text underestimates the average width of actual content
-        const WIDTH_CORRECTION_FACTOR: f32 = 1.02;
-        let avg_width = raw_avg_width * WIDTH_CORRECTION_FACTOR;
+        let width_correction_factor = get_width_correction_factor();
+        let avg_width = raw_avg_width * width_correction_factor;
 
         // Store in cache with simple eviction policy
         FONT_WIDTH_CACHE.with(|cache| {

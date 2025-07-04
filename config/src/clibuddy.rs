@@ -116,6 +116,14 @@ pub struct SidebarFontConfig {
         validate = "validate_dimming_factor"
     )]
     pub syntax_dimming_factor: f64,
+
+    /// Width correction factor for text wrapping calculations (default 1.02)
+    /// Helps prevent unwanted wrapping in proportional fonts by adding a small buffer
+    #[dynamic(
+        default = "default_width_correction_factor",
+        validate = "validate_width_correction_factor"
+    )]
+    pub width_correction_factor: f64,
 }
 
 impl Default for SidebarFontConfig {
@@ -127,6 +135,7 @@ impl Default for SidebarFontConfig {
             code_line_height: default_code_line_height(),
             code_line_margin: default_code_line_margin(),
             syntax_dimming_factor: default_syntax_dimming_factor(),
+            width_correction_factor: default_width_correction_factor(),
         }
     }
 }
@@ -282,6 +291,20 @@ fn validate_dimming_factor(value: &f64) -> Result<(), String> {
     if *value < 0.0 || *value > 1.0 {
         return Err(format!(
             "syntax_dimming_factor must be between 0.0 and 1.0, got {}",
+            value
+        ));
+    }
+    Ok(())
+}
+
+fn default_width_correction_factor() -> f64 {
+    1.02 // 2% extra width to prevent unwanted wrapping in proportional fonts
+}
+
+fn validate_width_correction_factor(value: &f64) -> Result<(), String> {
+    if *value < 0.8 || *value > 1.5 {
+        return Err(format!(
+            "width_correction_factor must be between 0.8 and 1.5, got {}",
             value
         ));
     }

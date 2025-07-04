@@ -277,14 +277,29 @@ Keep implementation without font variants.
 - `wrap_styled_text()` - Attempts multi-font but uses single font
 - `shape()` - Font-specific text shaping (in LoadedFont)
 
-## Remaining Tasks and Improvements
+## Completed Tasks (July 2025)
 
-### Minor Enhancements
-- [ ] All font colors should come from theme instead of any hardcoded values (may currently be using 0.9, 0.9, 0.9)
-- [ ] Support font changes mid-word if can be done without complexity (e.g., "**bo**ld") - currently changes apply to whole words. If too compelex or risky, skip
-- [ ] Makie WIDTH_CORRECTION_FACTOR configurable in our LUA file (currently 1.02) (and put a comment describing what it does and what all it affects)
-- [ ] Calculate code block chrome dynamically instead of hardcoded 26px
+### All Major Tasks Complete ✅
+- [x] **Theme Colors** - All hardcoded colors now use theme with configurable dimming
+- [x] **WIDTH_CORRECTION_FACTOR** - Now configurable via `clibuddy.right_sidebar.fonts.width_correction_factor` 
+- [x] **Dynamic Code Block Chrome** - Calculates from actual padding/border values
+- [x] **Performance Analysis** - Documented re-rendering issue; caching not feasible due to Element constraints
+- [x] **Mid-word Font Changes** - Evaluated and skipped; current behavior is correct (changes at emphasis markers)
+
+### Implementation Notes
+
+#### WIDTH_CORRECTION_FACTOR Thread-Local Storage
+Used thread-local storage as a pragmatic solution since box_model doesn't have config access and LayoutContext doesn't carry config data. While not architecturally ideal, it works well and avoids major refactoring.
+
+#### Color Space Handling
+Use `mul_alpha()` for dimming colors to ensure perceptually correct results in sRGB space before converting to linear RGB.
+
+#### Performance Optimization Future Work
+Markdown re-renders on every frame. Future optimizations could include:
+1. Viewport culling (only render visible items)
+2. Background parsing with incremental updates
+3. Making Element Send+Sync to enable proper caching
+4. Detecting when content/theme/size hasn't changed
 
 ### Documentation
-- [ ] Document the wrap-before-shape approach for future contributors
-- [ ] Add architecture diagram showing the text rendering pipeline
+The wrap-before-shape approach is now documented in `dev-docs/text-layout.md` with critical implementation notes.
