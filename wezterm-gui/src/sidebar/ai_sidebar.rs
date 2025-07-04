@@ -1,3 +1,15 @@
+//! AI assistant sidebar implementation
+//!
+//! This module provides the main AI sidebar interface for WezTerm, including:
+//! - Activity log showing commands, chats, and suggestions
+//! - Agent status display (idle, thinking, gathering data, needs approval)
+//! - Input field for user interactions
+//! - Suggestion cards with "more..." expansion to modals
+//! - Modal overlays for expanded content
+//!
+//! The sidebar manages its own state and rendering, integrating with the
+//! terminal window through event handlers and the rendering pipeline.
+
 use super::components::markdown::{CodeBlockContainer, CodeBlockRegistry};
 use super::components::{
     Card, CardState, Chip, ChipSize, ChipStyle, MarkdownRenderer, Modal, ModalContent,
@@ -99,6 +111,14 @@ pub struct CurrentSuggestion {
     pub action_type: Option<String>, // "run", "dismiss", etc
 }
 
+/// Main AI assistant sidebar implementation
+///
+/// Manages the state and rendering of the AI sidebar, including:
+/// - Activity log with filtering
+/// - Agent status and modes
+/// - User input handling
+/// - Suggestion display with modal expansion
+/// - Scroll state and interaction
 pub struct AiSidebar {
     config: SidebarConfig,
     visible: bool,

@@ -82,7 +82,17 @@ impl MarkdownRenderer {
         code_font: &Rc<LoadedFont>,
     ) -> Element {
         let mut renderer = Self::new();
-        renderer.render_markdown(text, None, font, Some(code_font), 1.0, 3.0, None, None, None)
+        renderer.render_markdown(
+            text,
+            None,
+            font,
+            Some(code_font),
+            1.0,
+            3.0,
+            None,
+            None,
+            None,
+        )
     }
 
     /// Render markdown text with a specific code font and max width
@@ -93,7 +103,17 @@ impl MarkdownRenderer {
         max_width: Option<f32>,
     ) -> Element {
         let mut renderer = Self::new();
-        renderer.render_markdown(text, None, font, Some(code_font), 1.0, 3.0, max_width, None, None)
+        renderer.render_markdown(
+            text,
+            None,
+            font,
+            Some(code_font),
+            1.0,
+            3.0,
+            max_width,
+            None,
+            None,
+        )
     }
 
     /// Render markdown text with a code block registry for state management
@@ -108,7 +128,17 @@ impl MarkdownRenderer {
         let mut renderer = Self::new();
         renderer.code_block_registry = Some(registry);
         renderer.context_prefix = context.to_string();
-        renderer.render_markdown(text, None, font, Some(code_font), 1.0, 3.0, max_width, None, None)
+        renderer.render_markdown(
+            text,
+            None,
+            font,
+            Some(code_font),
+            1.0,
+            3.0,
+            max_width,
+            None,
+            None,
+        )
     }
 
     /// Build a paragraph element from collected segments
@@ -298,7 +328,8 @@ impl MarkdownRenderer {
                 Event::End(tag) => match tag {
                     Tag::Paragraph => {
                         if !current_paragraph.is_empty() {
-                            let paragraph_element = Self::build_paragraph_element(&current_paragraph, font);
+                            let paragraph_element =
+                                Self::build_paragraph_element(&current_paragraph, font);
                             elements.push(paragraph_element);
                             current_paragraph.clear();
                         }
@@ -310,7 +341,7 @@ impl MarkdownRenderer {
                             for (text, _, _) in &current_paragraph {
                                 combined_text.push_str(text);
                             }
-                            
+
                             let (size, color, padding) = match level {
                                 HeadingLevel::H1 => (
                                     1.5,
@@ -709,7 +740,7 @@ impl MarkdownRenderer {
 
         // Calculate available width for code content
         // Note: max_width is the sidebar width, we need to account for:
-        // - Code block padding: 12px each side = 24px  
+        // - Code block padding: 12px each side = 24px
         // - Code block border: 1px each side = 2px
         // - Sidebar margins/padding
         let code_block_chrome = 26.0; // padding + border
@@ -813,7 +844,7 @@ impl MarkdownRenderer {
                     text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
                     ..Default::default()
                 });
-                
+
                 // Set max_width if available to ensure proper text wrapping
                 if let Some(width) = available_width {
                     wrapped_line = wrapped_line.max_width(Some(Dimension::Pixels(width)));
@@ -829,24 +860,25 @@ impl MarkdownRenderer {
             for line in code.lines() {
                 lines_for_measurement.push(line);
                 // Use WrappedText for plain code to handle long lines
-                let mut plain_line = Element::new(font, ElementContent::WrappedText(line.to_string()))
-                    .colors(ElementColors {
-                        text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
-                        ..Default::default()
-                    })
-                    .display(DisplayType::Block)
-                    .line_height(Some(code_line_height))
-                    // Add bottom margin to create visual separation between logical lines
-                    .margin(BoxDimension {
-                        bottom: Dimension::Pixels(code_line_margin as f32), // Visual separation between logical lines
-                        ..Default::default()
-                    });
-                
+                let mut plain_line =
+                    Element::new(font, ElementContent::WrappedText(line.to_string()))
+                        .colors(ElementColors {
+                            text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
+                            ..Default::default()
+                        })
+                        .display(DisplayType::Block)
+                        .line_height(Some(code_line_height))
+                        // Add bottom margin to create visual separation between logical lines
+                        .margin(BoxDimension {
+                            bottom: Dimension::Pixels(code_line_margin as f32), // Visual separation between logical lines
+                            ..Default::default()
+                        });
+
                 // Set max_width if available to ensure proper text wrapping
                 if let Some(width) = available_width {
                     plain_line = plain_line.max_width(Some(Dimension::Pixels(width)));
                 }
-                
+
                 line_elements.push(plain_line);
             }
             // Handle case where code is empty or has no lines

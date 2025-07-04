@@ -1,3 +1,15 @@
+//! Mouse event handling for the terminal window
+//!
+//! This module implements mouse interaction logic for all UI elements in WezTerm:
+//! - Terminal pane interactions (selection, scrolling, clicking links)
+//! - Tab bar interactions (switching tabs, closing tabs)
+//! - Sidebar interactions (buttons, scrollbars, content)
+//! - Split pane resizing
+//! - Context menu triggering
+//!
+//! The module uses the UIItem system to track interactive elements and their bounds,
+//! routing events to the appropriate handlers based on hit testing.
+
 use crate::tabbar::TabBarItem;
 use crate::termwindow::{
     GuiWin, MouseCapture, PositionedSplit, ScrollHit, TermWindowNotif, UIItem, UIItemType, TMB,
@@ -77,6 +89,14 @@ impl super::TermWindow {
         }
     }
 
+    /// Main mouse event handler that routes events to appropriate subsystems
+    ///
+    /// This function determines which UI element the mouse event targets and
+    /// dispatches to the appropriate handler. It checks in order:
+    /// 1. Sidebar modal overlays
+    /// 2. Captured mouse state (dragging)
+    /// 3. UI items (via hit testing)
+    /// 4. Terminal pane content
     pub fn mouse_event_impl(&mut self, event: MouseEvent, context: &dyn WindowOps) {
         log::trace!("{:?}", event);
         let pane = match self.get_active_pane_or_overlay() {

@@ -1,5 +1,7 @@
 # Colored Wrapped Text Implementation Plan
 
+> **Note**: The critical findings from this document have been incorporated into `dev-docs/text-layout.md` under the "Critical Implementation Notes" section. See that file for the authoritative guidance on text rendering patterns.
+
 ## Executive Summary
 
 This document tracks our efforts to implement syntax highlighting and font variants (bold/italic) with proper line wrapping in WezTerm's sidebar. After extensive investigation, we've identified the architectural constraints and developed a pragmatic solution.

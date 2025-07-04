@@ -1,3 +1,15 @@
+//! Font loading, shaping, and rasterization for WezTerm
+//!
+//! This crate provides a unified interface for font operations across platforms:
+//! - Font discovery and loading via platform-specific locators
+//! - Text shaping with HarfBuzz for proper glyph positioning
+//! - Font rasterization with FreeType, CoreText, or DirectWrite
+//! - Font fallback chain management
+//! - Emoji and symbol support
+//!
+//! The main entry point is `FontConfiguration` which manages font resolution
+//! and caching. Individual fonts are represented by `LoadedFont` instances.
+
 use crate::db::FontDatabase;
 use crate::locator::{new_locator, FontLocator};
 use crate::parser::ParsedFont;
@@ -53,6 +65,16 @@ lazy_static::lazy_static! {
     static ref LAST_WARNING: Mutex<Option<(Instant, usize)>> = Mutex::new(None);
 }
 
+/// A loaded font instance ready for text shaping and rendering
+///
+/// This struct manages a font with its fallback chain, providing methods to:
+/// - Shape text into positioned glyphs
+/// - Rasterize glyphs for display
+/// - Access font metrics
+/// - Handle font fallbacks for missing glyphs
+///
+/// Fonts are reference-counted (Rc) and contain RefCells for interior mutability
+/// to support caching and lazy loading of rasterizers.
 pub struct LoadedFont {
     rasterizers: RefCell<HashMap<FallbackIdx, Box<dyn FontRasterizer>>>,
     handles: RefCell<Vec<ParsedFont>>,

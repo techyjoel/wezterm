@@ -1,3 +1,26 @@
+//! CSS-like box model implementation for WezTerm's UI system
+//!
+//! This module provides a flexible Element-based layout system similar to a simplified CSS box model.
+//! It handles text wrapping, styling, rendering, and layout for UI components like sidebars and overlays.
+//!
+//! # Key Components
+//!
+//! - `Element` - Core building block with box model properties (padding, margin, border)
+//! - `ElementContent` - Various content types (text, wrapped text, styled text, children)
+//! - Text wrapping with font variant support via wrap-before-shape approach
+//! - Integration with GPU rendering pipeline via quad allocation
+//!
+//! # Text Layout Architecture
+//!
+//! The module uses a "wrap-before-shape" approach to handle styled text:
+//! 1. Estimate character widths based on font metrics
+//! 2. Determine line breaks using estimates
+//! 3. Shape each line with appropriate fonts (bold, italic, etc.)
+//!
+//! This allows font variants while maintaining proper line wrapping.
+//!
+//! See `wrap_styled_text()` and `wrap_text_with_estimates()` for implementation.
+
 #![allow(dead_code)]
 use crate::color::LinearRgba;
 use crate::customglyph::{BlockKey, Poly};
@@ -580,6 +603,16 @@ pub enum ClipBounds {
     Explicit { width: Dimension, height: Dimension },
 }
 
+/// Core UI element with CSS-like box model properties
+///
+/// Elements are the building blocks of WezTerm's UI system. Each element has:
+/// - Box model properties (padding, margin, border)
+/// - Layout properties (display type, float, alignment)
+/// - Visual properties (colors, hover states)
+/// - Content (text, wrapped text, children, etc.)
+///
+/// Elements are processed recursively during rendering to allocate quads
+/// at the appropriate z-index layers.
 #[derive(Debug, Clone)]
 pub struct Element {
     pub item_type: Option<UIItemType>,
@@ -1267,7 +1300,7 @@ impl super::TermWindow {
     }
 
     /// Wraps styled text with per-span colors and optional fonts
-    /// 
+    ///
     /// # Parameters
     /// - `element_colors`: The element's colors to use as default for unstyled text segments.
     ///   This parameter was added to fix a bug where unstyled text would inherit transparent
@@ -1289,7 +1322,7 @@ impl super::TermWindow {
         // Check if this is monospace-only content (e.g., code blocks)
         // Code blocks have no font variants and no font overrides
         let is_monospace_only = style_spans.iter().all(|span| span.is_monospace());
-        
+
         // Step 1: Calculate character width based on content type
         let char_width = if is_monospace_only {
             // For monospace content (code blocks), use the font's cell width directly
@@ -1299,11 +1332,11 @@ impl super::TermWindow {
             // For variable-width text, calculate average width from a sample
             self.calculate_average_char_width(default_font, context, default_style)?
         };
-        
+
         // Debug: compare with monospace cell width and log more details
         let monospace_width = context.metrics.cell_size.width as f32;
         let ratio = char_width / monospace_width;
-        
+
         let wrapped_lines = self.wrap_text_with_estimates(text, char_width, max_width);
 
         // Step 2: Shape each wrapped line with appropriate fonts
@@ -1358,20 +1391,18 @@ impl super::TermWindow {
         style: &config::TextStyle,
     ) -> anyhow::Result<f32> {
         let font_id = font.id();
-        
+
         // Check cache first
-        if let Some(width) = FONT_WIDTH_CACHE.with(|cache| {
-            cache.borrow().get(&font_id).copied()
-        }) {
+        if let Some(width) = FONT_WIDTH_CACHE.with(|cache| cache.borrow().get(&font_id).copied()) {
             return Ok(width);
         }
-        
+
         // Use a representative sample of characters to estimate average width
         // This includes common letters, digits, punctuation, and spaces based on English text frequency
         // Using a realistic sample that reflects typical English text distribution
         // This gives more accurate width estimates than a simple character set
         const SAMPLE_TEXT: &str = "the quick brown fox jumps over the lazy dog. this is a sample of typical english text with common words and spacing patterns that better represents actual usage in sidebars.";
-        
+
         // Shape the sample text
         let window = self.window.as_ref().unwrap().clone();
         let infos = font.shape(
@@ -1383,31 +1414,31 @@ impl super::TermWindow {
             None,
             None,
         )?;
-        
+
         // Calculate total width
         let total_width = self.calculate_text_width(SAMPLE_TEXT, &infos, font, context, style)?;
-        
+
         // Return average width per character
         let raw_avg_width = total_width / SAMPLE_TEXT.len() as f32;
-        
+
         // Apply a small correction factor based on empirical testing
         // This 5% increase helps prevent wrapping issues in non-monospace text
         // where our sample text underestimates the average width of actual content
-        const WIDTH_CORRECTION_FACTOR: f32 = 1.02; 
+        const WIDTH_CORRECTION_FACTOR: f32 = 1.02;
         let avg_width = raw_avg_width * WIDTH_CORRECTION_FACTOR;
-        
+
         // Store in cache with simple eviction policy
         FONT_WIDTH_CACHE.with(|cache| {
             let mut cache = cache.borrow_mut();
-            
+
             // Simple eviction: clear cache if it gets too large
             if cache.len() >= FONT_WIDTH_CACHE_SIZE {
                 cache.clear();
             }
-            
+
             cache.insert(font_id, avg_width);
         });
-        
+
         Ok(avg_width)
     }
 
@@ -1594,7 +1625,6 @@ impl super::TermWindow {
                     leading_space_bytes: skip_spaces,
                 };
 
-
                 wrapped_lines.push(wrapped_line);
 
                 // Move to next line
@@ -1661,7 +1691,6 @@ impl super::TermWindow {
         }
 
         // Debug check for unusually large space counts (removed - the logic is now correct)
-
 
         // The effective byte offset is just the line's byte offset
         // Style spans are relative to the original text, not the space-skipped text
@@ -1734,7 +1763,6 @@ impl super::TermWindow {
             last_end = end.max(last_end);
         }
 
-
         // Add final unstyled segment if needed
         if last_end < line_text.len() {
             segments.push((last_end, line_text.len(), None));
@@ -1744,7 +1772,6 @@ impl super::TermWindow {
         if segments.is_empty() {
             segments.push((0, line_text.len(), None));
         }
-
 
         // Shape each segment with its appropriate font
         for (start, end, style_span) in segments {
@@ -1757,7 +1784,9 @@ impl super::TermWindow {
                 log::error!(
                     "Invalid byte boundaries for segment: start={}, end={}, line_len={}. \
                      This indicates a bug in segment calculation.",
-                    start, end, line_text.len()
+                    start,
+                    end,
+                    line_text.len()
                 );
                 // Skip this segment to avoid panic
                 continue;
@@ -1786,7 +1815,6 @@ impl super::TermWindow {
                 None,
                 None,
             )?;
-
 
             // Convert to cells
             let segment_cells =
@@ -2270,7 +2298,6 @@ impl super::TermWindow {
         };
 
         self.render_element_background(element, colors, &mut layers, inherited_colors)?;
-
 
         let left = self.dimensions.pixel_width as f32 / -2.0;
         let top = self.dimensions.pixel_height as f32 / -2.0;

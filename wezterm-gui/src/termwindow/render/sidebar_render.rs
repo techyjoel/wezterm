@@ -1,3 +1,18 @@
+//! Sidebar rendering integration for the terminal window
+//!
+//! This module handles the rendering of sidebars within the main terminal window,
+//! including:
+//! - Left and right sidebar painting
+//! - Button bar rendering with neon effects
+//! - Sidebar animation updates
+//! - Modal overlay rendering
+//! - Font loading and management for sidebars
+//!
+//! Sidebars are rendered at specific z-index layers as defined in CLAUDE.md:
+//! - Left sidebar: z-indices 30-40
+//! - Right sidebar: z-indices 10-16
+//! - Modal overlays: z-indices 20-23
+
 use crate::quad::{QuadTrait, TripleLayerQuadAllocator, TripleLayerQuadAllocatorTrait};
 use crate::termwindow::box_model::{Element, ElementColors, ElementContent, LayoutContext};
 use crate::termwindow::render::neon::{NeonRenderer, NeonStyle};
@@ -17,6 +32,15 @@ use window::{PointF, RectF, WindowOps};
 const MIN_SIDEBAR_WIDTH: f32 = 25.0;
 
 impl crate::TermWindow {
+    /// Main entry point for sidebar rendering
+    ///
+    /// Updates animations and renders visible sidebars to appropriate z-index layers.
+    /// This function is called during the main render loop and handles:
+    /// - Animation state updates
+    /// - Left sidebar rendering (if visible)
+    /// - Right sidebar rendering (if visible)
+    /// - Scrollbar rendering for both sidebars
+    /// - Modal overlay rendering
     pub fn paint_sidebars(&mut self, _layers: &mut TripleLayerQuadAllocator) -> Result<()> {
         log::trace!("paint_sidebars called");
 
@@ -516,7 +540,12 @@ impl crate::TermWindow {
                 code_bold_italic,
                 code_line_height: self.config.clibuddy.right_sidebar.fonts.code_line_height,
                 code_line_margin: self.config.clibuddy.right_sidebar.fonts.code_line_margin,
-                syntax_dimming_factor: self.config.clibuddy.right_sidebar.fonts.syntax_dimming_factor,
+                syntax_dimming_factor: self
+                    .config
+                    .clibuddy
+                    .right_sidebar
+                    .fonts
+                    .syntax_dimming_factor,
             };
 
             // Get the color palette for syntax highlighting
@@ -895,7 +924,12 @@ impl crate::TermWindow {
                 code_bold_italic,
                 code_line_height: self.config.clibuddy.right_sidebar.fonts.code_line_height,
                 code_line_margin: self.config.clibuddy.right_sidebar.fonts.code_line_margin,
-                syntax_dimming_factor: self.config.clibuddy.right_sidebar.fonts.syntax_dimming_factor,
+                syntax_dimming_factor: self
+                    .config
+                    .clibuddy
+                    .right_sidebar
+                    .fonts
+                    .syntax_dimming_factor,
             };
 
             // Get modal elements

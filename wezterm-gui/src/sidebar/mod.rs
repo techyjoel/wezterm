@@ -1,3 +1,16 @@
+//! Sidebar framework for WezTerm
+//!
+//! This module provides the infrastructure for creating sidebars in WezTerm,
+//! including:
+//! - Base sidebar traits and configuration
+//! - Font management for sidebar rendering
+//! - Animation coordinator for smooth transitions
+//! - Sidebar manager for orchestrating multiple sidebars
+//! - Component library for building sidebar UIs
+//!
+//! Sidebars can be positioned on the left or right, support smooth animations,
+//! and integrate with the terminal window's event and rendering systems.
+
 use crate::termwindow::box_model::Element;
 use anyhow::Result;
 use std::rc::Rc;
@@ -208,8 +221,18 @@ impl Default for SidebarConfig {
     }
 }
 
+/// Trait defining the interface for sidebar implementations
+///
+/// Sidebars must be thread-safe (Send + Sync) and provide methods for:
+/// - Rendering content as Elements
+/// - Managing visibility and dimensions
+/// - Handling input events
+/// - Providing scrollbar information
 pub trait Sidebar: Send + Sync {
-    // Return the rendered content for this sidebar
+    /// Return the rendered content for this sidebar
+    ///
+    /// The fonts parameter provides pre-loaded fonts for consistent typography.
+    /// The window_height is used for calculating scrollable regions.
     fn render(&mut self, fonts: &SidebarFonts, window_height: f32) -> Element;
 
     // DEPRECATED: This method is no longer used since fonts are passed in render()

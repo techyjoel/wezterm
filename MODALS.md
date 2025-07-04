@@ -1,5 +1,7 @@
 # Modal Overlay Framework
 
+> **Note**: The critical patterns from this document have been incorporated into `dev-docs/sidebar-patterns.md` under the "Critical Implementation Notes" section. See that file for the authoritative guidance on modal implementation patterns.
+
 ## Current Status
 
 **Phases 1-3 Complete** ✅ - Modal system is fully functional with all UI elements working correctly.

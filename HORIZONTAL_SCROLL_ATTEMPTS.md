@@ -1,5 +1,7 @@
 # Horizontal Scrolling Implementation Attempts - Complete History
 
+> **Note**: The critical findings from this document have been incorporated into `dev-docs/rendering-pipeline.md` under the "Critical Implementation Notes" section. See that file for the authoritative guidance on clipping approaches.
+
 ## Overview
 
 This document provides a comprehensive history of all attempts to implement horizontal scrolling for code blocks in the CLiBuddy Terminal sidebar. The goal was to allow users to horizontally scroll through wide code blocks in the activity log and suggestion card modals, preventing content truncation while maintaining proper visual boundaries.
