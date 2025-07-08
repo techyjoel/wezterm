@@ -7,6 +7,8 @@
 
 use std::time::{Duration, Instant};
 
+use super::scrollbar_helpers::MIN_THUMB_SIZE;
+
 /// Shared scrollbar state that can be used by different components
 #[derive(Clone, Debug)]
 pub struct ScrollbarState {
@@ -71,7 +73,8 @@ impl ScrollbarState {
             return false;
         }
 
-        let line_height = self.viewport_height / 30.0; // Approximate visible lines
+        const MIN_LINE_HEIGHT: f32 = 1.0;
+        let line_height = (self.viewport_height / 30.0).max(MIN_LINE_HEIGHT); // Approximate visible lines
         let scroll_amount = delta * line_height * lines_per_notch;
 
         let old_offset = self.scroll_offset;
@@ -110,6 +113,38 @@ impl ScrollbarState {
         self.is_dragging = false;
     }
 
+    /// Handle click on scrollbar track (not thumb)
+    pub fn handle_track_click(
+        &mut self,
+        click_y: f32,
+        scrollbar_y: f32,
+        scrollbar_height: f32,
+    ) -> bool {
+        if !self.is_needed() {
+            return false;
+        }
+
+        let thumb_info = self.calculate_thumb_geometry(scrollbar_height);
+        let thumb_top = scrollbar_y + thumb_info.y_offset;
+        let thumb_bottom = thumb_top + thumb_info.height;
+
+        // Check if click is on track (not thumb)
+        if click_y < thumb_top {
+            // Click above thumb - page up
+            let old_offset = self.scroll_offset;
+            self.set_scroll_offset(self.scroll_offset - self.viewport_height * 0.9);
+            return old_offset != self.scroll_offset;
+        } else if click_y > thumb_bottom {
+            // Click below thumb - page down
+            let old_offset = self.scroll_offset;
+            self.set_scroll_offset(self.scroll_offset + self.viewport_height * 0.9);
+            return old_offset != self.scroll_offset;
+        }
+
+        // Click was on thumb, not track
+        false
+    }
+
     /// Update hover state
     pub fn set_hovering(&mut self, hovering: bool) {
         if hovering && !self.is_hovering {
@@ -134,9 +169,11 @@ impl ScrollbarState {
     pub fn calculate_thumb_geometry(&self, scrollbar_height: f32) -> ThumbGeometry {
         let ratio = self.viewport_height / self.content_height;
         let thumb_height = (scrollbar_height * ratio)
-            .max(20.0) // Min thumb height
+            .max(MIN_THUMB_SIZE) // Min thumb height
             .min(scrollbar_height);
 
+        // The scrollable track is the area where the thumb can move
+        // It's the scrollbar height minus the thumb height
         let scrollable_track = scrollbar_height - thumb_height;
         let scroll_ratio = if self.max_scroll() > 0.0 {
             self.scroll_offset / self.max_scroll()
@@ -144,7 +181,8 @@ impl ScrollbarState {
             0.0
         };
 
-        let thumb_y_offset = scrollable_track * scroll_ratio;
+        // Calculate thumb position, ensuring it doesn't extend past the bottom
+        let thumb_y_offset = (scrollable_track * scroll_ratio).min(scrollbar_height - thumb_height); // Ensure thumb stays within bounds
 
         ThumbGeometry {
             y_offset: thumb_y_offset,
@@ -193,10 +231,15 @@ impl ScrollbarState {
 
     /// Get current opacity for rendering
     pub fn get_opacity(&self, config: &ScrollbarConfig) -> f32 {
-        if !config.auto_hide || !self.is_needed() {
-            return if self.is_needed() { 1.0 } else { 0.0 };
+        if !self.is_needed() {
+            return 0.0; // Never show scrollbar if not needed
         }
-        self.current_opacity
+
+        if !config.auto_hide {
+            return 1.0; // Always show if auto-hide is disabled
+        }
+
+        self.current_opacity // Use animated opacity when auto-hide is enabled
     }
 
     /// Trigger fade in animation

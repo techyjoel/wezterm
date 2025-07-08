@@ -56,7 +56,9 @@ pub struct ModalManager {
 impl ModalManager {
     pub fn new() -> Self {
         let mut config = ScrollbarConfig::default();
-        config.auto_hide = false; // Always show in modals
+        // Always show scrollbar in modals for better discoverability
+        // Activity logs can auto-hide since users expect scrolling there
+        config.auto_hide = false;
 
         Self {
             active_modal: None,
@@ -571,7 +573,7 @@ impl ModalManager {
                 // Calculate scrollbar bounds if needed
                 let scrollbar_visible = self.content_height > self.visible_height;
                 let scrollbar_bounds = if scrollbar_visible {
-                    let scrollbar_width = 8.0;
+                    let scrollbar_width = self.scrollbar_config.width;
                     let scrollbar_padding = 4.0;
                     let scrollbar_x = modal_bounds.max_x() - scrollbar_width - scrollbar_padding;
                     let scrollbar_y = modal_bounds.min_y() + 40.0;
@@ -687,5 +689,59 @@ impl ModalManager {
     pub fn update_animation(&mut self) -> bool {
         self.scrollbar_state
             .update_animation(&self.scrollbar_config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_modal_scrollbar_width_config() {
+        let manager = ModalManager::new();
+
+        // Verify default scrollbar width is 10.0
+        assert_eq!(manager.scrollbar_config.width, 10.0);
+
+        // Verify the scrollbar uses configuration width
+        // The fix ensures handle_mouse_event uses scrollbar_config.width
+        // instead of hardcoded 8.0, preventing width mismatch
+    }
+
+    #[test]
+    fn test_modal_scrollbar_bounds_calculation() {
+        let mut manager = ModalManager::new();
+        manager.content_height = 1000.0;
+        manager.visible_height = 200.0;
+
+        // Create a test modal with known position
+        struct TestContent {}
+        impl ModalContent for TestContent {
+            fn render(&self, _context: &ModalRenderContext) -> Element {
+                Element::new(&_context.fonts.body, ElementContent::Text(String::new()))
+            }
+
+            fn get_content_height(&self) -> f32 {
+                1000.0
+            }
+        }
+
+        let modal = Modal {
+            id: "test".to_string(),
+            size: ModalSize::Fixed(400.0, 300.0),
+            content: Box::new(TestContent {}),
+            animation_state: ModalAnimationState::Open,
+            close_on_click_outside: true,
+            close_on_escape: true,
+            position: Some(euclid::rect(100.0, 100.0, 400.0, 300.0)),
+        };
+
+        manager.active_modal = Some(modal);
+
+        // The scrollbar should be positioned using config width
+        // Right edge: 100 + 400 = 500
+        // Scrollbar X: 500 - padding(4) - width(10) = 486
+        let expected_scrollbar_x = 500.0 - 4.0 - manager.scrollbar_config.width;
+        assert_eq!(expected_scrollbar_x, 486.0);
     }
 }

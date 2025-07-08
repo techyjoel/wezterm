@@ -14,11 +14,12 @@
 //! - Modal overlays: z-indices 20-23
 
 use crate::quad::{QuadTrait, TripleLayerQuadAllocator, TripleLayerQuadAllocatorTrait};
-use crate::sidebar::AiSidebar;
+use crate::sidebar::{AiSidebar, SidebarScrollbars};
 use crate::termwindow::box_model::{
     set_width_correction_factor, Element, ElementColors, ElementContent, LayoutContext,
 };
 use crate::termwindow::render::neon::{NeonRenderer, NeonStyle};
+use crate::termwindow::render::scrollbar_renderer::ScrollbarRenderer;
 use crate::termwindow::{UIItem, UIItemType};
 use crate::utilsprites::RenderMetrics;
 use anyhow::Result;
@@ -647,7 +648,8 @@ impl crate::TermWindow {
                 if let Some(ai_sidebar) = sidebar_locked.as_any_mut().downcast_mut::<AiSidebar>() {
                     // Get the viewport height from the activity bounds
                     let viewport_height = activity_bounds.size.height;
-                    ai_sidebar.update_activity_log_height_cache(&activity_log_computed, viewport_height);
+                    ai_sidebar
+                        .update_activity_log_height_cache(&activity_log_computed, viewport_height);
                 }
             }
 
@@ -692,8 +694,18 @@ impl crate::TermWindow {
             // Extract UI items for mouse handling
             self.ui_items.extend(computed.ui_items());
 
-            // Render scrollbars at z-index 16 after main content
-            self.render_sidebar_scrollbars(&sidebar, sidebar_x, visible_width)?;
+            // Render sidebar scrollbars at z-index 16
+            let sidebar_scrollbars = sidebar.lock().unwrap().get_scrollbars();
+            if let Some(ref scrollbar_info) = sidebar_scrollbars.activity_log {
+                if scrollbar_info.should_show {
+                    self.render_sidebar_scrollbars(
+                        sidebar_x,
+                        visible_width,
+                        &sidebar_scrollbars,
+                        &sidebar,
+                    )?;
+                }
+            }
 
             // Update filter chip bounds with sidebar position
             let mut sidebar_locked = sidebar.lock().unwrap();
@@ -739,123 +751,110 @@ impl crate::TermWindow {
         Ok(())
     }
 
-    /// Render scrollbars for the sidebar using direct rendering at z-index 12
+    /// Render scrollbars for the sidebar using direct rendering at z-index 16
     fn render_sidebar_scrollbars(
         &mut self,
-        sidebar: &Arc<std::sync::Mutex<dyn crate::sidebar::Sidebar>>,
         sidebar_x: f32,
         sidebar_width: f32,
+        scrollbars: &SidebarScrollbars,
+        sidebar: &Arc<std::sync::Mutex<dyn crate::sidebar::Sidebar>>,
     ) -> Result<()> {
-        use crate::termwindow::render::scrollbar_renderer::ScrollbarRenderer;
+        use crate::termwindow::render::scrollbar_renderer::ScrollbarOrientation;
 
-        // Get scrollbar info and keep lock to update bounds later
-        let scrollbars = {
-            let sidebar_locked = sidebar.lock().unwrap();
-            sidebar_locked.get_scrollbars()
-        };
-
-        // Render activity log scrollbar if present
-        if let Some(scrollbar_info) = scrollbars.activity_log {
+        if let Some(ref scrollbar_info) = scrollbars.activity_log {
             if scrollbar_info.should_show {
-                // Get actual activity log bounds from sidebar
-                let (scrollbar_top, scrollbar_height) = {
-                    let sidebar_locked = sidebar.lock().unwrap();
-                    if let Some(ai_sidebar) = sidebar_locked
+                // Get activity log bounds for positioning
+                let activity_bounds = {
+                    let locked = sidebar.lock().unwrap();
+                    if let Some(ai_sidebar) = locked
                         .as_any()
-                        .downcast_ref::<crate::sidebar::ai_sidebar::AiSidebar>(
-                    ) {
-                        if let Some(bounds) =
-                            ai_sidebar.get_activity_log_bounds(self.dimensions.pixel_height as f32)
-                        {
-                            (bounds.origin.y, bounds.size.height)
-                        } else {
-                            (200.0, self.dimensions.pixel_height as f32 - 320.0)
-                        }
+                        .downcast_ref::<crate::sidebar::ai_sidebar::AiSidebar>()
+                    {
+                        ai_sidebar.get_activity_log_bounds(self.dimensions.pixel_height as f32)
                     } else {
-                        (200.0, self.dimensions.pixel_height as f32 - 320.0)
+                        None
                     }
                 };
 
-                let scrollbar_width = 8.0;
-                let scrollbar_bounds = euclid::rect(
-                    sidebar_x + sidebar_width - scrollbar_width - 4.0,
-                    scrollbar_top,
-                    scrollbar_width,
-                    scrollbar_height,
-                );
+                if let Some(bounds) = activity_bounds {
+                    let scrollbar_width = 10.0;
+                    let scrollbar_x = sidebar_x + sidebar_width - scrollbar_width - 4.0;
+                    let scrollbar_y = bounds.min_y();
+                    let scrollbar_height = bounds.size.height;
 
-                // Create scrollbar renderer using pixel-based values
-                let mut scrollbar = ScrollbarRenderer::new_vertical(
-                    scrollbar_info.content_height,
-                    scrollbar_info.viewport_height,
-                    scrollbar_info.scroll_offset,
-                    20.0, // min thumb size
-                );
+                    let scrollbar_bounds =
+                        euclid::rect(scrollbar_x, scrollbar_y, scrollbar_width, scrollbar_height);
 
-                // Get palette first (requires mutable borrow)
-                let palette = self.palette().clone();
+                    // Create scrollbar renderer using pixel-based values
+                    let mut scrollbar = ScrollbarRenderer::new_vertical(
+                        scrollbar_info.content_height,
+                        scrollbar_info.viewport_height,
+                        scrollbar_info.scroll_offset,
+                        crate::sidebar::components::scrollbar_helpers::MIN_THUMB_SIZE,
+                    );
 
-                // Now get other values
-                let gl_state = self.render_state.as_ref().unwrap();
-                let config = &self.config;
-                let pixel_width = self.dimensions.pixel_width as f32;
-                let pixel_height = self.dimensions.pixel_height as f32;
-                let filled_box_coords = gl_state.util_sprites.filled_box.texture_coords();
+                    // Get palette first (requires mutable borrow)
+                    let palette = self.palette().clone();
 
-                // Activity log background color - slightly lighter than sidebar
-                let activity_log_bg = LinearRgba::with_components(0.03, 0.03, 0.035, 1.0);
+                    // Now get other values
+                    let gl_state = self.render_state.as_ref().unwrap();
+                    let config = &self.config;
+                    let pixel_width = self.dimensions.pixel_width as f32;
+                    let pixel_height = self.dimensions.pixel_height as f32;
+                    let filled_box_coords = gl_state.util_sprites.filled_box.texture_coords();
 
-                // Render at z-index 16 for right sidebar scrollbars
-                let _ui_items = scrollbar.render_direct(
-                    gl_state,
-                    scrollbar_bounds,
-                    16,
-                    &palette,
-                    config,
-                    |layers, sub_layer, rect, color| {
-                        // Intercept the background color for the scrollbar track
-                        // Note: ScrollbarRenderer applies window_background_opacity to the background,
-                        // so we need to check if this is the track background
-                        let is_track_bg = sub_layer == 0; // Track is rendered on sub-layer 0
-                        let final_color = if is_track_bg {
-                            // Use activity log background with full opacity
-                            activity_log_bg
-                        } else {
-                            // Keep original color (thumb, etc.)
-                            color
-                        };
+                    // Activity log background color - slightly lighter than sidebar
+                    let activity_log_bg = LinearRgba::with_components(0.03, 0.03, 0.035, 1.0);
 
-                        Self::render_filled_rect(
-                            layers,
-                            sub_layer,
-                            rect,
-                            final_color,
-                            pixel_width,
-                            pixel_height,
-                            filled_box_coords,
-                        )
-                    },
-                )?;
+                    // Render at z-index 16 for right sidebar scrollbars
+                    let _ui_items = scrollbar.render_direct(
+                        gl_state,
+                        scrollbar_bounds,
+                        16,
+                        &palette,
+                        config,
+                        |layers, sub_layer, rect, color| {
+                            // Intercept the background color for the scrollbar track
+                            // Note: ScrollbarRenderer applies window_background_opacity to the background,
+                            // so we need to check if this is the track background
+                            let is_track_bg = sub_layer == 0; // Track is rendered on sub-layer 0
+                            let final_color = if is_track_bg {
+                                // Use activity log background with full opacity
+                                activity_log_bg
+                            } else {
+                                // Keep original color (thumb, etc.)
+                                color
+                            };
 
-                // Don't add scrollbar UI items - they conflict with terminal scrollbar
-                // The sidebar will handle scrollbar events via hit testing
-                log::debug!(
-                    "Scrollbar rendered at bounds: ({}, {}, {}, {})",
-                    scrollbar_bounds.origin.x,
-                    scrollbar_bounds.origin.y,
-                    scrollbar_bounds.size.width,
-                    scrollbar_bounds.size.height
-                );
+                            Self::render_filled_rect(
+                                layers,
+                                sub_layer,
+                                rect,
+                                final_color,
+                                pixel_width,
+                                pixel_height,
+                                filled_box_coords,
+                            )
+                        },
+                    )?;
 
-                // Update sidebar with scrollbar bounds
-                let mut sidebar_locked = sidebar.lock().unwrap();
-                if let Some(ai_sidebar) = sidebar_locked
-                    .as_any_mut()
-                    .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
-                {
-                    ai_sidebar.set_scrollbar_bounds(scrollbar_bounds);
+                    // Update the scrollbar bounds in the sidebar for hit testing
+                    let mut locked = sidebar.lock().unwrap();
+                    if let Some(ai_sidebar) = locked
+                        .as_any_mut()
+                        .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
+                    ) {
+                        ai_sidebar.set_scrollbar_bounds(scrollbar_bounds);
+                    }
+
+                    log::debug!(
+                        "Scrollbar rendered at bounds: ({}, {}, {}, {})",
+                        scrollbar_bounds.origin.x,
+                        scrollbar_bounds.origin.y,
+                        scrollbar_bounds.size.width,
+                        scrollbar_bounds.size.height
+                    );
                 }
-                drop(sidebar_locked);
             }
         }
 

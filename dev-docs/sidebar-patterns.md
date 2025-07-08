@@ -139,9 +139,11 @@ Modal integration points:
 - Event handling before sidebar processing
 - Escape key and click-outside dismissal
 
-### Scrollable Regions
+### Scrollable Regions and Scrollbars
 
-The "cut-a-hole" pattern for scrollable content:
+#### The "Cut-a-Hole" Pattern
+
+For scrollable content with visual layering:
 
 1. Render scrollable content at lower z-index (e.g., 10)
 2. Render container background at higher z-index (e.g., 12) 
@@ -149,6 +151,37 @@ The "cut-a-hole" pattern for scrollable content:
 4. Scrollbar at highest z-index (e.g., 16)
 
 This enables independent scrolling while maintaining visual hierarchy.
+
+#### Scrollbar Implementation Patterns
+
+Two patterns exist for different use cases:
+
+**1. External GPU Rendering** (Activity Log)
+- Used when component renders at lower z-indices
+- Better performance for virtual scrolling
+- Implementation: Component stores `ScrollbarInfo`, render module uses `ScrollbarRenderer::render_direct()`
+- Z-indices: Right sidebar (16), Left sidebar (36)
+
+**2. Element-Based Rendering** (Modals)
+- Used for self-contained high z-index components
+- Simpler implementation using Elements
+- Implementation: Uses `ScrollbarState` and renders as Elements
+- Z-index: Modal scrollbars (23)
+
+**Critical Requirements:**
+```rust
+// ALWAYS use configuration values for dimensions
+let scrollbar_width = self.scrollbar_config.width; // Default: 10.0
+
+// NEVER hardcode - causes event handling mismatches
+let scrollbar_width = 8.0; // WRONG!
+```
+
+**Shared Components:**
+- `ScrollbarState` - State management with auto-hide animations
+- `ScrollbarHelpers` - Common calculations and `ScrollbarInfo`
+- `ScrollbarStyle` - Theming system
+- `ScrollbarElement` - Element-based rendering component
 
 ### Virtual Scrolling
 
