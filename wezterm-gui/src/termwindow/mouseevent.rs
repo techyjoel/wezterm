@@ -66,7 +66,8 @@ impl super::TermWindow {
             | UIItemType::SuggestionRunButton
             | UIItemType::SuggestionDismissButton
             | UIItemType::CodeBlockContent(_)
-            | UIItemType::CodeBlockCopyButton(_) => {}
+            | UIItemType::CodeBlockCopyButton(_)
+            | UIItemType::ModalCloseButton => {}
         }
     }
 
@@ -85,7 +86,8 @@ impl super::TermWindow {
             | UIItemType::SuggestionRunButton
             | UIItemType::SuggestionDismissButton
             | UIItemType::CodeBlockContent(_)
-            | UIItemType::CodeBlockCopyButton(_) => {}
+            | UIItemType::CodeBlockCopyButton(_)
+            | UIItemType::ModalCloseButton => {}
         }
     }
 
@@ -526,6 +528,9 @@ impl super::TermWindow {
             }
             UIItemType::CodeBlockCopyButton(block_id) => {
                 self.mouse_event_code_block_copy_button(block_id.clone(), event, context);
+            }
+            UIItemType::ModalCloseButton => {
+                self.mouse_event_modal_close_button(event, context);
             }
         }
     }
@@ -1442,6 +1447,33 @@ impl super::TermWindow {
 
                                     context.invalidate();
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn mouse_event_modal_close_button(&mut self, event: MouseEvent, context: &dyn WindowOps) {
+        context.set_cursor(Some(MouseCursor::Arrow));
+
+        match event.kind {
+            WMEK::Press(MousePress::Left) => {
+                log::debug!("Modal close button clicked");
+
+                // Close modal through sidebar manager
+                if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
+                    if let Some(sidebar) = mgr.get_right_sidebar() {
+                        if let Ok(mut sidebar) = sidebar.lock() {
+                            // Direct access to modal manager
+                            if let Some(ai_sidebar) = sidebar
+                                .as_any_mut()
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
+                            ) {
+                                ai_sidebar.modal_manager.close();
+                                context.invalidate();
                             }
                         }
                     }

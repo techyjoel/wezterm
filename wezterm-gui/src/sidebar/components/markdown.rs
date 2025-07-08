@@ -315,6 +315,11 @@ impl MarkdownRenderer {
         let mut emphasis_stack: Vec<TextEmphasis> = Vec::new();
         let mut heading_level: Option<HeadingLevel> = None;
 
+        // Add list state tracking
+        let mut list_stack: Vec<(bool, u64)> = Vec::new(); // (is_ordered, current_number)
+        let mut in_list_item = false;
+        let mut pending_list_marker: Option<String> = None;
+
         for event in parser {
             match event {
                 Event::Start(tag) => match tag {
@@ -333,7 +338,10 @@ impl MarkdownRenderer {
                         };
                         code_block_content.clear();
                     }
-                    Tag::List(_) => {
+                    Tag::List(start_number) => {
+                        let is_ordered = start_number.is_some();
+                        let start = start_number.unwrap_or(1);
+                        list_stack.push((is_ordered, start));
                         list_depth += 1;
                     }
                     Tag::Emphasis => {
@@ -344,6 +352,28 @@ impl MarkdownRenderer {
                     }
                     Tag::Link(_, dest, _) => {
                         emphasis_stack.push(TextEmphasis::Link(dest.to_string()));
+                    }
+                    Tag::Item => {
+                        in_list_item = true;
+
+                        // Generate marker based on current list state
+                        let depth = list_stack.len();
+                        if let Some((is_ordered, current_num)) = list_stack.last_mut() {
+                            let is_ordered = *is_ordered;
+                            let marker = if is_ordered {
+                                let m = format!("{}. ", current_num);
+                                *current_num += 1;
+                                m
+                            } else {
+                                match (depth - 1) % 3 {
+                                    0 => "\u{2022} ", // • BULLET
+                                    1 => "\u{25E6} ", // ◦ WHITE BULLET
+                                    _ => "\u{25AA} ", // ▪ BLACK SMALL SQUARE
+                                }
+                                .to_string()
+                            };
+                            pending_list_marker = Some(marker);
+                        }
                     }
                     _ => {}
                 },
@@ -464,7 +494,63 @@ impl MarkdownRenderer {
                         code_block_lang = None;
                     }
                     Tag::List(_) => {
+                        list_stack.pop();
                         list_depth = list_depth.saturating_sub(1);
+
+                        // Add spacing after top-level lists
+                        if list_depth == 0 && !current_paragraph.is_empty() {
+                            // Use existing paragraph handling
+                            let dimming_factor = fonts
+                                .map(|f| f.syntax_dimming_factor as f32)
+                                .unwrap_or(0.85);
+                            let paragraph_element = Self::build_paragraph_element(
+                                &current_paragraph,
+                                font,
+                                palette,
+                                dimming_factor,
+                            );
+                            elements.push(paragraph_element);
+                            current_paragraph.clear();
+                        }
+                    }
+                    Tag::Item => {
+                        in_list_item = false;
+
+                        // If we have paragraph content, prepend marker and render with indentation
+                        if !current_paragraph.is_empty() {
+                            if let Some(marker) = pending_list_marker.take() {
+                                // Prepend marker to first text span
+                                if !current_paragraph.is_empty() {
+                                    let colors = current_paragraph[0].2.clone();
+                                    current_paragraph.insert(0, (marker, font, colors));
+                                }
+                            }
+
+                            // Calculate indentation
+                            let indent = (list_depth.saturating_sub(1)) as f32 * 20.0;
+
+                            // Build element with existing method but add indentation
+                            let dimming_factor = fonts
+                                .map(|f| f.syntax_dimming_factor as f32)
+                                .unwrap_or(0.85);
+                            let mut list_item = Self::build_paragraph_element(
+                                &current_paragraph,
+                                font,
+                                palette,
+                                dimming_factor,
+                            );
+
+                            // Add left padding for indentation
+                            list_item = list_item.padding(BoxDimension {
+                                left: Dimension::Pixels(indent),
+                                bottom: Dimension::Pixels(4.0), // Tighter spacing for list items
+                                ..Default::default()
+                            });
+
+                            elements.push(list_item);
+                            current_paragraph.clear();
+                        }
+                        pending_list_marker = None;
                     }
                     Tag::Emphasis | Tag::Strong | Tag::Link(_, _, _) => {
                         emphasis_stack.pop();

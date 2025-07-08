@@ -214,7 +214,7 @@ pub struct AiSidebar {
     sidebar_x_position: f32,
 
     // Modal management
-    modal_manager: ModalManager,
+    pub modal_manager: ModalManager,
 
     // Code block registry for horizontal scrolling
     pub code_block_registry: Option<CodeBlockRegistry>,

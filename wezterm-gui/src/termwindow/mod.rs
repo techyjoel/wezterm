@@ -168,6 +168,7 @@ pub enum UIItemType {
     SuggestionDismissButton,
     CodeBlockContent(String),    // code_block_id
     CodeBlockCopyButton(String), // code_block_id
+    ModalCloseButton,            // For modal X button
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

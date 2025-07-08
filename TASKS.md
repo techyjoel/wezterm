@@ -273,13 +273,12 @@ The implementation is divided into 7 phases:
   - **Development status**: Completed (part of activity log scrolling)
   - Auto-scroll to bottom on new messages
   - Maintain scroll position when reviewing history
-- [ ] **2.4.4** Fix sidebar rendering and layout issues (**Partially Complete**)
+- [x] **2.4.4** Fix sidebar rendering and layout issues (**Partially Complete**)
   - **Remaining Issues**:
-    - Auto-hide scrollbar behavior not implemented
     - Scrollbar background color should match enclosing parent (e.g. activity log background)
 
 - [ ] **2.4.5** Performance optimization - Caching for markdown and syntax highlighting
-  - **Development status**: Pending
+  - **Development status**: Pending - determine if is needed since we're not rendering most content outside of the virtual scroll area
   - Cache rendered markdown elements to avoid re-parsing on every frame
   - Cache syntax highlighted code blocks
   - Implement dirty tracking to only re-render changed content
@@ -298,6 +297,7 @@ The implementation is divided into 7 phases:
 
 **Remaining Phase 2 work**:
 **Known Issues To Address**
+- [ ] Markdown isn't rendering bullets/lists
 - [ ] No text in the sidebar can be selected/higlighted for copy/paste. All text should be selectable.
 - [ ] Multi-line chat input not yet interactive (can't click and type)
 - [ ] "View more" modal background isn't working right. We need to extend the modal background all the way to the top/bottom of the window with a color that fades from the modal background to some darker color at the top and bottom of the modal, to look like a shadow. You MUST read MODALS.md for more details.

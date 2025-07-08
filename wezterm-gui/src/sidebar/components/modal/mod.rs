@@ -3,6 +3,7 @@ use crate::color::LinearRgba;
 use crate::sidebar::components::markdown::CodeBlockRegistry;
 use crate::sidebar::SidebarFonts;
 use crate::termwindow::box_model::*;
+use crate::termwindow::UIItemType;
 use config::Dimension;
 use std::sync::{Arc, Mutex};
 use termwiz::input::KeyCode;
@@ -140,7 +141,7 @@ impl ModalManager {
                     })
                     .display(DisplayType::Block)
                     .min_width(Some(Dimension::Pixels(sidebar_bounds.width())))
-                    .min_height(Some(Dimension::Pixels(sidebar_bounds.height())))
+                    .min_height(Some(Dimension::Pixels(window_bounds.height())))
                     .margin(BoxDimension {
                         left: Dimension::Pixels(sidebar_bounds.min_x()),
                         top: Dimension::Pixels(0.0),
@@ -315,45 +316,40 @@ impl ModalManager {
             );
 
             // Render close button with proper positioning
-            let close_button_size = 32.0;
-            let close_button_x = modal_bounds.max_x() - close_button_size - 8.0;
-            let close_button_y = modal_bounds.min_y() + 8.0;
-
-            // Close button background at z-index 22 (same as frame)
+            // Unified close button with UIItemType
             elements.push(
-                Element::new(&fonts.body, ElementContent::Text(String::new()))
+                Element::new(&fonts.heading, ElementContent::Text("\u{2715}".to_string())) // ✕
                     .colors(ElementColors {
-                        border: BorderColor::default(),
-                        bg: LinearRgba(0.3, 0.3, 0.3, 0.8).into(),
-                        text: LinearRgba(1.0, 1.0, 1.0, 1.0).into(),
-                    })
-                    .display(DisplayType::Block)
-                    .min_width(Some(Dimension::Pixels(close_button_size)))
-                    .min_height(Some(Dimension::Pixels(close_button_size)))
-                    .margin(BoxDimension {
-                        left: Dimension::Pixels(close_button_x),
-                        top: Dimension::Pixels(close_button_y),
-                        right: Dimension::Pixels(0.0),
-                        bottom: Dimension::Pixels(0.0),
-                    })
-                    .zindex(22),
-            );
-
-            // Close button X text at z-index 22 (same as frame)
-            elements.push(
-                Element::new(&fonts.heading, ElementContent::Text("X".to_string()))
-                    .colors(ElementColors {
-                        border: BorderColor::default(),
-                        bg: LinearRgba(0.0, 0.0, 0.0, 0.0).into(),
+                        border: BorderColor::new(LinearRgba(0.5, 0.5, 0.5, 1.0).into()),
+                        bg: LinearRgba(0.2, 0.2, 0.2, 0.8).into(),
                         text: LinearRgba(0.9, 0.9, 0.9, 1.0).into(),
                     })
-                    .display(DisplayType::Block)
+                    .border(BoxDimension::new(Dimension::Pixels(1.0)))
+                    .border_corners(Some(Corners {
+                        top_left: SizedPoly::none(),
+                        top_right: SizedPoly::none(),
+                        bottom_left: SizedPoly::none(),
+                        bottom_right: SizedPoly::none(),
+                    }))
+                    .padding(BoxDimension {
+                        left: Dimension::Pixels(8.0),
+                        right: Dimension::Pixels(8.0),
+                        top: Dimension::Pixels(4.0),
+                        bottom: Dimension::Pixels(4.0),
+                    })
                     .margin(BoxDimension {
-                        left: Dimension::Pixels(close_button_x + 11.0), // Center the X
-                        top: Dimension::Pixels(close_button_y + 5.0),
+                        left: Dimension::Pixels(modal_bounds.max_x() - 40.0),
+                        top: Dimension::Pixels(modal_bounds.min_y() + 8.0),
                         right: Dimension::Pixels(0.0),
                         bottom: Dimension::Pixels(0.0),
                     })
+                    .hover_colors(Some(ElementColors {
+                        border: BorderColor::new(LinearRgba(0.7, 0.7, 0.7, 1.0).into()),
+                        bg: LinearRgba(0.3, 0.3, 0.3, 0.9).into(),
+                        text: LinearRgba(1.0, 1.0, 1.0, 1.0).into(),
+                    }))
+                    .item_type(UIItemType::ModalCloseButton)
+                    .display(DisplayType::Block)
                     .zindex(22),
             );
 
@@ -615,19 +611,6 @@ impl ModalManager {
                             }
                         }
 
-                        // Check close button (updated to match new size)
-                        let close_button_bounds = euclid::rect(
-                            modal_bounds.max_x() - 40.0, // 32 + 8 padding
-                            modal_bounds.min_y() + 8.0,
-                            32.0,
-                            32.0,
-                        );
-
-                        if close_button_bounds.contains(point) {
-                            self.close();
-                            return true;
-                        }
-
                         // Check click outside
                         if modal.close_on_click_outside && !modal_bounds.contains(point) {
                             self.close();
@@ -660,6 +643,7 @@ impl ModalManager {
     pub fn handle_key_event(&mut self, key: KeyCode, mods: KeyModifiers) -> bool {
         if let Some(ref modal) = self.active_modal {
             if modal.close_on_escape && key == KeyCode::Escape && mods.is_empty() {
+                log::debug!("ESC pressed in modal manager - closing modal");
                 self.close();
                 return true;
             }
