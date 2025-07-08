@@ -372,7 +372,7 @@ Dimension::Pixels(val as f32)      // Must be f32
 ## Known Issues and Behaviors
 
 ### Scroll Wheel Event Skipping
-When scrolling at medium speed, some scroll events appear to be "skipped" - the content doesn't move despite scroll wheel input. Investigation shows:
+When scrolling at medium speed with some mouses, some scroll events appear to be "skipped" - the content doesn't move despite scroll wheel input. Investigation shows:
 - Events ARE processed correctly when received (offset increases properly)
 - The issue is that no events are received during medium-speed scrolling
 - This appears to be OS-level event coalescing that occurs when events arrive faster than the render loop processes them
