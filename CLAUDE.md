@@ -10,7 +10,8 @@ Refer to ../backend/SPEC.md for a detailed spec of this project and use TASKS.md
 - Fix problems you find that will break things (but don't do needless work). 
 - Consider multiple concepts for how to solve problems before you write code, and pick the best one that aligns with the codebase.
 - Before editing things, use a subagent to examine the current codebase to ensure you fully understand all relevant portions (but subagents should not modify code, you must tell them not to). 
-- Don't make guesses, ensure you understand!
+- Do not make guesses, ensure you understand!
+- Do not change architecture, approach, or make other major decisions without the user agreeing first
 
 ## Build and Development Commands
 

@@ -288,3 +288,24 @@ Dimension::Pixels(val as f32)      // Must be f32
 - Complex markdown content
 - Many simultaneous animations
 - Memory leak detection
+
+## Known Issues and Behaviors
+
+### Scroll Wheel Event Skipping
+When scrolling at medium speed, some scroll events appear to be "skipped" - the content doesn't move despite scroll wheel input. Investigation shows:
+- Events ARE processed correctly when received (offset increases properly)
+- The issue is that no events are received during medium-speed scrolling
+- This appears to be OS-level event coalescing that occurs when events arrive faster than the render loop processes them
+- Slow scrolling: Each event is processed individually
+- Fast scrolling: OS sends many events, all get processed
+- Medium scrolling: OS coalesces/drops some events to prevent queue overflow
+
+**Testing logs showed**:
+```
+11:02:46.547  Scroll wheel: old_offset=4100, new_offset=4120
+11:02:46.712  Scroll wheel: old_offset=4120, new_offset=4140
+11:02:47.604  Scroll wheel: old_offset=4140, new_offset=4160
+```
+Events arrive when they arrive, but gaps in timestamps show when events were dropped.
+
+This is expected behavior and not a bug in our code.

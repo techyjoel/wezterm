@@ -300,13 +300,14 @@ The implementation is divided into 7 phases:
 **Known Issues To Address**
 - [ ] No text in the sidebar can be selected/higlighted for copy/paste. All text should be selectable.
 - [ ] Multi-line chat input not yet interactive (can't click and type)
-- [ ] "View more" modal background isn't working right. We need to extend the modal background all the way to the top/bottom of the window with a color that fades from the modal background to some darker color at the top and bottom of the modal, to look like a shadow. See MODALS.md for more details.
+- [ ] "View more" modal background isn't working right. We need to extend the modal background all the way to the top/bottom of the window with a color that fades from the modal background to some darker color at the top and bottom of the modal, to look like a shadow. You MUST read MODALS.md for more details.
 - [ ] "View more" modal won't close reliably (either via esc key or clicking on X in top right)
 - [ ] Suggestion card is taller now (2 rows) so needs to compress the activity log height some
 - [ ] Activity log is mis-aligned in sidebar
 - [ ] Activity log filter chips should be below the suggestion card
 - [ ] Fix margin, padding, and alignent of all items in sidebar to make some more compact and make room for the activity log. Get user to provide screenshots for analysis.
 - [ ] Make sidebar default width 50px wider, and make adjustable by dragging on divider between sidebar and terminal area. Change font size used in sidebar from the current -1 (configurable) to same as terminal area if dragged very wide (e.g. 400px or wider), set to -2 if at narrowest point (so, ditch the configurable value in lua settings since will be doing this)
+- [ ] Recent changes since we started this AI sidebar project have significantly slowed rendering of actvity in the terminal area (keypress-to-display latency, speed of cat-ing large files). We need to determine why: what code is slowing things down, and what we can do about it, then implement solution(s). This will likely require subagents to look through all git commmits in our repo since we began our sidebar work to summarize areas of change that we might need to look into. Then having subagents look into those areas deeply to find potential causes. Then if there are no clear answers we may need to perform profiling or other instrumentation.
 
 ---
 

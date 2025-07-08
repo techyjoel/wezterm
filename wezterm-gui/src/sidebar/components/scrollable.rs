@@ -22,6 +22,7 @@
 //
 // This approach works within WezTerm's constraints while providing a functional scrollbar.
 
+use super::scrollbar_state::{ScrollbarConfig, ScrollbarState};
 use crate::termwindow::box_model::{
     BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent, Float,
 };
@@ -37,21 +38,19 @@ pub struct ScrollableContainer {
     content_height: f32,      // Total pixel height of all content
     item_heights: Vec<f32>,   // Actual height of each item
     item_positions: Vec<f32>, // Y position of each item
-    scroll_offset: f32,       // Pixel scroll offset
     show_scrollbar: bool,
-    scrollbar_width: f32,
-    auto_hide_scrollbar: bool,
     smooth_scroll: bool,
     scroll_speed: f32,
-    hovering_scrollbar: bool,
-    dragging_scrollbar: bool,
-    drag_start_y: Option<f32>,
-    drag_start_offset: Option<f32>,
     // Font metrics context
     font_context: Option<DimensionContext>,
     // For backwards compatibility, keep item-based tracking
     top_row: usize,
     max_visible_items: usize,
+    // Use shared scrollbar state
+    scrollbar_state: ScrollbarState,
+    scrollbar_config: ScrollbarConfig,
+    // Track actual line counts from previous render
+    pub rendered_line_counts: Vec<usize>,
 }
 
 /// Information needed to render a scrollbar externally
@@ -76,6 +75,19 @@ pub struct ScrollbarInfo {
 }
 
 impl ScrollableContainer {
+    /// Add method to check if animation needs update
+    pub fn update_animation(&mut self) -> bool {
+        self.scrollbar_state
+            .update_animation(&self.scrollbar_config)
+    }
+
+    /// Get a reference to the scrollbar state for external access
+    pub fn scrollbar_state(&self) -> &ScrollbarState {
+        &self.scrollbar_state
+    }
+}
+
+impl ScrollableContainer {
     pub fn new(viewport_items: usize) -> Self {
         // For backwards compatibility, accept item count but convert to pixels
         // Assume ~40px per item as default
@@ -87,19 +99,15 @@ impl ScrollableContainer {
             content_height: 0.0,
             item_heights: Vec::new(),
             item_positions: Vec::new(),
-            scroll_offset: 0.0,
             top_row: 0,
             max_visible_items: viewport_items,
             show_scrollbar: true,
-            scrollbar_width: 8.0,
-            auto_hide_scrollbar: true,
             smooth_scroll: true,
             scroll_speed: 40.0, // Pixels per scroll step
-            hovering_scrollbar: false,
-            dragging_scrollbar: false,
-            drag_start_y: None,
-            drag_start_offset: None,
             font_context: None,
+            scrollbar_state: ScrollbarState::new(),
+            scrollbar_config: ScrollbarConfig::default(),
+            rendered_line_counts: Vec::new(),
         }
     }
 
@@ -111,19 +119,15 @@ impl ScrollableContainer {
             content_height: 0.0,
             item_heights: Vec::new(),
             item_positions: Vec::new(),
-            scroll_offset: 0.0,
             top_row: 0,
             max_visible_items: (viewport_height / 40.0).ceil() as usize,
             show_scrollbar: true,
-            scrollbar_width: 8.0,
-            auto_hide_scrollbar: true,
             smooth_scroll: true,
             scroll_speed: 40.0,
-            hovering_scrollbar: false,
-            dragging_scrollbar: false,
-            drag_start_y: None,
-            drag_start_offset: None,
             font_context: None,
+            scrollbar_state: ScrollbarState::new(),
+            scrollbar_config: ScrollbarConfig::default(),
+            rendered_line_counts: Vec::new(),
         }
     }
 
@@ -134,7 +138,7 @@ impl ScrollableContainer {
     }
 
     pub fn with_auto_hide_scrollbar(mut self, auto_hide: bool) -> Self {
-        self.auto_hide_scrollbar = auto_hide;
+        self.scrollbar_config.auto_hide = auto_hide;
         self
     }
 
@@ -164,7 +168,7 @@ impl ScrollableContainer {
     pub fn clear(&mut self) {
         self.content.clear();
         self.content_height = 0.0;
-        self.scroll_offset = 0.0;
+        self.scrollbar_state.set_scroll_offset(0.0);
         self.top_row = 0;
     }
 
@@ -197,12 +201,21 @@ impl ScrollableContainer {
 
         self.content_height = current_y;
 
+        // Add extra padding to ensure all content is visible when scrolled to bottom
+        // This accounts for any rendering quirks or line height differences
+        let extra_bottom_padding = 20.0;
+        self.content_height += extra_bottom_padding;
+
+        // Update shared scrollbar state
+        self.scrollbar_state
+            .set_dimensions(self.content_height, self.viewport_height);
+
         log::debug!(
             "ScrollableContainer metrics: viewport_height={:.1}, content_height={:.1}, items={}, should_show_scrollbar={}",
             self.viewport_height,
             self.content_height,
             self.content.len(),
-            self.content_height > self.viewport_height
+            self.scrollbar_state.is_needed()
         );
 
         // Log summary of height calculations
@@ -285,28 +298,86 @@ impl ScrollableContainer {
                     - element.border.left.evaluate_as_pixels(context)
                     - element.border.right.evaluate_as_pixels(context);
 
-                // Use shared utility function for wrapped line estimation
-                let avg_char_width = context.pixel_cell * 0.6; // Approximate average character width
-                let lines = crate::termwindow::box_model::estimate_wrapped_lines(
-                    text,
-                    available_width,
-                    avg_char_width,
-                );
-
-                let text_height = lines * actual_line_height;
-
-                // Log wrapped text heights
-                if lines > 1.0 || text.len() > 100 {
+                // Check if we have a pre-computed height
+                if let Some(height) = element.computed_height {
+                    // Use exact height if available
                     log::trace!(
-                        "WrappedText height (depth {}): {:.1} lines, {}px, text_preview: {:?}",
+                        "WrappedText height using computed height (depth {}): {}px",
                         depth,
-                        lines,
-                        text_height,
-                        &text.chars().take(50).collect::<String>()
+                        height
                     );
-                }
+                    height
+                } else {
+                    // Fall back to estimation
+                    // Use shared utility function for wrapped line estimation
+                    let avg_char_width = context.pixel_cell * 0.6; // Approximate average character width
+                    let lines = crate::termwindow::box_model::estimate_wrapped_lines(
+                        text,
+                        available_width,
+                        avg_char_width,
+                    );
 
-                text_height
+                    let text_height = lines * actual_line_height;
+
+                    // Log wrapped text heights
+                    if lines > 1.0 || text.len() > 100 {
+                        log::trace!(
+                            "WrappedText height (depth {}): {:.1} lines, {}px, text_preview: {:?}",
+                            depth,
+                            lines,
+                            text_height,
+                            &text.chars().take(50).collect::<String>()
+                        );
+                    }
+
+                    text_height
+                }
+            }
+            ElementContent::StyledWrappedText { text, .. } => {
+                // Handle styled wrapped text (used by markdown paragraphs)
+                // Similar to WrappedText but accounts for style spans
+                let available_width = context.pixel_max
+                    - element.padding.left.evaluate_as_pixels(context)
+                    - element.padding.right.evaluate_as_pixels(context)
+                    - element.margin.left.evaluate_as_pixels(context)
+                    - element.margin.right.evaluate_as_pixels(context)
+                    - element.border.left.evaluate_as_pixels(context)
+                    - element.border.right.evaluate_as_pixels(context);
+
+                // Check if we have a pre-computed height
+                if let Some(height) = element.computed_height {
+                    // Use exact height if available
+                    log::trace!(
+                        "StyledWrappedText height using computed height (depth {}): {}px",
+                        depth,
+                        height
+                    );
+                    height
+                } else {
+                    // Fall back to estimation
+                    // For styled text, we still use the same estimation approach
+                    let avg_char_width = context.pixel_cell * 0.6; // Approximate average character width
+                    let lines = crate::termwindow::box_model::estimate_wrapped_lines(
+                        text,
+                        available_width,
+                        avg_char_width,
+                    );
+
+                    let text_height = lines * actual_line_height;
+
+                    // Log styled wrapped text heights
+                    if lines > 1.0 || text.len() > 100 {
+                        log::trace!(
+                            "StyledWrappedText height (depth {}): {:.1} lines, {}px, text_preview: {:?}",
+                            depth,
+                            lines,
+                            text_height,
+                            &text.chars().take(50).collect::<String>()
+                        );
+                    }
+
+                    text_height
+                }
             }
             ElementContent::Children(children) => {
                 // Recursively calculate height of all children
@@ -351,16 +422,16 @@ impl ScrollableContainer {
 
     fn constrain_scroll(&mut self) {
         if self.content_height <= self.viewport_height {
-            self.scroll_offset = 0.0;
+            self.scrollbar_state.set_scroll_offset(0.0);
             self.top_row = 0;
         } else {
-            let max_scroll = (self.content_height - self.viewport_height).max(0.0);
-            self.scroll_offset = self.scroll_offset.min(max_scroll);
+            // The scrollbar state already handles clamping
+            let offset = self.scrollbar_state.scroll_offset;
 
             // Find first visible item based on actual positions
             self.top_row = 0;
             for (idx, &pos) in self.item_positions.iter().enumerate() {
-                if pos + self.item_heights.get(idx).copied().unwrap_or(40.0) >= self.scroll_offset {
+                if pos + self.item_heights.get(idx).copied().unwrap_or(40.0) >= offset {
                     self.top_row = idx;
                     break;
                 }
@@ -370,26 +441,30 @@ impl ScrollableContainer {
 
     pub fn scroll_up(&mut self, lines: usize) {
         let pixels = lines as f32 * self.scroll_speed;
-        self.scroll_offset = (self.scroll_offset - pixels).max(0.0);
+        let new_offset = (self.scrollbar_state.scroll_offset - pixels).max(0.0);
+        self.scrollbar_state.set_scroll_offset(new_offset);
         self.constrain_scroll();
     }
 
     pub fn scroll_down(&mut self, lines: usize) {
         let pixels = lines as f32 * self.scroll_speed;
-        self.scroll_offset = self.scroll_offset + pixels;
+        let new_offset = self.scrollbar_state.scroll_offset + pixels;
+        self.scrollbar_state.set_scroll_offset(new_offset);
         self.constrain_scroll();
     }
 
     pub fn scroll_to_top(&mut self) {
-        self.scroll_offset = 0.0;
+        self.scrollbar_state.set_scroll_offset(0.0);
         self.top_row = 0;
     }
 
     pub fn scroll_to_bottom(&mut self) {
         if self.content_height > self.viewport_height {
-            self.scroll_offset = self.content_height - self.viewport_height;
+            let max_offset = self.content_height - self.viewport_height;
+            self.scrollbar_state.set_scroll_offset(max_offset);
             let estimated_item_height = 60.0;
-            self.top_row = (self.scroll_offset / estimated_item_height).floor() as usize;
+            self.top_row =
+                (self.scrollbar_state.scroll_offset / estimated_item_height).floor() as usize;
         }
     }
 
@@ -397,7 +472,7 @@ impl ScrollableContainer {
         if self.content_height <= self.viewport_height {
             true
         } else {
-            self.scroll_offset >= self.content_height - self.viewport_height - 1.0
+            self.scrollbar_state.scroll_offset >= self.content_height - self.viewport_height - 1.0
         }
     }
 
@@ -407,27 +482,15 @@ impl ScrollableContainer {
             offset,
             offset.clamp(0.0, (self.content_height - self.viewport_height).max(0.0))
         );
-        self.scroll_offset = offset;
+        self.scrollbar_state.set_scroll_offset(offset);
         self.constrain_scroll();
     }
 
     fn get_scrollbar_thumb_info(&self) -> (f32, f32) {
-        if self.content_height <= self.viewport_height {
-            return (0.0, self.viewport_height);
-        }
-
-        let viewport_ratio = self.viewport_height / self.content_height;
-        let thumb_height = (viewport_ratio * self.viewport_height).max(20.0);
-
-        let max_scroll = self.content_height - self.viewport_height;
-        let scroll_ratio = if max_scroll > 0.0 {
-            self.scroll_offset / max_scroll
-        } else {
-            0.0
-        };
-        let thumb_top = scroll_ratio * (self.viewport_height - thumb_height);
-
-        (thumb_top, thumb_height)
+        let thumb_geom = self
+            .scrollbar_state
+            .calculate_thumb_geometry(self.viewport_height);
+        (thumb_geom.y_offset, thumb_geom.height)
     }
 
     /// Get scrollbar rendering information
@@ -441,7 +504,7 @@ impl ScrollableContainer {
                 thumb_size: 1.0,
                 content_height: self.content_height,
                 viewport_height: self.viewport_height,
-                scroll_offset: self.scroll_offset,
+                scroll_offset: self.scrollbar_state.scroll_offset,
                 // Deprecated fields
                 total_items: self.content.len(),
                 viewport_items: self.max_visible_items,
@@ -454,7 +517,7 @@ impl ScrollableContainer {
         // Calculate thumb position
         let max_scroll = (self.content_height - self.viewport_height).max(0.0);
         let thumb_position = if max_scroll > 0.0 {
-            self.scroll_offset / max_scroll
+            self.scrollbar_state.scroll_offset / max_scroll
         } else {
             0.0
         };
@@ -465,7 +528,7 @@ impl ScrollableContainer {
             thumb_size: thumb_size.clamp(0.1, 1.0), // Minimum 10% size
             content_height: self.content_height,
             viewport_height: self.viewport_height,
-            scroll_offset: self.scroll_offset,
+            scroll_offset: self.scrollbar_state.scroll_offset,
             // Deprecated fields for compatibility
             total_items: self.content.len(),
             viewport_items: self.max_visible_items,
@@ -475,7 +538,7 @@ impl ScrollableContainer {
     pub fn render(&self, font: &Rc<LoadedFont>) -> Element {
         log::debug!(
             "ScrollableContainer::render - scroll_offset={}, content_height={}, viewport_height={}, items={}",
-            self.scroll_offset, self.content_height, self.viewport_height, self.content.len()
+            self.scrollbar_state.scroll_offset, self.content_height, self.viewport_height, self.content.len()
         );
 
         // Simply render all content items - let the viewport handle clipping
@@ -483,7 +546,7 @@ impl ScrollableContainer {
         let content_area = Element::new(font, ElementContent::Children(self.content.clone()))
             .display(DisplayType::Block)
             .margin(BoxDimension {
-                top: Dimension::Pixels(-self.scroll_offset),
+                top: Dimension::Pixels(-self.scrollbar_state.scroll_offset),
                 ..Default::default()
             });
 
@@ -505,7 +568,7 @@ impl ScrollableContainer {
         font: &Rc<LoadedFont>,
         scrollbar_info: &ScrollbarInfo,
     ) -> Element {
-        let scrollbar_width = self.scrollbar_width;
+        let scrollbar_width = self.scrollbar_config.width;
         let thumb_height = (scrollbar_info.thumb_size * self.viewport_height).max(20.0);
         let available_space = self.viewport_height - thumb_height;
         let thumb_offset = scrollbar_info.thumb_position * available_space;
@@ -549,58 +612,43 @@ impl ScrollableContainer {
             return false;
         }
 
-        let needs_scrollbar = self.content_height > self.viewport_height;
-        log::trace!(
-            "should_show_scrollbar: content_height={:.1}, viewport_height={:.1}, needs={}, auto_hide={}, hovering={}",
-            self.content_height, self.viewport_height, needs_scrollbar,
-            self.auto_hide_scrollbar, self.hovering_scrollbar
-        );
-
-        if !needs_scrollbar {
+        if !self.scrollbar_state.is_needed() {
             return false;
         }
 
-        if self.auto_hide_scrollbar {
-            self.hovering_scrollbar || self.dragging_scrollbar
-        } else {
-            true
-        }
+        // Get opacity from scrollbar state
+        let opacity = self.scrollbar_state.get_opacity(&self.scrollbar_config);
+        opacity > 0.0
     }
 
     pub fn handle_mouse_event(&mut self, event: &MouseEvent) -> bool {
         if event.mouse_buttons.contains(MouseButtons::VERT_WHEEL) {
             if event.mouse_buttons.contains(MouseButtons::WHEEL_POSITIVE) {
-                self.scroll_up(3); // Scroll 3 lines
+                // Use shared scrollbar state for wheel handling
+                self.scrollbar_state
+                    .handle_wheel(-3.0, self.scroll_speed / self.viewport_height * 30.0)
             } else {
-                self.scroll_down(3); // Scroll 3 lines
+                self.scrollbar_state
+                    .handle_wheel(3.0, self.scroll_speed / self.viewport_height * 30.0)
             }
-            true
         } else if event.mouse_buttons == MouseButtons::LEFT {
             if self.is_over_scrollbar(event.x, event.y) {
-                self.dragging_scrollbar = true;
-                self.drag_start_y = Some(event.y as f32);
-                self.drag_start_offset = Some(self.scroll_offset);
+                self.scrollbar_state.start_drag(event.y as f32);
                 true
             } else {
                 false
             }
         } else if event.mouse_buttons == MouseButtons::NONE {
-            if self.dragging_scrollbar {
-                if let (Some(start_y), Some(start_offset)) =
-                    (self.drag_start_y, self.drag_start_offset)
-                {
-                    let delta_y = event.y as f32 - start_y;
-                    let scroll_ratio = delta_y / self.viewport_height;
-                    let scroll_delta = scroll_ratio * self.content_height;
-
-                    self.scroll_offset = (start_offset + scroll_delta).max(0.0);
-                    self.constrain_scroll();
-                }
+            if self.scrollbar_state.is_dragging {
+                self.scrollbar_state
+                    .update_drag(event.y as f32, self.viewport_height);
+                self.constrain_scroll();
                 true
             } else {
-                let was_hovering = self.hovering_scrollbar;
-                self.hovering_scrollbar = self.is_over_scrollbar(event.x, event.y);
-                was_hovering != self.hovering_scrollbar
+                let was_hovering = self.scrollbar_state.is_hovering;
+                let now_hovering = self.is_over_scrollbar(event.x, event.y);
+                self.scrollbar_state.set_hovering(now_hovering);
+                was_hovering != now_hovering
             }
         } else {
             false
@@ -608,9 +656,7 @@ impl ScrollableContainer {
     }
 
     pub fn handle_mouse_release(&mut self) {
-        self.dragging_scrollbar = false;
-        self.drag_start_y = None;
-        self.drag_start_offset = None;
+        self.scrollbar_state.end_drag();
     }
 
     fn is_over_scrollbar(&self, _x: u16, _y: u16) -> bool {

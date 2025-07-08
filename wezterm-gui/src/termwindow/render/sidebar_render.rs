@@ -14,6 +14,7 @@
 //! - Modal overlays: z-indices 20-23
 
 use crate::quad::{QuadTrait, TripleLayerQuadAllocator, TripleLayerQuadAllocatorTrait};
+use crate::sidebar::AiSidebar;
 use crate::termwindow::box_model::{
     set_width_correction_factor, Element, ElementColors, ElementContent, LayoutContext,
 };
@@ -640,6 +641,14 @@ impl crate::TermWindow {
                     "Activity log rendered at z-index 10 with {} UI items",
                     activity_log_computed.ui_items().len()
                 );
+
+                // Update height cache with actual rendered heights (for virtual scrolling)
+                // We need to call this on the AiSidebar to update its height cache
+                if let Some(ai_sidebar) = sidebar_locked.as_any_mut().downcast_mut::<AiSidebar>() {
+                    // Get the viewport height from the activity bounds
+                    let viewport_height = activity_bounds.size.height;
+                    ai_sidebar.update_activity_log_height_cache(&activity_log_computed, viewport_height);
+                }
             }
 
             // Now get the main sidebar element
@@ -793,6 +802,9 @@ impl crate::TermWindow {
                 let pixel_height = self.dimensions.pixel_height as f32;
                 let filled_box_coords = gl_state.util_sprites.filled_box.texture_coords();
 
+                // Activity log background color - slightly lighter than sidebar
+                let activity_log_bg = LinearRgba::with_components(0.03, 0.03, 0.035, 1.0);
+
                 // Render at z-index 16 for right sidebar scrollbars
                 let _ui_items = scrollbar.render_direct(
                     gl_state,
@@ -801,11 +813,23 @@ impl crate::TermWindow {
                     &palette,
                     config,
                     |layers, sub_layer, rect, color| {
+                        // Intercept the background color for the scrollbar track
+                        // Note: ScrollbarRenderer applies window_background_opacity to the background,
+                        // so we need to check if this is the track background
+                        let is_track_bg = sub_layer == 0; // Track is rendered on sub-layer 0
+                        let final_color = if is_track_bg {
+                            // Use activity log background with full opacity
+                            activity_log_bg
+                        } else {
+                            // Keep original color (thumb, etc.)
+                            color
+                        };
+
                         Self::render_filled_rect(
                             layers,
                             sub_layer,
                             rect,
-                            color,
+                            final_color,
                             pixel_width,
                             pixel_height,
                             filled_box_coords,
@@ -951,6 +975,12 @@ impl crate::TermWindow {
 
             // Set the width correction factor before rendering modals
             set_width_correction_factor(fonts.width_correction_factor as f32);
+
+            // Update modal animations and check if we need to redraw
+            let needs_modal_redraw = ai_sidebar.modal_manager_mut().update_animation();
+            if needs_modal_redraw {
+                self.window.as_ref().unwrap().invalidate();
+            }
 
             // Get modal elements
             let modal_elements =

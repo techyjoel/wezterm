@@ -1,3 +1,4 @@
+use super::scrollbar_state::{ScrollbarConfig, ScrollbarState};
 use crate::color::LinearRgba;
 use crate::sidebar::components::markdown::CodeBlockRegistry;
 use crate::sidebar::SidebarFonts;
@@ -45,29 +46,26 @@ pub struct ModalManager {
     active_modal: Option<Modal>,
     dimmer_opacity: f32,
     animation_start: Option<std::time::Instant>,
-    scroll_offset: f32,
     content_height: f32,
     visible_height: f32,
-    // Scrollbar interaction state
-    hovering_scrollbar: bool,
-    dragging_scrollbar: bool,
-    drag_start_y: Option<f32>,
-    drag_start_offset: Option<f32>,
+    // Use shared scrollbar state
+    scrollbar_state: ScrollbarState,
+    scrollbar_config: ScrollbarConfig,
 }
 
 impl ModalManager {
     pub fn new() -> Self {
+        let mut config = ScrollbarConfig::default();
+        config.auto_hide = false; // Always show in modals
+
         Self {
             active_modal: None,
             dimmer_opacity: 0.0,
             animation_start: None,
-            scroll_offset: 0.0,
             content_height: 0.0,
             visible_height: 0.0,
-            hovering_scrollbar: false,
-            dragging_scrollbar: false,
-            drag_start_y: None,
-            drag_start_offset: None,
+            scrollbar_state: ScrollbarState::new(),
+            scrollbar_config: config,
         }
     }
 
@@ -160,6 +158,11 @@ impl ModalManager {
 
             // Update visible height for scrolling
             self.visible_height = modal_bounds.height() - 60.0; // Account for header and padding
+
+            // Update scrollbar state dimensions
+            self.scrollbar_state
+                .set_dimensions(self.content_height, self.visible_height);
+
             log::debug!(
                 "Modal bounds: width={}, height={}, visible_height={}",
                 modal_bounds.width(),
@@ -383,7 +386,7 @@ impl ModalManager {
                 modal_bounds: content_bounds,
                 fonts,
                 visible_height: self.visible_height,
-                scroll_offset: self.scroll_offset,
+                scroll_offset: self.scrollbar_state.scroll_offset,
                 code_block_registry,
             };
 
@@ -408,8 +411,8 @@ impl ModalManager {
 
                 elements.push(positioned_content);
 
-                // Update content height
-                self.content_height = modal.content.get_content_height();
+                // Update content height with extra padding for visibility
+                self.content_height = modal.content.get_content_height() + 20.0;
             }
 
             // Render scrollbar if needed at z-index 23 (above everything else)
@@ -462,7 +465,13 @@ impl ModalManager {
     fn render_scrollbar(&self, modal_bounds: RectF, fonts: &SidebarFonts) -> Vec<Element> {
         let mut elements = vec![];
 
-        let scrollbar_width = 8.0;
+        // Get opacity from scrollbar state
+        let opacity = self.scrollbar_state.get_opacity(&self.scrollbar_config);
+        if opacity <= 0.0 && self.scrollbar_config.auto_hide {
+            return elements;
+        }
+
+        let scrollbar_width = self.scrollbar_config.width;
         let scrollbar_padding = 4.0;
         let scrollbar_x = modal_bounds.max_x() - scrollbar_width - scrollbar_padding;
         let scrollbar_height = self.visible_height;
@@ -478,19 +487,18 @@ impl ModalManager {
             scrollbar_y
         );
 
-        // Calculate thumb size and position
-        let thumb_height = (self.visible_height / self.content_height) * scrollbar_height;
-        let thumb_height = thumb_height.max(30.0).min(scrollbar_height); // Minimum thumb size
-
-        let max_scroll = (self.content_height - self.visible_height).max(0.0);
-        let thumb_y = if max_scroll > 0.0 {
-            scrollbar_y + (self.scroll_offset / max_scroll) * (scrollbar_height - thumb_height)
-        } else {
-            scrollbar_y
-        };
+        // Get thumb geometry from shared state
+        let thumb_geometry = self
+            .scrollbar_state
+            .calculate_thumb_geometry(scrollbar_height);
+        let thumb_y = scrollbar_y + thumb_geometry.y_offset;
 
         // Scrollbar track background
-        let track_opacity = if self.hovering_scrollbar { 0.4 } else { 0.2 };
+        let track_opacity = if self.scrollbar_state.is_hovering {
+            0.4
+        } else {
+            0.2
+        };
 
         // Create a container at the scrollbar position
         let track_container = Element::new(
@@ -519,9 +527,9 @@ impl ModalManager {
         elements.push(track_container);
 
         // Scrollbar thumb
-        let thumb_opacity = if self.dragging_scrollbar {
+        let thumb_opacity = if self.scrollbar_state.is_dragging {
             0.9
-        } else if self.hovering_scrollbar {
+        } else if self.scrollbar_state.is_hovering {
             0.8
         } else {
             0.6
@@ -534,7 +542,7 @@ impl ModalManager {
                 text: LinearRgba(1.0, 1.0, 1.0, 1.0).into(),
             })
             .min_width(Some(Dimension::Pixels(scrollbar_width)))
-            .min_height(Some(Dimension::Pixels(thumb_height)))
+            .min_height(Some(Dimension::Pixels(thumb_geometry.height)))
             .margin(BoxDimension {
                 left: Dimension::Pixels(scrollbar_x),
                 top: Dimension::Pixels(thumb_y),
@@ -581,29 +589,17 @@ impl ModalManager {
                     WMEK::Move => {
                         // Check if hovering scrollbar
                         if let Some(bounds) = scrollbar_bounds {
-                            self.hovering_scrollbar = bounds.contains(point);
+                            let was_hovering = self.scrollbar_state.is_hovering;
+                            self.scrollbar_state.set_hovering(bounds.contains(point));
+                            if was_hovering != self.scrollbar_state.is_hovering {
+                                return true;
+                            }
                         }
 
                         // Handle scrollbar dragging
-                        if self.dragging_scrollbar {
-                            if let (Some(drag_start_y), Some(drag_start_offset)) =
-                                (self.drag_start_y, self.drag_start_offset)
-                            {
-                                let delta_y = event.coords.y as f32 - drag_start_y;
-                                let scrollbar_y = modal_bounds.min_y() + 40.0;
-                                let thumb_height = (self.visible_height / self.content_height)
-                                    * self.visible_height;
-                                let thumb_height = thumb_height.max(30.0).min(self.visible_height);
-                                let max_thumb_travel = self.visible_height - thumb_height;
-
-                                if max_thumb_travel > 0.0 {
-                                    let thumb_position =
-                                        (delta_y / max_thumb_travel).clamp(0.0, 1.0);
-                                    let max_scroll =
-                                        (self.content_height - self.visible_height).max(0.0);
-                                    self.scroll_offset = thumb_position * max_scroll;
-                                }
-                            }
+                        if self.scrollbar_state.is_dragging {
+                            self.scrollbar_state
+                                .update_drag(event.coords.y as f32, self.visible_height);
                             return true;
                         }
                     }
@@ -612,9 +608,7 @@ impl ModalManager {
                         if let Some(bounds) = scrollbar_bounds {
                             if bounds.contains(point) {
                                 // Start scrollbar drag
-                                self.dragging_scrollbar = true;
-                                self.drag_start_y = Some(event.coords.y as f32);
-                                self.drag_start_offset = Some(self.scroll_offset);
+                                self.scrollbar_state.start_drag(event.coords.y as f32);
                                 return true;
                             }
                         }
@@ -640,10 +634,8 @@ impl ModalManager {
                     }
                     WMEK::Release(MousePress::Left) => {
                         // End scrollbar drag
-                        if self.dragging_scrollbar {
-                            self.dragging_scrollbar = false;
-                            self.drag_start_y = None;
-                            self.drag_start_offset = None;
+                        if self.scrollbar_state.is_dragging {
+                            self.scrollbar_state.end_drag();
                             return true;
                         }
                     }
@@ -651,14 +643,9 @@ impl ModalManager {
                         // Only scroll if mouse is over modal
                         if modal_bounds.contains(point) && self.content_height > self.visible_height
                         {
-                            let scroll_amount = *delta as f32 * 30.0; // Increased scroll speed
-                            self.scroll_offset -= scroll_amount;
-
-                            // Clamp scroll offset
-                            let max_scroll = (self.content_height - self.visible_height).max(0.0);
-                            self.scroll_offset = self.scroll_offset.clamp(0.0, max_scroll);
-
-                            return true;
+                            // Use shared scrollbar state for wheel handling
+                            // Note: delta is already signed correctly (positive = down, negative = up)
+                            return self.scrollbar_state.handle_wheel(*delta as f32, 1.0);
                         }
                     }
                     _ => {}
@@ -679,18 +666,26 @@ impl ModalManager {
     }
 
     pub fn get_scroll_offset(&self) -> f32 {
-        self.scroll_offset
+        self.scrollbar_state.scroll_offset
     }
 
     pub fn get_scroll_info(&self) -> (f32, f32, f32) {
-        (self.scroll_offset, self.content_height, self.visible_height)
+        (
+            self.scrollbar_state.scroll_offset,
+            self.content_height,
+            self.visible_height,
+        )
     }
 
     pub fn reset_scroll(&mut self) {
-        self.scroll_offset = 0.0;
-        self.hovering_scrollbar = false;
-        self.dragging_scrollbar = false;
-        self.drag_start_y = None;
-        self.drag_start_offset = None;
+        self.scrollbar_state.set_scroll_offset(0.0);
+        self.scrollbar_state.set_hovering(false);
+        self.scrollbar_state.end_drag();
+    }
+
+    /// Add method to check if animation needs update
+    pub fn update_animation(&mut self) -> bool {
+        self.scrollbar_state
+            .update_animation(&self.scrollbar_config)
     }
 }

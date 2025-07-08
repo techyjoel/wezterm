@@ -991,16 +991,19 @@ impl MarkdownRenderer {
             }
         }
 
+        let line_count = line_elements.len();
         log::debug!(
             "Code block {}: wrapped into {} lines, max_width={:?}",
             block_id,
-            line_elements.len(),
+            line_count,
             max_width
         );
 
         // Simply wrap the line elements in the code block container
         // No horizontal scrolling needed since we're wrapping
+        let computed_height = line_count as f32 * code_line_height as f32;
         let mut code_block = Element::new(font, ElementContent::Children(line_elements))
+            .with_computed_height(computed_height)
             .colors(ElementColors {
                 bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),
                 border: BorderColor::new(LinearRgba::with_components(0.2, 0.2, 0.25, 0.5)),

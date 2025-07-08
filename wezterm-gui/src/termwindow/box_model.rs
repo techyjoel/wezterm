@@ -654,6 +654,8 @@ pub struct Element {
     pub min_width: Option<Dimension>,
     pub min_height: Option<Dimension>,
     pub clip_bounds: Option<ClipBounds>,
+    /// Cached height from previous render (if available)
+    pub computed_height: Option<f32>,
 }
 
 impl Element {
@@ -678,6 +680,7 @@ impl Element {
             min_width: None,
             min_height: None,
             clip_bounds: None,
+            computed_height: None,
         }
     }
 
@@ -817,6 +820,12 @@ impl Element {
 
     pub fn line_height(mut self, line_height: Option<f64>) -> Self {
         self.line_height = line_height;
+        self
+    }
+
+    /// Builder method to set computed height
+    pub fn with_computed_height(mut self, height: f32) -> Self {
+        self.computed_height = Some(height);
         self
     }
 
