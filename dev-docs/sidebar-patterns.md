@@ -59,6 +59,21 @@ Dimension::Pixels(value as f32)   // NOT f64
 - Always set `display(DisplayType::Block)` on background elements for proper layout
 **Type**: Best practices for avoiding layout issues
 
+### Virtual Scrolling Height Caching (CRITICAL)
+```rust
+// WRONG - Only caching fully visible items causes jumps
+if item_top >= 0.0 && item_bottom <= viewport_height {
+    cache_height(item_id, height);
+}
+
+// CORRECT - Cache ANY visible item
+if item_bottom > 0.0 && item_top < viewport_height {
+    cache_height(item_id, height); // border_rect provides full unclipped height
+}
+```
+**Why**: Using estimated heights when actual heights differ causes viewport-height-sized jumps when items enter/exit the render buffer.
+**Type**: Implementation requirement (prevents scrolling jumps)
+
 ## Overview
 
 WezTerm's sidebar system provides AI assistance features with a sophisticated UI. This document captures implementation patterns and lessons learned.
@@ -134,6 +149,38 @@ The "cut-a-hole" pattern for scrollable content:
 4. Scrollbar at highest z-index (e.g., 16)
 
 This enables independent scrolling while maintaining visual hierarchy.
+
+### Virtual Scrolling
+
+For lists with many variable-height items, use virtual scrolling to maintain performance:
+
+```rust
+// Key components:
+// 1. Height cache - stores actual rendered heights
+let mut height_cache: HashMap<String, f32> = HashMap::new();
+
+// 2. Calculate visible range with pixel-based buffer
+const RENDER_MARGIN: f32 = 200.0; // Render 200px beyond viewport
+let viewport_start = scroll_offset;
+let viewport_end = scroll_offset + viewport_height;
+
+// 3. Only render items that intersect the extended viewport
+// See ai_sidebar.rs:render_activity_log() for full implementation
+```
+
+**Critical gotchas:**
+- **Cache heights for ALL visible items**, not just fully visible ones. The rendering system provides full unclipped heights via `border_rect.size.height`.
+- **Use cached heights everywhere** - in buffer calculations, offset calculations, and total height calculations. Mixing estimated and actual heights causes viewport-height-sized jumps.
+- **Account for item spacing** - cached heights include padding/borders but NOT margins between items. Track spacing separately.
+- **Coordinate system** - item positions after rendering are viewport-relative (0 = top of viewport).
+
+**Height estimation for initial render:**
+```rust
+// Include all spacing in estimates
+let spacing = get_activity_item_spacing(item); // padding + margin + border
+let content_height = calculate_content_height(item);
+let estimated_height = content_height + spacing;
+```
 
 ## Font Management
 

@@ -252,3 +252,17 @@ See `colorease.rs` for implementation.
 - Check z-index assignments for overlaps
 - Monitor draw call count in profiler
 - Verify sub-layer usage (0-2 only)
+
+## Height Extraction for Virtual Scrolling
+
+After elements are computed, their actual rendered heights are available:
+```rust
+// In update callback after render_element()
+let rendered_height = computed_element.border_rect.size.height;
+// Includes padding + border, but NOT margin
+```
+
+Key points:
+- `border_rect` provides full height even for clipped elements
+- Heights available in viewport-relative coordinates
+- Cache immediately for any visible item (partial or full)

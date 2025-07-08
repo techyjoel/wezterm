@@ -41,6 +41,14 @@ const RENDER_MARGIN: f32 = 200.0; // Pixels to render beyond viewport
 const WIDTH_CHANGE_THRESHOLD: f32 = 5.0; // Pixels of width change to trigger cache clear
 const HEIGHT_CHANGE_HYSTERESIS: f32 = 2.0; // Minimum height change to update cache
 
+// Activity item spacing constants (must match render_activity_item)
+const CHAT_ITEM_PADDING: f32 = 12.0; // Padding on all sides
+const CHAT_ITEM_BOTTOM_MARGIN: f32 = 8.0; // Bottom margin between chat items
+const CHAT_ITEM_BORDER: f32 = 1.0; // Border width
+const CHAT_ITEM_HORIZONTAL_MARGIN: f32 = 20.0; // Left margin for user, right margin for AI
+const CARD_DEFAULT_MARGIN: f32 = 8.0; // Default card margin (for commands/suggestions)
+const SCROLLBAR_SPACE: f32 = 12.0; // Space reserved for scrollbar
+
 /// Tracks height measurement state for activity items
 #[derive(Debug, Clone, Default)]
 struct HeightTracker {
@@ -1029,12 +1037,12 @@ This example demonstrates:
                     let sidebar_width = self.width as f32;
                     // Calculate available width accounting for all padding/margins:
                     // - Activity log container: no explicit padding
-                    // - Chat message margin: 20px left or right = 20px
-                    // - Chat message padding: 12px each side = 24px
-                    // - Chat message border: 1px each side = 2px
-                    // - Scrollbar space: ~12px
-                    // Total: 20 + 24 + 2 + 12 = 58px
-                    let content_width = sidebar_width - 58.0;
+                    // - Chat message margin: CHAT_ITEM_HORIZONTAL_MARGIN on one side
+                    // - Chat message padding: CHAT_ITEM_PADDING * 2
+                    // - Chat message border: CHAT_ITEM_BORDER * 2
+                    // - Scrollbar space: SCROLLBAR_SPACE
+                    let spacing = CHAT_ITEM_HORIZONTAL_MARGIN + (CHAT_ITEM_PADDING * 2.0) + (CHAT_ITEM_BORDER * 2.0) + SCROLLBAR_SPACE;
+                    let content_width = sidebar_width - spacing;
                     log::debug!(
                         "Rendering markdown in activity log: sidebar_width={}, content_width={}",
                         sidebar_width,
@@ -1063,22 +1071,22 @@ This example demonstrates:
                         bg: bg_color.into(),
                         ..Default::default()
                     })
-                    .padding(BoxDimension::new(Dimension::Pixels(12.0)))
+                    .padding(BoxDimension::new(Dimension::Pixels(CHAT_ITEM_PADDING)))
                     .margin(BoxDimension {
                         left: if *is_user {
-                            Dimension::Pixels(20.0)
+                            Dimension::Pixels(CHAT_ITEM_HORIZONTAL_MARGIN)
                         } else {
                             Dimension::Pixels(0.0)
                         },
                         right: if *is_user {
                             Dimension::Pixels(0.0)
                         } else {
-                            Dimension::Pixels(20.0)
+                            Dimension::Pixels(CHAT_ITEM_HORIZONTAL_MARGIN)
                         },
-                        bottom: Dimension::Pixels(8.0),
+                        bottom: Dimension::Pixels(CHAT_ITEM_BOTTOM_MARGIN),
                         ..Default::default()
                     })
-                    .border(BoxDimension::new(Dimension::Pixels(1.0)))
+                    .border(BoxDimension::new(Dimension::Pixels(CHAT_ITEM_BORDER)))
                     .colors(ElementColors {
                         border: BorderColor::new(LinearRgba::with_components(0.3, 0.3, 0.35, 0.5)),
                         bg: bg_color.into(),
@@ -1257,14 +1265,15 @@ This example demonstrates:
             // Log tall items for debugging
             if item_height > available_height {
                 log::trace!(
-                    "Tall item {} at idx {}: height={}, viewport={}, overlaps={}, pos={}..{}",
+                    "[VSCROLL] Tall item {} at idx {}: height={:.0}, viewport={:.0}, overlaps={}, pos={:.0}..{:.0}, distance_from_viewport_start={:.0}",
                     item_id,
                     idx,
                     item_height,
                     available_height,
                     overlaps_viewport,
                     item_start,
-                    item_end
+                    item_end,
+                    item_start - viewport_start
                 );
             }
             
@@ -1272,6 +1281,10 @@ This example demonstrates:
             if item_end > viewport_start && item_start < viewport_end {
                 if first_visible.is_none() {
                     first_visible = Some(idx);
+                    log::trace!(
+                        "[VSCROLL] First visible item: {} at idx {}, item_start={:.0}, viewport_start={:.0}, item extends from {:.0} to {:.0}",
+                        item_id, idx, item_start, viewport_start, item_start, item_end
+                    );
                 }
                 last_visible = Some(idx);
             }
@@ -1304,23 +1317,31 @@ This example demonstrates:
         
         let (start_idx, end_idx) = if let (Some(first), Some(last)) = (first_visible, last_visible) {
             // Find start index by going backwards from first_visible
+            // Always include at least one item before visible range, even if it's very tall
             let mut start = first;
             let mut accumulated_before = 0.0;
-            while start > 0 && accumulated_before < RENDER_MARGIN {
+            let mut items_before = 0;
+            
+            while start > 0 && (accumulated_before < RENDER_MARGIN || items_before == 0) {
                 start -= 1;
+                items_before += 1;
                 if let Some((_, item)) = filtered_items.get(start) {
-                    accumulated_before += self.get_activity_item_height(item, line_height, available_width);
+                    let item_height = self.get_activity_item_height(item, line_height, available_width);
+                    accumulated_before += item_height;
                 }
             }
             
             // Find end index by going forward from last_visible
+            // Always include at least one item after visible range, even if it's very tall
             let mut end = last + 1;
             let mut accumulated_after = 0.0;
-            while end < filtered_items.len() && accumulated_after < RENDER_MARGIN {
+            let mut items_after = 0;
+            while end < filtered_items.len() && (accumulated_after < RENDER_MARGIN || items_after == 0) {
                 if let Some((_, item)) = filtered_items.get(end) {
                     accumulated_after += self.get_activity_item_height(item, line_height, available_width);
                 }
                 end += 1;
+                items_after += 1;
             }
             
             log::debug!(
@@ -1378,12 +1399,11 @@ This example demonstrates:
         // Only render visible items
         let mut rendered_items: Vec<Element> = Vec::new();
 
-        // Calculate Y offset for the first visible item
-        // IMPORTANT: We need the offset to the first ACTUALLY VISIBLE item (first_visible),
-        // not to start_idx which includes the buffer
+        // Calculate Y offset for items before our render range
+        // IMPORTANT: We need the offset to start_idx (what we're actually rendering),
+        // not first_visible (what's in viewport), to position content correctly
         let mut y_offset_before_visible = 0.0;
-        let actual_first_visible = first_visible.unwrap_or(0);
-        for idx in 0..actual_first_visible {
+        for idx in 0..start_idx {
             if let Some((orig_idx, item)) = filtered_items.get(idx) {
                 y_offset_before_visible +=
                     self.get_activity_item_height(item, line_height, available_width);
@@ -1391,8 +1411,8 @@ This example demonstrates:
         }
         
         log::debug!(
-            "[VSCROLL] y_offset_before_visible={:.0} (sum of {} items before first_visible={})",
-            y_offset_before_visible, actual_first_visible, actual_first_visible
+            "[VSCROLL] y_offset_before_visible={:.0} (sum of {} items before start_idx={})",
+            y_offset_before_visible, start_idx, start_idx
         );
 
         // Render visible items
@@ -1581,10 +1601,12 @@ This example demonstrates:
         // Create scrollable container with only visible elements
         let margin_top = -self.activity_log_scroll_offset + y_offset_before_visible;
         log::debug!(
-            "[VSCROLL] Content positioning: scroll_offset={:.0}, y_offset_before_visible={:.0}, margin_top={:.0}",
+            "[VSCROLL] Content positioning: scroll_offset={:.0}, y_offset_before_visible={:.0}, margin_top={:.0}, start_idx={}, first_visible={:?}",
             self.activity_log_scroll_offset,
             y_offset_before_visible,
-            margin_top
+            margin_top,
+            start_idx,
+            first_visible
         );
         
         let content_area = Element::new(&fonts.body, ElementContent::Children(rendered_items))
@@ -1598,6 +1620,7 @@ This example demonstrates:
         let viewport = Element::new(&fonts.body, ElementContent::Children(vec![content_area]))
             .display(DisplayType::Block)
             .min_height(Some(Dimension::Pixels(available_height)));
+        
             
         // Log diagnostics when content might be invisible
         if margin_top < -5000.0 || self.activity_log_scroll_offset > total_content_height {
@@ -2246,6 +2269,22 @@ impl Sidebar for AiSidebar {
 }
 
 impl AiSidebar {
+    /// Get the vertical spacing (padding + margin + border) for an activity item
+    fn get_activity_item_spacing(item: &ActivityItem) -> f32 {
+        match item {
+            ActivityItem::Chat { .. } => {
+                // Top padding + bottom padding + bottom margin + top border + bottom border
+                CHAT_ITEM_PADDING * 2.0 + CHAT_ITEM_BOTTOM_MARGIN + CHAT_ITEM_BORDER * 2.0
+            }
+            ActivityItem::Command { .. } | 
+            ActivityItem::Suggestion { .. } | 
+            ActivityItem::Goal { .. } => {
+                // Cards have default margin on all sides but we only count vertical
+                CARD_DEFAULT_MARGIN * 2.0 // Top and bottom margin
+            }
+        }
+    }
+
     /// Check if any animations need frame updates
     pub fn needs_animation_frame(&self) -> bool {
         // For now, activity log scrollbar doesn't have animations since auto_hide is false
@@ -2527,14 +2566,17 @@ impl AiSidebar {
                                 let item_top = computed_item.content_rect.origin.y;
                                 let item_bottom = item_top + rendered_height;
                                 
-                                // Check if this item is fully visible (no clipping)
-                                let is_fully_visible = item_top >= 0.0 && item_bottom <= viewport_height;
+                                // Check if this item is visible at all
+                                let is_visible = item_bottom > 0.0 && item_top < viewport_height;
                                 
                                 // Get height tracker for this item
                                 let tracker = self.height_trackers.entry(item_id.clone()).or_default();
                                 
-                                if rendered_height < viewport_height && is_fully_visible {
-                                    // Small item that's fully visible - cache the height immediately
+                                if is_visible {
+                                    // Cache height for any visible item (partial or full)
+                                    // IMPORTANT: We cache partially visible items because border_rect provides
+                                    // the full unclipped height. This is critical for preventing jumps when
+                                    // tall items go in/out of the render buffer.
                                     let old_height = self.activity_log_height_cache.get(&item_id).copied();
                                     
                                     // Only update if change is significant (hysteresis)
@@ -2545,9 +2587,7 @@ impl AiSidebar {
                                     };
                                     
                                     if should_update {
-                                        // CRITICAL BUG: When old_height is None, we shouldn't use 0.0 as the old height
-                                        // because the scroll position was calculated using the ESTIMATED height, not 0!
-                                        // For now, only adjust scroll if we had a cached height before
+                                        // Calculate height diff for scroll adjustment
                                         let height_diff = if let Some(old) = old_height {
                                             rendered_height - old
                                         } else {
@@ -2574,22 +2614,25 @@ impl AiSidebar {
                                                 item_id, old, rendered_height, rendered_height - old
                                             );
                                         } else {
-                                            log::debug!("[VSCROLL] Height cached for {}: {:.0}px", item_id, rendered_height);
+                                            log::debug!("[VSCROLL] Height cached for {}: {:.0}px (tall={}, partial={})", 
+                                                item_id, rendered_height, 
+                                                rendered_height >= viewport_height,
+                                                item_top < 0.0 || item_bottom > viewport_height
+                                            );
                                         }
                                     }
-                                } else if rendered_height >= viewport_height {
-                                    // Tall item - mark for scroll-based measurement
-                                    let scroll_tracked_height = self.height_trackers.get(&item_id)
-                                        .and_then(|t| t.measured_height);
                                     
-                                    log::info!(
-                                        "[VSCROLL] Tall item {} comparison - Rendered: {:.0}px, Scroll-tracked: {:?}, Viewport: {:.0}px",
-                                        item_id, rendered_height, scroll_tracked_height, viewport_height
-                                    );
+                                    // Log tall items for debugging
+                                    if rendered_height >= viewport_height {
+                                        log::debug!(
+                                            "[VSCROLL] Tall item {} cached: height={:.0}px, viewport={:.0}px",
+                                            item_id, rendered_height, viewport_height
+                                        );
+                                    }
                                 } else {
-                                    // Item is partially visible - don't cache potentially clipped height
+                                    // Item is not visible at all
                                     log::trace!(
-                                        "Item {} partially visible (top: {}, bottom: {}), skipping cache",
+                                        "Item {} not visible (top: {}, bottom: {}), skipping cache",
                                         item_id, item_top, item_bottom
                                     );
                                 }
@@ -2784,15 +2827,15 @@ fn estimate_activity_item_height(
     line_height: f32,
     available_width: f32,
 ) -> f32 {
-    // Base padding (top + bottom)
-    let padding = 16.0;
+    // Get the correct spacing for this item type
+    let spacing = AiSidebar::get_activity_item_spacing(item);
 
     match item {
         ActivityItem::Command {
             output, expanded, ..
         } => {
-            // Command line height + padding
-            let mut height = line_height + padding;
+            // Command line height + spacing
+            let mut height = line_height + spacing;
 
             // Add output height if expanded
             if *expanded {
@@ -2808,8 +2851,10 @@ fn estimate_activity_item_height(
             message, is_user, ..
         } => {
             // Estimate wrapped text height
-            let margin = if *is_user { 48.0 } else { 48.0 }; // Left or right margin
-            let effective_width = available_width - margin - padding;
+            let horizontal_margin = CHAT_ITEM_HORIZONTAL_MARGIN; // Only one side has margin
+            let horizontal_padding = CHAT_ITEM_PADDING * 2.0; // Left + right padding
+            let border_width = CHAT_ITEM_BORDER * 2.0; // Left + right border
+            let effective_width = available_width - horizontal_margin - horizontal_padding - border_width;
             let avg_char_width = line_height * 0.6; // Approximate
 
             let lines = crate::termwindow::box_model::estimate_wrapped_lines(
@@ -2818,11 +2863,11 @@ fn estimate_activity_item_height(
                 avg_char_width,
             );
 
-            lines * line_height + padding + 8.0 // Extra margin
+            lines * line_height + spacing
         }
         ActivityItem::Suggestion { content, .. } => {
             // Suggestions can be quite long with markdown
-            let effective_width = available_width - padding;
+            let effective_width = available_width - spacing;
             let avg_char_width = line_height * 0.6;
 
             let lines = crate::termwindow::box_model::estimate_wrapped_lines(
@@ -2832,11 +2877,11 @@ fn estimate_activity_item_height(
             );
 
             // Add extra for markdown formatting overhead
-            lines * line_height * 1.2 + padding
+            lines * line_height * 1.2 + spacing
         }
         ActivityItem::Goal { text, .. } => {
             // Simple text with "Goal: " prefix
-            let effective_width = available_width - padding;
+            let effective_width = available_width - spacing;
             let avg_char_width = line_height * 0.6;
             let full_text = format!("Goal: {}", text);
 
@@ -2846,7 +2891,7 @@ fn estimate_activity_item_height(
                 avg_char_width,
             );
 
-            lines * line_height + padding
+            lines * line_height + spacing
         }
     }
 }
