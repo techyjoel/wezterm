@@ -375,7 +375,7 @@ Dimension::Pixels(val as f32)      // Must be f32
 When scrolling at medium speed with some mouses, some scroll events appear to be "skipped" - the content doesn't move despite scroll wheel input. Investigation shows:
 - Events ARE processed correctly when received (offset increases properly)
 - The issue is that no events are received during medium-speed scrolling
-- This appears to be OS-level event coalescing that occurs when events arrive faster than the render loop processes them
+- This appears to be device level: the trackpad works fine but the mouse shows this skipping.
 - Slow scrolling: Each event is processed individually
 - Fast scrolling: OS sends many events, all get processed
 - Medium scrolling: OS coalesces/drops some events to prevent queue overflow
