@@ -1262,29 +1262,11 @@ This example demonstrates:
                 }
             }
             
-            // Log tall items for debugging
-            if item_height > available_height {
-                log::trace!(
-                    "[VSCROLL] Tall item {} at idx {}: height={:.0}, viewport={:.0}, overlaps={}, pos={:.0}..{:.0}, distance_from_viewport_start={:.0}",
-                    item_id,
-                    idx,
-                    item_height,
-                    available_height,
-                    overlaps_viewport,
-                    item_start,
-                    item_end,
-                    item_start - viewport_start
-                );
-            }
             
             // Check if any part of the item overlaps with the actual viewport
             if item_end > viewport_start && item_start < viewport_end {
                 if first_visible.is_none() {
                     first_visible = Some(idx);
-                    log::trace!(
-                        "[VSCROLL] First visible item: {} at idx {}, item_start={:.0}, viewport_start={:.0}, item extends from {:.0} to {:.0}",
-                        item_id, idx, item_start, viewport_start, item_start, item_end
-                    );
                 }
                 last_visible = Some(idx);
             }
@@ -1357,23 +1339,12 @@ This example demonstrates:
                 viewport_start, viewport_end, current_y, filtered_items.len()
             );
             
-            // Let's add some diagnostic info
+            // Handle empty list case
             if filtered_items.is_empty() {
-                log::error!("[VSCROLL] No items to display (empty list)");
                 (0, 0)
             } else {
-                // Log some sample heights to understand the issue
-                log::error!("[VSCROLL] Sample item heights:");
-                for i in 0..5.min(filtered_items.len()) {
-                    if let Some((_, item)) = filtered_items.get(i) {
-                        let h = self.get_activity_item_height(item, line_height, available_width);
-                        log::error!("[VSCROLL]   Item {}: height={:.0}", i, h);
-                    }
-                }
-                
-                // Just show first few items rather than nothing
+                // Just show first few items as a fallback
                 let count = BUFFER_ITEMS.min(filtered_items.len());
-                log::error!("[VSCROLL] Showing first {} items as fallback", count);
                 (0, count)
             }
         };
@@ -1381,7 +1352,7 @@ This example demonstrates:
         self.activity_log_visible_range = start_idx..end_idx;
 
         // DEBUG: Enhanced visible range logging
-        log::info!(
+        log::debug!(
             "[VSCROLL] Visible range: {:?} ({}..{}), First visible: {:?}, Last visible: {:?}",
             self.activity_log_visible_range, start_idx, end_idx, first_visible, last_visible
         );
@@ -1482,7 +1453,7 @@ This example demonstrates:
         // }
 
         // DEBUG: Log comprehensive state information
-        log::info!(
+        log::debug!(
             "[VSCROLL] Total items: {}, Filtered: {}, Total height: {:.0}px, Scroll: {:.0}px, Viewport: {:.0}px, Max scroll: {:.0}px",
             self.activity_log.len(), 
             filtered_items.len(), 
@@ -1624,7 +1595,7 @@ This example demonstrates:
             
         // Log diagnostics when content might be invisible
         if margin_top < -5000.0 || self.activity_log_scroll_offset > total_content_height {
-            log::warn!(
+            log::debug!(
                 "Potential visibility issue: margin_top={}, scroll_offset={}, total_height={}, viewport_height={}",
                 margin_top,
                 self.activity_log_scroll_offset,
@@ -2314,16 +2285,14 @@ impl AiSidebar {
         if let Some(cached_height) = self.activity_log_height_cache.get(&id) {
             let estimated = estimate_activity_item_height(item, line_height, available_width);
             if (cached_height - estimated).abs() > 100.0 {
-                log::warn!(
+                log::info!(
                     "[VSCROLL] Large height difference for {}: cached={:.0} vs estimated={:.0} (delta={:.0})",
                     id, cached_height, estimated, cached_height - estimated
                 );
             }
             *cached_height
         } else {
-            let estimated = estimate_activity_item_height(item, line_height, available_width);
-            log::trace!("Height cache MISS for {}: estimated {} pixels", id, estimated);
-            estimated
+            estimate_activity_item_height(item, line_height, available_width)
         }
     }
 
@@ -2478,7 +2447,7 @@ impl AiSidebar {
                                 
                                 // Special logging for tall items
                                 if item_id.contains("chat2") || computed_item.border_rect.size.height > 1000.0 {
-                                    log::info!(
+                                    log::debug!(
                                         "[VSCROLL] TALL ITEM {}: border_rect.h={:.0} (vs viewport={:.0}), clipped={}",
                                         item_id,
                                         computed_item.border_rect.size.height,
@@ -2612,12 +2581,6 @@ impl AiSidebar {
                                             log::info!(
                                                 "[VSCROLL] Height updated for {}: {:.0}px -> {:.0}px (delta: {:.1}px)",
                                                 item_id, old, rendered_height, rendered_height - old
-                                            );
-                                        } else {
-                                            log::debug!("[VSCROLL] Height cached for {}: {:.0}px (tall={}, partial={})", 
-                                                item_id, rendered_height, 
-                                                rendered_height >= viewport_height,
-                                                item_top < 0.0 || item_bottom > viewport_height
                                             );
                                         }
                                     }
