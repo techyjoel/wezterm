@@ -2190,20 +2190,27 @@ impl Sidebar for AiSidebar {
     }
 
     fn handle_key_event(&mut self, key: &KeyCode) -> Result<bool> {
-        // Handle modal keyboard events first
-        if self.modal_manager.is_active() {
-            if self
-                .modal_manager
-                .handle_key_event(*key, KeyModifiers::empty())
-            {
-                return Ok(true);
-            }
+        log::debug!("AI sidebar received key event: {:?}", key);
+        
+        // If no modal is active, don't capture keyboard events
+        // This allows the terminal to maintain focus by default
+        if !self.modal_manager.is_active() {
+            return Ok(false);
+        }
+        
+        // Handle modal keyboard events
+        log::debug!("Modal is active, forwarding key to modal manager");
+        if self
+            .modal_manager
+            .handle_key_event(*key, KeyModifiers::empty())
+        {
+            return Ok(true);
         }
 
         // Code block keyboard navigation removed - using line wrapping instead
 
-        // Focus the chat input for now (in future, handle focus states)
-        self.chat_input.focused = true;
+        // Only focus chat input if we have an active modal or explicit focus
+        // self.chat_input.focused = true;
 
         match key {
             KeyCode::Char('\n') | KeyCode::Char('\r') => {
@@ -2247,6 +2254,10 @@ impl Sidebar for AiSidebar {
             }
             _ => Ok(false),
         }
+    }
+    
+    fn has_modal_focus(&self) -> bool {
+        self.modal_manager.is_active()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

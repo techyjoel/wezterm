@@ -264,6 +264,11 @@ pub trait Sidebar: Send + Sync {
     fn handle_key_event(&mut self, _key: &KeyCode) -> Result<bool> {
         Ok(false)
     }
+    
+    /// Returns true if this sidebar has an active modal that should capture keyboard focus
+    fn has_modal_focus(&self) -> bool {
+        false
+    }
 
     // Allow downcasting for specialized rendering
     fn as_any(&self) -> &dyn std::any::Any;

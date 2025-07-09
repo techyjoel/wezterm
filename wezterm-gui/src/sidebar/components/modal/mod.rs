@@ -203,10 +203,17 @@ impl ModalManager {
             let content_area_left = modal_bounds.min_x() + 20.0;
             let content_area_right = modal_bounds.max_x() - 20.0;
 
+            // TODO: The modal appearance is ugly and needs visual design improvements:
+            // - Better color scheme that matches the terminal theme
+            // - Improved spacing and proportions
+            // - Consider rounded corners or softer edges
+            // - Better visual hierarchy between modal and background
+            // - More polished close button design
             let bg_color = LinearRgba(0.2, 0.2, 0.2, 1.0);
             let border_color = LinearRgba(0.4, 0.4, 0.4, 1.0);
 
             // Top section (header area) at z-index 22
+            // Extend from top of window to top of content area to mask any overflow
             elements.push(
                 Element::new(&fonts.body, ElementContent::Text(String::new()))
                     .colors(ElementColors {
@@ -214,13 +221,11 @@ impl ModalManager {
                         ..Default::default()
                     })
                     .display(DisplayType::Block)
-                    .min_width(Some(Dimension::Pixels(modal_bounds.width())))
-                    .min_height(Some(Dimension::Pixels(
-                        content_area_top - modal_bounds.min_y(),
-                    )))
+                    .min_width(Some(Dimension::Pixels(sidebar_bounds.width())))
+                    .min_height(Some(Dimension::Pixels(content_area_top)))
                     .margin(BoxDimension {
-                        left: Dimension::Pixels(modal_bounds.min_x()),
-                        top: Dimension::Pixels(modal_bounds.min_y()),
+                        left: Dimension::Pixels(sidebar_bounds.min_x()),
+                        top: Dimension::Pixels(0.0),
                         right: Dimension::Pixels(0.0),
                         bottom: Dimension::Pixels(0.0),
                     })
@@ -228,6 +233,7 @@ impl ModalManager {
             );
 
             // Bottom section at z-index 22
+            // Extend from bottom of content area to bottom of window to mask any overflow
             elements.push(
                 Element::new(&fonts.body, ElementContent::Text(String::new()))
                     .colors(ElementColors {
@@ -235,12 +241,10 @@ impl ModalManager {
                         ..Default::default()
                     })
                     .display(DisplayType::Block)
-                    .min_width(Some(Dimension::Pixels(modal_bounds.width())))
-                    .min_height(Some(Dimension::Pixels(
-                        modal_bounds.max_y() - content_area_bottom,
-                    )))
+                    .min_width(Some(Dimension::Pixels(sidebar_bounds.width())))
+                    .min_height(Some(Dimension::Pixels(window_bounds.height() - content_area_bottom)))
                     .margin(BoxDimension {
-                        left: Dimension::Pixels(modal_bounds.min_x()),
+                        left: Dimension::Pixels(sidebar_bounds.min_x()),
                         top: Dimension::Pixels(content_area_bottom),
                         right: Dimension::Pixels(0.0),
                         bottom: Dimension::Pixels(0.0),
@@ -293,6 +297,49 @@ impl ModalManager {
                     })
                     .zindex(22),
             );
+
+            // Add dimmer sections outside the modal to cover the rest of the sidebar
+            // Left dimmer section (from sidebar edge to modal)
+            if modal_bounds.min_x() > sidebar_bounds.min_x() {
+                elements.push(
+                    Element::new(&fonts.body, ElementContent::Text(String::new()))
+                        .colors(ElementColors {
+                            bg: LinearRgba(0.0, 0.0, 0.0, opacity * 0.5).into(),
+                            ..Default::default()
+                        })
+                        .display(DisplayType::Block)
+                        .min_width(Some(Dimension::Pixels(modal_bounds.min_x() - sidebar_bounds.min_x())))
+                        .min_height(Some(Dimension::Pixels(window_bounds.height())))
+                        .margin(BoxDimension {
+                            left: Dimension::Pixels(sidebar_bounds.min_x()),
+                            top: Dimension::Pixels(0.0),
+                            right: Dimension::Pixels(0.0),
+                            bottom: Dimension::Pixels(0.0),
+                        })
+                        .zindex(22),
+                );
+            }
+            
+            // Right dimmer section (from modal edge to sidebar edge)
+            if modal_bounds.max_x() < sidebar_bounds.max_x() {
+                elements.push(
+                    Element::new(&fonts.body, ElementContent::Text(String::new()))
+                        .colors(ElementColors {
+                            bg: LinearRgba(0.0, 0.0, 0.0, opacity * 0.5).into(),
+                            ..Default::default()
+                        })
+                        .display(DisplayType::Block)
+                        .min_width(Some(Dimension::Pixels(sidebar_bounds.max_x() - modal_bounds.max_x())))
+                        .min_height(Some(Dimension::Pixels(window_bounds.height())))
+                        .margin(BoxDimension {
+                            left: Dimension::Pixels(modal_bounds.max_x()),
+                            top: Dimension::Pixels(0.0),
+                            right: Dimension::Pixels(0.0),
+                            bottom: Dimension::Pixels(0.0),
+                        })
+                        .zindex(22),
+                );
+            }
 
             // Modal border at z-index 22 (same as frame sections)
             elements.push(
@@ -412,6 +459,7 @@ impl ModalManager {
                 // Update content height with extra padding for visibility
                 self.content_height = modal.content.get_content_height() + 20.0;
             }
+            
 
             // Render scrollbar if needed at z-index 23 (above everything else)
             log::debug!(
@@ -437,12 +485,14 @@ impl ModalManager {
     ) -> RectF {
         match size {
             ModalSize::FillSidebar => {
-                let padding = 16.0;
+                // Make modal full window height with proportional padding
+                let horizontal_padding = 20.0;
+                let vertical_padding = 60.0; // Space for header and some breathing room
                 euclid::rect(
-                    sidebar_bounds.min_x() + padding,
-                    sidebar_bounds.min_y() + 40.0,
-                    sidebar_bounds.width() - 2.0 * padding,
-                    sidebar_bounds.height() - 80.0,
+                    sidebar_bounds.min_x() + horizontal_padding,
+                    vertical_padding,
+                    sidebar_bounds.width() - 2.0 * horizontal_padding,
+                    window_bounds.height() - 2.0 * vertical_padding,
                 )
             }
             ModalSize::HalfWindow => {
@@ -454,7 +504,7 @@ impl ModalManager {
             }
             ModalSize::Fixed(width, height) => {
                 let x = sidebar_bounds.min_x() + (sidebar_bounds.width() - width) / 2.0;
-                let y = sidebar_bounds.min_y() + (sidebar_bounds.height() - height) / 2.0;
+                let y = (window_bounds.height() - height) / 2.0; // Center vertically in window
                 euclid::rect(x, y, width, height)
             }
         }

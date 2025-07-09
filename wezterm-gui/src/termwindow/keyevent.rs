@@ -597,6 +597,47 @@ impl super::TermWindow {
     }
 
     pub fn key_event_impl(&mut self, window_key: KeyEvent, context: &dyn WindowOps) {
+        // Only route keyboard events to sidebars if they have focus or an active modal
+        {
+            let sidebar_manager = self.sidebar_manager.borrow();
+            
+            // Check right sidebar - only handle if it has an active modal
+            if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
+                if let Ok(mut sidebar) = sidebar.lock() {
+                    // Check if this sidebar has an active modal that should capture keyboard input
+                    if sidebar.has_modal_focus() {
+                        // Convert window KeyCode to termwiz KeyCode
+                        if let Key::Code(key_code) = self.win_key_code_to_termwiz_key_code(&window_key.key) {
+                            if let Ok(handled) = sidebar.handle_key_event(&key_code) {
+                                if handled {
+                                    context.invalidate();
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Check left sidebar - only handle if it has an active modal
+            if let Some(sidebar) = sidebar_manager.get_left_sidebar() {
+                if let Ok(mut sidebar) = sidebar.lock() {
+                    // Check if this sidebar has an active modal that should capture keyboard input
+                    if sidebar.has_modal_focus() {
+                        // Convert window KeyCode to termwiz KeyCode
+                        if let Key::Code(key_code) = self.win_key_code_to_termwiz_key_code(&window_key.key) {
+                            if let Ok(handled) = sidebar.handle_key_event(&key_code) {
+                                if handled {
+                                    context.invalidate();
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
         let pane = match self.get_active_pane_or_overlay() {
             Some(pane) => pane,
             None => return,

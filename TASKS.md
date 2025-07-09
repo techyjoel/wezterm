@@ -297,11 +297,17 @@ The implementation is divided into 7 phases:
 
 **Remaining Phase 2 work**:
 **Known Issues To Address**
-- [ ] Markdown isn't rendering bullets/lists
+- [x] Markdown isn't rendering bullets/lists
 - [ ] No text in the sidebar can be selected/higlighted for copy/paste. All text should be selectable.
 - [ ] Multi-line chat input not yet interactive (can't click and type)
-- [ ] "View more" modal background isn't working right. We need to extend the modal background all the way to the top/bottom of the window with a color that fades from the modal background to some darker color at the top and bottom of the modal, to look like a shadow. You MUST read MODALS.md for more details.
-- [ ] "View more" modal won't close reliably (either via esc key or clicking on X in top right)
+- [x] "View more" modal background isn't working right. We need to extend the modal background all the way to the top/bottom of the window with a color that fades from the modal background to some darker color at the top and bottom of the modal, to look like a shadow. You MUST read MODALS.md for more details.
+- [x] "View more" modal won't close reliably (either via esc key or clicking on X in top right)
+- [ ] Modal appearance is ugly and needs visual design improvements (see TODO in modal/mod.rs):
+  - Better color scheme that matches the terminal theme
+  - Improved spacing and proportions
+  - Consider rounded corners or softer edges
+  - Better visual hierarchy between modal and background
+  - More polished close button design
 - [ ] Suggestion card is taller now (2 rows) so needs to compress the activity log height some
 - [ ] Activity log is mis-aligned in sidebar
 - [ ] Activity log filter chips should be below the suggestion card
