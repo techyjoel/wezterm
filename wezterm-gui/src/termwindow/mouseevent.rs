@@ -38,14 +38,72 @@ use wezterm_term::{ClickPosition, LastMouseClick, StableRowIndex};
 /// Horizontal scroll speed multiplier for mouse wheel events
 const HORIZONTAL_SCROLL_SPEED: f32 = 30.0;
 
+/// Find the byte offset in text from an x coordinate using pre-calculated character positions
+fn find_byte_offset_from_x(x: f32, char_positions: &[(f32, f32, usize)]) -> usize {
+    // If no positions, return 0
+    if char_positions.is_empty() {
+        return 0;
+    }
+    
+    // Find the character that contains this x position
+    for (x_start, x_end, byte_offset) in char_positions {
+        if x >= *x_start && x <= *x_end {
+            // Check if we're closer to the start or end of this character
+            let mid = (x_start + x_end) / 2.0;
+            if x < mid {
+                return *byte_offset;
+            } else {
+                // Return the next character's offset if available
+                if let Some(next) = char_positions.iter()
+                    .find(|(_, _, offset)| *offset > *byte_offset) {
+                    return next.2;
+                }
+                // Otherwise, we're at the end of the text
+                return *byte_offset + 1; // Assume single-byte char for simplicity
+            }
+        }
+    }
+    
+    // If x is before the first character, return 0
+    if let Some(first) = char_positions.first() {
+        if x < first.0 {
+            return 0;
+        }
+    }
+    
+    // If x is after the last character, return the end position
+    if let Some(last) = char_positions.last() {
+        return last.2 + 1; // Assume single-byte char for simplicity
+    }
+    
+    0
+}
+
+/// Helper to access AI sidebar with less nesting
+fn with_ai_sidebar<F, R>(
+    sidebar_manager: &std::cell::RefCell<crate::sidebar::SidebarManager>,
+    f: F,
+) -> Option<R>
+where
+    F: FnOnce(&mut crate::sidebar::ai_sidebar::AiSidebar) -> R,
+{
+    let manager = sidebar_manager.try_borrow_mut().ok()?;
+    let sidebar = manager.get_right_sidebar()?;
+    let mut sidebar = sidebar.lock().ok()?;
+    let ai_sidebar = sidebar
+        .as_any_mut()
+        .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()?;
+    Some(f(ai_sidebar))
+}
+
 impl super::TermWindow {
     fn resolve_ui_item(&self, event: &MouseEvent) -> Option<UIItem> {
-        let x = event.coords.x;
+        let x = event.coords.x as f32;
         let y = event.coords.y;
         self.ui_items
             .iter()
             .rev()
-            .find(|item| item.hit_test(x, y))
+            .find(|item| item.hit_test(x as isize, y as isize))
             .cloned()
     }
 
@@ -67,7 +125,11 @@ impl super::TermWindow {
             | UIItemType::SuggestionDismissButton
             | UIItemType::CodeBlockContent(_)
             | UIItemType::CodeBlockCopyButton(_)
-            | UIItemType::ModalCloseButton => {}
+            | UIItemType::ModalCloseButton
+            | UIItemType::ChatInput
+            | UIItemType::ActivityItemText { .. }
+            | UIItemType::SuggestionText { .. }
+            | UIItemType::GoalText { .. } => {}
         }
     }
 
@@ -87,7 +149,11 @@ impl super::TermWindow {
             | UIItemType::SuggestionDismissButton
             | UIItemType::CodeBlockContent(_)
             | UIItemType::CodeBlockCopyButton(_)
-            | UIItemType::ModalCloseButton => {}
+            | UIItemType::ModalCloseButton
+            | UIItemType::ChatInput
+            | UIItemType::ActivityItemText { .. }
+            | UIItemType::SuggestionText { .. }
+            | UIItemType::GoalText { .. } => {}
         }
     }
 
@@ -532,6 +598,18 @@ impl super::TermWindow {
             UIItemType::ModalCloseButton => {
                 self.mouse_event_modal_close_button(event, context);
             }
+            UIItemType::ChatInput => {
+                self.mouse_event_chat_input(event, context);
+            }
+            UIItemType::ActivityItemText { index, char_positions } => {
+                self.mouse_event_activity_item_text(*index, char_positions, event, context);
+            }
+            UIItemType::SuggestionText { char_positions } => {
+                self.mouse_event_suggestion_text(char_positions, event, context);
+            }
+            UIItemType::GoalText { char_positions } => {
+                self.mouse_event_goal_text(char_positions, event, context);
+            }
         }
     }
 
@@ -795,7 +873,7 @@ impl super::TermWindow {
                 TabBarItem::WindowButton(window::IntegratedTitleButton::Maximize) => {
                     let item = self.last_ui_item.clone().unwrap();
                     let bounds: ::window::ScreenRect = euclid::rect(
-                        item.x as isize - (event.coords.x as isize - event.screen_coords.x),
+                        item.x as isize - (event.coords.x as f32 as isize - event.screen_coords.x),
                         item.y as isize - (event.coords.y as isize - event.screen_coords.y),
                         item.width as isize,
                         item.height as isize,
@@ -1474,6 +1552,201 @@ impl super::TermWindow {
                             ) {
                                 ai_sidebar.modal_manager.close();
                                 context.invalidate();
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn mouse_event_chat_input(&mut self, event: MouseEvent, context: &dyn WindowOps) {
+        context.set_cursor(Some(MouseCursor::Text));
+
+        match event.kind {
+            WMEK::Press(MousePress::Left) => {
+                log::debug!("Chat input clicked");
+
+                // Get the AI sidebar and set focus to chat input
+                if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
+                    if let Some(sidebar) = mgr.get_right_sidebar() {
+                        if let Ok(mut sidebar) = sidebar.lock() {
+                            if let Some(ai_sidebar) = sidebar
+                                .as_any_mut()
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
+                            ) {
+                                ai_sidebar.focus_chat_input();
+
+                                // TODO: Calculate relative position within input for cursor placement
+                                // For now, just set focus
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn mouse_event_activity_item_text(
+        &mut self,
+        index: usize,
+        char_positions: &[(f32, f32, usize)],
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        context.set_cursor(Some(MouseCursor::Text));
+
+        match event.kind {
+            WMEK::Press(MousePress::Left) => {
+                let x = event.coords.x as f32;
+                log::debug!("Activity item {} text clicked at x={}", index, x);
+
+                // Find the byte offset from the character positions
+                let byte_offset = find_byte_offset_from_x(x, char_positions);
+
+                // Start text selection in the AI sidebar
+                with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
+                    ai_sidebar.start_activity_item_selection(index, byte_offset);
+                });
+            }
+            WMEK::Move => {
+                // Update selection during drag
+                let x = event.coords.x as f32;
+                let byte_offset = find_byte_offset_from_x(x, char_positions);
+                
+                with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
+                    if ai_sidebar.is_selecting() {
+                        ai_sidebar.update_selection_drag(byte_offset);
+                    }
+                });
+            }
+            WMEK::Release(MousePress::Left) => {
+                // End selection
+                with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
+                    ai_sidebar.end_selection();
+                });
+            }
+            _ => {}
+        }
+    }
+
+    pub fn mouse_event_suggestion_text(&mut self, char_positions: &[(f32, f32, usize)], event: MouseEvent, context: &dyn WindowOps) {
+        context.set_cursor(Some(MouseCursor::Text));
+
+        match event.kind {
+            WMEK::Press(MousePress::Left) => {
+                let x = event.coords.x as f32;
+                log::debug!("Suggestion text clicked at x={}", x);
+
+                // Find the byte offset from the character positions
+                let byte_offset = find_byte_offset_from_x(x, char_positions);
+
+                // Start text selection for suggestion
+                if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
+                    if let Some(sidebar) = mgr.get_right_sidebar() {
+                        if let Ok(mut sidebar) = sidebar.lock() {
+                            if let Some(ai_sidebar) = sidebar
+                                .as_any_mut()
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+                            {
+                                ai_sidebar.start_suggestion_selection(byte_offset);
+                            }
+                        }
+                    }
+                }
+            }
+            WMEK::Move => {
+                // Update selection during drag
+                if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
+                    if let Some(sidebar) = mgr.get_right_sidebar() {
+                        if let Ok(mut sidebar) = sidebar.lock() {
+                            if let Some(ai_sidebar) = sidebar
+                                .as_any_mut()
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+                            {
+                                if ai_sidebar.is_selecting() {
+                                    let x = event.coords.x as f32;
+                                    let byte_offset = find_byte_offset_from_x(x, char_positions);
+                                    ai_sidebar.update_selection_drag(byte_offset);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            WMEK::Release(MousePress::Left) => {
+                if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
+                    if let Some(sidebar) = mgr.get_right_sidebar() {
+                        if let Ok(mut sidebar) = sidebar.lock() {
+                            if let Some(ai_sidebar) = sidebar
+                                .as_any_mut()
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+                            {
+                                ai_sidebar.end_selection();
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn mouse_event_goal_text(&mut self, char_positions: &[(f32, f32, usize)], event: MouseEvent, context: &dyn WindowOps) {
+        context.set_cursor(Some(MouseCursor::Text));
+
+        match event.kind {
+            WMEK::Press(MousePress::Left) => {
+                let x = event.coords.x as f32;
+                log::debug!("Goal text clicked at x={}", x);
+
+                // Find the byte offset from the character positions
+                let byte_offset = find_byte_offset_from_x(x, char_positions);
+
+                // Start text selection for goal
+                if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
+                    if let Some(sidebar) = mgr.get_right_sidebar() {
+                        if let Ok(mut sidebar) = sidebar.lock() {
+                            if let Some(ai_sidebar) = sidebar
+                                .as_any_mut()
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+                            {
+                                ai_sidebar.start_goal_selection(byte_offset);
+                            }
+                        }
+                    }
+                }
+            }
+            WMEK::Move => {
+                // Update selection during drag
+                if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
+                    if let Some(sidebar) = mgr.get_right_sidebar() {
+                        if let Ok(mut sidebar) = sidebar.lock() {
+                            if let Some(ai_sidebar) = sidebar
+                                .as_any_mut()
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+                            {
+                                if ai_sidebar.is_selecting() {
+                                    let x = event.coords.x as f32;
+                                    let byte_offset = find_byte_offset_from_x(x, char_positions);
+                                    ai_sidebar.update_selection_drag(byte_offset);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            WMEK::Release(MousePress::Left) => {
+                if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
+                    if let Some(sidebar) = mgr.get_right_sidebar() {
+                        if let Ok(mut sidebar) = sidebar.lock() {
+                            if let Some(ai_sidebar) = sidebar
+                                .as_any_mut()
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+                            {
+                                ai_sidebar.end_selection();
                             }
                         }
                     }

@@ -152,7 +152,7 @@ pub enum TermWindowNotif {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum UIItemType {
     TabBar(TabBarItem),
     CloseTab(usize),
@@ -166,12 +166,27 @@ pub enum UIItemType {
     ShowMoreButton(String), // suggestion_id
     SuggestionRunButton,
     SuggestionDismissButton,
-    CodeBlockContent(String),    // code_block_id
-    CodeBlockCopyButton(String), // code_block_id
-    ModalCloseButton,            // For modal X button
+    CodeBlockContent(String),          // code_block_id
+    CodeBlockCopyButton(String),       // code_block_id
+    ModalCloseButton,                  // For modal X button
+    ChatInput,                         // For chat input field
+    ActivityItemText { 
+        index: usize,
+        // Pre-calculated character position mapping for hit testing
+        // Vec of (x_start, x_end, byte_offset) for each character
+        char_positions: Vec<(f32, f32, usize)>,
+    },
+    SuggestionText {
+        // Pre-calculated character position mapping for hit testing
+        char_positions: Vec<(f32, f32, usize)>,
+    },
+    GoalText {
+        // Pre-calculated character position mapping for hit testing
+        char_positions: Vec<(f32, f32, usize)>,
+    }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct UIItem {
     pub x: usize,
     pub y: usize,

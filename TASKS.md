@@ -298,8 +298,8 @@ The implementation is divided into 7 phases:
 **Remaining Phase 2 work**:
 **Known Issues To Address**
 - [x] Markdown isn't rendering bullets/lists
-- [ ] No text in the sidebar can be selected/higlighted for copy/paste. All text should be selectable.
-- [ ] Multi-line chat input not yet interactive (can't click and type)
+- [x] No text in the sidebar can be selected/higlighted for copy/paste. All text should be selectable.
+- [x] Multi-line chat input not yet interactive (can't click and type)
 - [x] "View more" modal background isn't working right. We need to extend the modal background all the way to the top/bottom of the window with a color that fades from the modal background to some darker color at the top and bottom of the modal, to look like a shadow. You MUST read MODALS.md for more details.
 - [x] "View more" modal won't close reliably (either via esc key or clicking on X in top right)
 - [ ] Modal appearance is ugly and needs visual design improvements (see TODO in modal/mod.rs):
@@ -317,9 +317,57 @@ The implementation is divided into 7 phases:
 
 ---
 
-### 2.6 Future Architectural Components
+### 2.6 Architectural Improvements
 
-- [ ] **2.6.1** Implement modal overlay framework
+These improvements were identified during code review of the text selection implementation:
+
+- [ ] **2.6.1** Refactor text selection architecture
+  - **Issue**: UIItemType enum now contains pre-calculated character positions `Vec<(f32, f32, usize)>`, violating its lightweight design principle
+  - **Problem**: 
+    - Enums should be cheap to clone, but now contain potentially large vectors
+    - Couples rendering concerns (character positions) with UI item identification
+    - Character positions recalculated on every render even if text hasn't changed
+    - Memory overhead for large activity logs
+  - **Recommended solution**:
+    - Create a separate hit-testing system using HashMap keyed by UIItem bounds
+    - Or implement a dedicated `SelectableText` component that manages its own hit testing
+    - Cache character positions keyed by (text, font, width) to avoid recalculation
+
+- [ ] **2.6.2** Improve font access pattern in event handlers
+  - **Issue**: Pre-calculation of character positions during rendering is a workaround for lack of font access in mouse handlers
+  - **Problem**: Indirect solution to a direct problem
+  - **Recommended solution**:
+    - Pass font metrics through event context
+    - Or store font configuration in sidebar state during initialization
+    - Or create a font service accessible from event handlers
+
+- [ ] **2.6.3** Implement proper text shaping for hit testing
+  - **Issue**: Character width estimation uses crude `char_width * 1.5` for non-ASCII
+  - **Problem**: Misaligned selections for Unicode text, emoji, CJK characters
+  - **Recommended solution**:
+    - Use proper text shaping from the font system
+    - At minimum, implement better heuristics for different Unicode ranges
+    - Consider using existing text layout infrastructure
+
+- [ ] **2.6.4** Extract text selection into separate module
+  - **Issue**: ai_sidebar.rs handles too many concerns including selection state, hit testing, and rendering
+  - **Problem**: Poor separation of concerns, difficult to maintain and test
+  - **Recommended solution**:
+    - Create `sidebar/text_selection.rs` module
+    - Move SelectionState, SelectionTarget, and related logic
+    - Create reusable selection components
+
+- [ ] **2.6.5** Add selection performance optimizations
+  - **Issue**: No throttling on selection updates during drag
+  - **Problem**: Every mouse move event triggers selection update
+  - **Recommended solution**:
+    - Implement frame-based updates
+    - Or add position change threshold
+    - Consider using animation frame scheduling
+
+### 2.7 Future Architectural Components
+
+- [ ] **2.7.1** Implement modal overlay framework
   - **Requirements**:
     - Show content above other sidebar elements
     - Drop shadow behind modal
@@ -332,7 +380,7 @@ The implementation is divided into 7 phases:
     - Error messages
     - Settings sub-panels
     - File pickers
-- [ ] **2.6.2** Fix use of config system (clibuddy/wezterm.lua)
+- [ ] **2.7.2** Fix use of config system (clibuddy/wezterm.lua)
     - Unify clibuddy sections into one config.clibuddy section
     - Ensure all relevant sidebar items are coming from config, not hard-coded values (e.g. font sizes, background colors, spacing between activity log elements, animation speeds, etc.)
 
@@ -692,18 +740,36 @@ The implementation is divided into 7 phases:
 
 ## Backlog (Future Features)
 
+### Text Selection Enhancements
+
+- [ ] **B.1** Advanced selection features
+  - Double-click to select word
+  - Triple-click to select line
+  - Shift+click to extend selection
+  - Keyboard navigation (Shift+Arrow keys)
+  
+- [ ] **B.2** Cross-component selection
+  - Allow selection across multiple activity items
+  - Selection from activity log to chat input
+  - Unified selection state management
+
+- [ ] **B.3** Click-to-position in chat input
+  - Calculate exact character position from click coordinates
+  - Use proper text shaping for accurate positioning
+  - Handle multi-line cursor positioning
+
 ### Agent Mode
-- [ ] **B.1** Add Agent Mode toggle to AI sidebar header
-- [ ] **B.2** Implement agent mode logic
+- [ ] **B.6** Add Agent Mode toggle to AI sidebar header
+- [ ] **B.7** Implement agent mode logic
   - Goal-driven execution
   - Step-by-step progress
   - Automatic command execution (with safety checks)
   - Pause/resume functionality
-- [ ] **B.3** Create agent mode UI
+- [ ] **B.8** Create agent mode UI
   - Task list with current step display (checkmarks)
   - Stop button
   - High-risk mode toggle
-- [ ] **B.4** Agent mode safety features
+- [ ] **B.9** Agent mode safety features
   - Enhanced approval rules for agent mode
   - Rollback capabilities
   - Execution limits and timeouts

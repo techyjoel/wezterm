@@ -19,6 +19,7 @@ use super::{Sidebar, SidebarConfig, SidebarFonts, SidebarPosition};
 use crate::color::LinearRgba;
 use crate::termwindow::box_model::{
     BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent, Float,
+    InheritableColor, StyleSpan,
 };
 use crate::termwindow::render::scrollbar_renderer::{ScrollbarOrientation, ScrollbarRenderer};
 use crate::termwindow::UIItemType;
@@ -94,6 +95,148 @@ pub enum ActivityFilter {
     Commands,
     Chat,
     Suggestions,
+}
+
+/// Tracks text selection state in the sidebar
+#[derive(Debug, Clone, Default)]
+pub struct SelectionState {
+    active_selection: Option<SelectionTarget>,
+    is_dragging: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum SelectionTarget {
+    ActivityItem {
+        index: usize,
+        anchor_byte: usize,
+        current_byte: usize,
+    },
+    Suggestion {
+        anchor_byte: usize,
+        current_byte: usize,
+    },
+    Goal {
+        anchor_byte: usize,
+        current_byte: usize,
+    },
+    // ChatInput selection handled internally by MultilineTextInput
+}
+
+impl SelectionState {
+    pub fn get_selected_text(&self, sidebar: &AiSidebar) -> Option<String> {
+        match &self.active_selection {
+            None => None,
+            Some(selection) => match selection {
+            SelectionTarget::ActivityItem { index, anchor_byte, current_byte } => {
+                sidebar.activity_log.get(*index).and_then(|item| {
+                    let text = get_item_text(item);
+                    let start = anchor_byte.min(current_byte);
+                    let end = anchor_byte.max(current_byte);
+                    text.get(*start..*end).map(|s| s.to_string())
+                })
+            }
+            SelectionTarget::Suggestion { anchor_byte, current_byte } => {
+                if let Some(suggestion) = &sidebar.current_suggestion {
+                    let start = anchor_byte.min(current_byte);
+                    let end = anchor_byte.max(current_byte);
+                    suggestion.content.get(*start..*end).map(|s| s.to_string())
+                } else {
+                    None
+                }
+            }
+            SelectionTarget::Goal { anchor_byte, current_byte } => {
+                if let Some(goal) = &sidebar.current_goal {
+                    let start = anchor_byte.min(current_byte);
+                    let end = anchor_byte.max(current_byte);
+                    goal.text.get(*start..*end).map(|s| s.to_string())
+                } else {
+                    None
+                }
+            }
+        }}
+    }
+    
+    pub fn clear(&mut self) {
+        self.active_selection = None;
+        self.is_dragging = false;
+    }
+}
+
+/// Extract plain text from an activity item for selection
+fn get_item_text(item: &ActivityItem) -> &str {
+    match item {
+        ActivityItem::Chat { message, .. } => message,
+        ActivityItem::Command { command, output, .. } => {
+            output.as_deref().unwrap_or(command)
+        }
+        ActivityItem::Suggestion { content, .. } => content,
+        ActivityItem::Goal { text, .. } => text,
+    }
+}
+
+/// Calculate character positions for hit testing
+fn calculate_char_positions(text: &str, font: &Rc<LoadedFont>) -> Vec<(f32, f32, usize)> {
+    let mut positions = Vec::new();
+    let char_width = font.metrics().cell_width.get() as f32;
+    let mut x = 0.0;
+    let mut byte_offset = 0;
+    
+    for ch in text.chars() {
+        let ch_width = if ch.is_ascii() {
+            char_width
+        } else {
+            char_width * 1.5 // Rough estimate for non-ASCII
+        };
+        
+        positions.push((x, x + ch_width, byte_offset));
+        
+        x += ch_width;
+        byte_offset += ch.len_utf8();
+    }
+    
+    positions
+}
+
+/// Create style spans for text with selection
+fn create_selection_spans(text: &str, start_byte: usize, end_byte: usize) -> Vec<StyleSpan> {
+    let mut spans = vec![];
+    
+    // Text before selection (if any)
+    if start_byte > 0 {
+        spans.push(StyleSpan {
+            start: 0,
+            end: start_byte,
+            colors: ElementColors::default(), // Will inherit from element
+            font: None,
+            font_style: None,
+        });
+    }
+    
+    // Selected text with blue background
+    spans.push(StyleSpan {
+        start: start_byte,
+        end: end_byte,
+        colors: ElementColors {
+            bg: InheritableColor::Color(LinearRgba::with_components(0.3, 0.5, 0.8, 0.8)), // Blue selection
+            text: InheritableColor::Color(LinearRgba::with_components(1.0, 1.0, 1.0, 1.0)), // White text
+            ..ElementColors::default()
+        },
+        font: None,
+        font_style: None,
+    });
+    
+    // Text after selection (if any)
+    if end_byte < text.len() {
+        spans.push(StyleSpan {
+            start: end_byte,
+            end: text.len(),
+            colors: ElementColors::default(), // Will inherit from element
+            font: None,
+            font_style: None,
+        });
+    }
+    
+    spans
 }
 
 #[derive(Debug, Clone)]
@@ -218,9 +361,123 @@ pub struct AiSidebar {
 
     // Code block registry for horizontal scrolling
     pub code_block_registry: Option<CodeBlockRegistry>,
+
+    // Text selection state
+    selection_state: SelectionState,
+    
+    // Track bounds for hit testing
+    activity_item_bounds: HashMap<usize, euclid::Rect<f32, window::PixelUnit>>,
+    suggestion_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
+    goal_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
 }
 
 impl AiSidebar {
+    
+    /// Start selection at the given byte offset for an activity item
+    pub fn start_activity_item_selection(&mut self, index: usize, byte_offset: usize) {
+        if index < self.activity_log.len() {
+            self.selection_state.active_selection = Some(SelectionTarget::ActivityItem {
+                index,
+                anchor_byte: byte_offset,
+                current_byte: byte_offset,
+            });
+            self.selection_state.is_dragging = true;
+        }
+    }
+    
+    
+    /// Start selection at the given byte offset for the suggestion
+    pub fn start_suggestion_selection(&mut self, byte_offset: usize) {
+        if self.current_suggestion.is_some() {
+            self.selection_state.active_selection = Some(SelectionTarget::Suggestion {
+                anchor_byte: byte_offset,
+                current_byte: byte_offset,
+            });
+            self.selection_state.is_dragging = true;
+        }
+    }
+    
+    
+    /// Start selection at the given byte offset for the goal
+    pub fn start_goal_selection(&mut self, byte_offset: usize) {
+        if self.current_goal.is_some() {
+            self.selection_state.active_selection = Some(SelectionTarget::Goal {
+                anchor_byte: byte_offset,
+                current_byte: byte_offset,
+            });
+            self.selection_state.is_dragging = true;
+        }
+    }
+    
+    /// Update selection during drag
+    pub fn update_selection_drag(&mut self, byte_offset: usize) {
+        if !self.selection_state.is_dragging {
+            return;
+        }
+        
+        // Update the current byte offset for the active selection
+        match &mut self.selection_state.active_selection {
+            Some(SelectionTarget::ActivityItem { current_byte, .. }) => {
+                *current_byte = byte_offset;
+            }
+            Some(SelectionTarget::Suggestion { current_byte, .. }) => {
+                *current_byte = byte_offset;
+            }
+            Some(SelectionTarget::Goal { current_byte, .. }) => {
+                *current_byte = byte_offset;
+            }
+            None => {}
+        }
+    }
+    
+    /// Check if currently selecting text
+    pub fn is_selecting(&self) -> bool {
+        self.selection_state.is_dragging
+    }
+    
+    /// End selection
+    pub fn end_selection(&mut self) {
+        self.selection_state.is_dragging = false;
+    }
+    
+    /// Clear selection if activity log items change
+    pub fn clear_selection_if_invalid(&mut self) {
+        if let Some(SelectionTarget::ActivityItem { index, .. }) = &self.selection_state.active_selection {
+            if *index >= self.activity_log.len() {
+                self.selection_state.clear();
+            }
+        }
+    }
+
+    /// Estimate text position for hit testing
+    fn estimate_text_position(&self, item_bounds: &euclid::Rect<f32, window::PixelUnit>, click_x: f32, text: &str, font: &Rc<LoadedFont>) -> usize {
+        let relative_x = (click_x - item_bounds.origin.x).max(0.0);
+        
+        // For MVP, use a simple approach with character iteration
+        let mut accumulated_width = 0.0;
+        let mut byte_offset = 0;
+        
+        // Use cell width for character width approximation
+        let char_width = font.metrics().cell_width.get() as f32;
+        
+        for ch in text.chars() {
+            let ch_width = if ch.is_ascii() {
+                char_width
+            } else {
+                char_width * 1.5 // Rough estimate for non-ASCII
+            };
+            
+            if accumulated_width + ch_width / 2.0 > relative_x {
+                break;
+            }
+            
+            accumulated_width += ch_width;
+            byte_offset += ch.len_utf8();
+        }
+        
+        byte_offset
+    }
+
     pub fn new(config: SidebarConfig) -> Self {
         Self {
             width: config.width,
@@ -248,6 +505,10 @@ impl AiSidebar {
             sidebar_x_position: 0.0,
             modal_manager: ModalManager::new(),
             code_block_registry: Some(Arc::new(Mutex::new(HashMap::new()))),
+            selection_state: SelectionState::default(),
+            activity_item_bounds: HashMap::new(),
+            suggestion_bounds: None,
+            goal_bounds: None,
         }
     }
 
@@ -734,7 +995,28 @@ This example demonstrates:
             })
             .padding(BoxDimension::new(Dimension::Pixels(8.0)))
         } else {
-            Element::new(&fonts.body, ElementContent::WrappedText(goal.text.clone()))
+            // Check if this goal has a selection
+            let selection = match &self.selection_state.active_selection {
+                Some(SelectionTarget::Goal { anchor_byte, current_byte }) => {
+                    Some((*anchor_byte.min(current_byte), *anchor_byte.max(current_byte)))
+                }
+                _ => None,
+            };
+            
+            let elem = if let Some((start, end)) = selection {
+                let spans = create_selection_spans(&goal.text, start, end);
+                Element::new(&fonts.body, ElementContent::StyledWrappedText { 
+                    text: goal.text.clone(), 
+                    style_spans: spans 
+                })
+            } else {
+                Element::new(&fonts.body, ElementContent::WrappedText(goal.text.clone()))
+            };
+            
+            elem
+                .item_type(UIItemType::GoalText {
+                    char_positions: calculate_char_positions(&goal.text, &fonts.body),
+                })
                 .colors(ElementColors {
                     text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
                     ..Default::default()
@@ -848,12 +1130,33 @@ This example demonstrates:
                     ))), // Fixed height for 2 lines
             );
         } else {
+            // Check if this suggestion has a selection
+            let selection = match &self.selection_state.active_selection {
+                Some(SelectionTarget::Suggestion { anchor_byte, current_byte }) => {
+                    Some((*anchor_byte.min(current_byte), *anchor_byte.max(current_byte)))
+                }
+                _ => None,
+            };
+            
             // For short content, still use fixed height
-            content_elements.push(
+            let elem = if let Some((start, end)) = selection {
+                let spans = create_selection_spans(&suggestion.content, start, end);
+                Element::new(&fonts.body, ElementContent::StyledWrappedText { 
+                    text: suggestion.content.clone(), 
+                    style_spans: spans 
+                })
+            } else {
                 Element::new(
                     &fonts.body,
                     ElementContent::WrappedText(suggestion.content.clone()),
                 )
+            };
+            
+            content_elements.push(
+                elem
+                .item_type(UIItemType::SuggestionText {
+                    char_positions: calculate_char_positions(&suggestion.content, &fonts.body),
+                })
                 .colors(ElementColors {
                     text: LinearRgba(0.9, 0.9, 0.9, 1.0).into(),
                     ..Default::default()
@@ -1011,49 +1314,98 @@ This example demonstrates:
                     LinearRgba::with_components(0.15, 0.15, 0.17, 1.0)
                 };
 
+                // Check if this message has a selection
+                let selection = match &self.selection_state.active_selection {
+                    Some(SelectionTarget::ActivityItem { index, anchor_byte, current_byte }) 
+                        if *index == item_index => {
+                        Some((*anchor_byte.min(current_byte), *anchor_byte.max(current_byte)))
+                    }
+                    _ => None,
+                };
+
                 // Render message content with markdown if it's from AI
                 let content = if *is_user {
-                    Element::new(&fonts.body, ElementContent::WrappedText(message.clone())).colors(
-                        ElementColors {
+                    // User messages - check for selection
+                    if let Some((start, end)) = selection {
+                        let spans = create_selection_spans(message, start, end);
+                        Element::new(&fonts.body, ElementContent::StyledWrappedText { 
+                            text: message.clone(), 
+                            style_spans: spans 
+                        })
+                        .item_type(UIItemType::ActivityItemText { 
+                            index: item_index,
+                            char_positions: calculate_char_positions(message, &fonts.body),
+                        })
+                        .colors(ElementColors {
                             text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
                             ..Default::default()
-                        },
-                    )
-                } else {
-                    // AI messages use markdown rendering with code font support
-                    // Need to add width constraint for proper text wrapping
-                    let sidebar_width = self.width as f32;
-                    // Calculate available width accounting for all padding/margins:
-                    // - Activity log container: no explicit padding
-                    // - Chat message margin: CHAT_ITEM_HORIZONTAL_MARGIN on one side
-                    // - Chat message padding: CHAT_ITEM_PADDING * 2
-                    // - Chat message border: CHAT_ITEM_BORDER * 2
-                    // - Scrollbar space: SCROLLBAR_SPACE
-                    let spacing = CHAT_ITEM_HORIZONTAL_MARGIN
-                        + (CHAT_ITEM_PADDING * 2.0)
-                        + (CHAT_ITEM_BORDER * 2.0)
-                        + SCROLLBAR_SPACE;
-                    let content_width = sidebar_width - spacing;
-                    log::debug!(
-                        "Rendering markdown in activity log: sidebar_width={}, content_width={}",
-                        sidebar_width,
-                        content_width
-                    );
-
-                    // Use registry if available for horizontal scrolling support
-                    if let Some(ref registry) = self.code_block_registry {
-                        MarkdownRenderer::render_with_fonts_registry_and_palette(
-                            message,
-                            fonts,
-                            Some(content_width),
-                            Arc::clone(registry),
-                            &format!("activity_{}", item_index),
-                            palette,
-                        )
+                        })
                     } else {
-                        MarkdownRenderer::render_with_fonts(message, fonts, Some(content_width))
+                        Element::new(&fonts.body, ElementContent::WrappedText(message.clone()))
+                        .item_type(UIItemType::ActivityItemText { 
+                            index: item_index,
+                            char_positions: calculate_char_positions(message, &fonts.body),
+                        })
+                        .colors(ElementColors {
+                            text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
+                            ..Default::default()
+                        })
                     }
-                    .max_width(Some(Dimension::Pixels(content_width)))
+                } else {
+                    // AI messages with selection - render as plain text with selection
+                    if let Some((start, end)) = selection {
+                        let spans = create_selection_spans(message, start, end);
+                        Element::new(&fonts.body, ElementContent::StyledWrappedText { 
+                            text: message.clone(), 
+                            style_spans: spans 
+                        })
+                        .item_type(UIItemType::ActivityItemText { 
+                            index: item_index,
+                            char_positions: calculate_char_positions(message, &fonts.body),
+                        })
+                    } else {
+                        // AI messages use markdown rendering with code font support
+                        // Need to add width constraint for proper text wrapping
+                        let sidebar_width = self.width as f32;
+                        // Calculate available width accounting for all padding/margins:
+                        // - Activity log container: no explicit padding
+                        // - Chat message margin: CHAT_ITEM_HORIZONTAL_MARGIN on one side
+                        // - Chat message padding: CHAT_ITEM_PADDING * 2
+                        // - Chat message border: CHAT_ITEM_BORDER * 2
+                        // - Scrollbar space: SCROLLBAR_SPACE
+                        let spacing = CHAT_ITEM_HORIZONTAL_MARGIN
+                            + (CHAT_ITEM_PADDING * 2.0)
+                            + (CHAT_ITEM_BORDER * 2.0)
+                            + SCROLLBAR_SPACE;
+                        let content_width = sidebar_width - spacing;
+                        log::debug!(
+                            "Rendering markdown in activity log: sidebar_width={}, content_width={}",
+                            sidebar_width,
+                            content_width
+                        );
+
+                        // Use registry if available for horizontal scrolling support
+                        let mut elem = if let Some(ref registry) = self.code_block_registry {
+                            MarkdownRenderer::render_with_fonts_registry_and_palette(
+                                message,
+                                fonts,
+                                Some(content_width),
+                                Arc::clone(registry),
+                                &format!("activity_{}", item_index),
+                                palette,
+                            )
+                        } else {
+                            MarkdownRenderer::render_with_fonts(message, fonts, Some(content_width))
+                        }
+                        .max_width(Some(Dimension::Pixels(content_width)));
+                        
+                        // Add item type for click handling
+                        elem = elem.item_type(UIItemType::ActivityItemText { 
+                            index: item_index,
+                            char_positions: calculate_char_positions(message, &fonts.body),
+                        });
+                        elem
+                    }
                 };
 
                 Element::new(&fonts.body, ElementContent::Children(vec![content]))
@@ -1633,7 +1985,10 @@ This example demonstrates:
     }
 
     fn render_chat_input(&self, fonts: &SidebarFonts) -> Element {
-        let input_field = self.chat_input.render(&fonts.body);
+        let input_field = self
+            .chat_input
+            .render_with_selection(&fonts.body)
+            .item_type(UIItemType::ChatInput);
 
         let send_button = Chip::new("Send".to_string())
             .with_style(ChipStyle::Primary)
@@ -2149,6 +2504,20 @@ impl Sidebar for AiSidebar {
             }
         }
 
+        // Handle text selection drag
+        if let WMEK::Move = event.kind {
+            if self.selection_state.is_dragging {
+                // Drag handling is done externally where font is available
+                // Just mark that we're handling the drag
+                return Ok(true);
+            }
+        }
+        
+        // Handle mouse release to end selection
+        if let WMEK::Release(MousePress::Left) = event.kind {
+            self.selection_state.is_dragging = false;
+        }
+
         // Check if we need to handle scrollbar events
         // Always process mouse events if the scrollbar is currently being dragged,
         // even if the mouse is outside the scrollbar bounds
@@ -2191,27 +2560,50 @@ impl Sidebar for AiSidebar {
 
     fn handle_key_event(&mut self, key: &KeyCode) -> Result<bool> {
         log::debug!("AI sidebar received key event: {:?}", key);
-        
-        // If no modal is active, don't capture keyboard events
+
+        // Handle modal keyboard events first
+        if self.modal_manager.is_active() {
+            log::debug!("Modal is active, forwarding key to modal manager");
+            if self
+                .modal_manager
+                .handle_key_event(*key, KeyModifiers::empty())
+            {
+                return Ok(true);
+            }
+        }
+
+        // Handle chat input keyboard events when it has focus
+        if self.chat_input.focused {
+            log::debug!("Chat input has focus, handling key event");
+
+            // Special handling for Enter key
+            match key {
+                KeyCode::Escape => {
+                    // Escape unfocuses the chat input, returning focus to terminal
+                    self.chat_input.focused = false;
+                    return Ok(true);
+                }
+                KeyCode::Enter => {
+                    // Enter without shift sends the message
+                    if !self.chat_input.get_text().trim().is_empty() {
+                        self.handle_chat_send();
+                    }
+                    return Ok(true);
+                }
+                _ => {
+                    // Let MultilineTextInput handle all other keys including Shift+Enter
+                    return self.chat_input.handle_key_event(key, KeyModifiers::empty());
+                }
+            }
+        }
+
+        // If neither modal nor chat input has focus, don't capture keyboard events
         // This allows the terminal to maintain focus by default
-        if !self.modal_manager.is_active() {
+        if !self.modal_manager.is_active() && !self.chat_input.focused {
             return Ok(false);
         }
-        
-        // Handle modal keyboard events
-        log::debug!("Modal is active, forwarding key to modal manager");
-        if self
-            .modal_manager
-            .handle_key_event(*key, KeyModifiers::empty())
-        {
-            return Ok(true);
-        }
 
-        // Code block keyboard navigation removed - using line wrapping instead
-
-        // Only focus chat input if we have an active modal or explicit focus
-        // self.chat_input.focused = true;
-
+        // Legacy keyboard handling for backwards compatibility
         match key {
             KeyCode::Char('\n') | KeyCode::Char('\r') => {
                 // Newline characters - insert newline
@@ -2255,9 +2647,9 @@ impl Sidebar for AiSidebar {
             _ => Ok(false),
         }
     }
-    
-    fn has_modal_focus(&self) -> bool {
-        self.modal_manager.is_active()
+
+    fn has_keyboard_focus(&self) -> bool {
+        self.modal_manager.is_active() || self.chat_input.focused
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -2270,6 +2662,45 @@ impl Sidebar for AiSidebar {
 }
 
 impl AiSidebar {
+    /// Check if keyboard input should be routed to this sidebar
+    pub fn has_keyboard_focus(&self) -> bool {
+        self.modal_manager.is_active() || self.chat_input.focused
+    }
+
+    /// Check if the chat input specifically has focus
+    pub fn has_input_focus(&self) -> bool {
+        self.chat_input.focused
+    }
+
+    /// Check if a modal is currently active
+    pub fn has_modal_active(&self) -> bool {
+        self.modal_manager.is_active()
+    }
+
+    /// Set focus to the chat input
+    pub fn focus_chat_input(&mut self) {
+        self.chat_input.focused = true;
+    }
+    
+    /// Handle copy operation (Ctrl+C / Cmd+C)
+    pub fn handle_copy(&mut self, window: &dyn window::WindowOps) -> bool {
+        // Check if chat input has focus and selection
+        if self.chat_input.focused {
+            if let Some(text) = self.chat_input.get_selected_text() {
+                window.set_clipboard(window::Clipboard::Clipboard, text);
+                return true;
+            }
+        }
+        
+        // Check sidebar selection state
+        if let Some(text) = self.selection_state.get_selected_text(self) {
+            window.set_clipboard(window::Clipboard::Clipboard, text);
+            return true;
+        }
+        
+        false
+    }
+
     /// Get the vertical spacing (padding + margin + border) for an activity item
     fn get_activity_item_spacing(item: &ActivityItem) -> f32 {
         match item {

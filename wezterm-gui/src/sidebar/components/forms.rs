@@ -4,11 +4,13 @@
 use crate::color::LinearRgba;
 use crate::termwindow::box_model::{
     BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent,
-    InheritableColor,
+    InheritableColor, StyleSpan,
 };
 use config::Dimension;
+use euclid::default::Point2D;
 use std::rc::Rc;
 use wezterm_font::LoadedFont;
+use wezterm_term::{KeyCode, KeyModifiers};
 
 /// Text input component for forms
 #[derive(Debug, Clone)]
@@ -493,6 +495,546 @@ impl MultilineTextInput {
                 });
 
             line_elements.push(line_element);
+        }
+
+        // Add empty lines if needed to fill display area
+        while line_elements.len() < self.display_lines {
+            line_elements.push(
+                Element::new(font, ElementContent::Text(" ".to_string())).padding(BoxDimension {
+                    left: Dimension::Pixels(4.0),
+                    right: Dimension::Pixels(4.0),
+                    top: Dimension::Pixels(2.0),
+                    bottom: Dimension::Pixels(2.0),
+                }),
+            );
+        }
+
+        // Container with border
+        Element::new(font, ElementContent::Children(line_elements))
+            .display(DisplayType::Block)
+            .colors(ElementColors {
+                bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),
+                border: BorderColor::new(if self.focused {
+                    LinearRgba::with_components(0.4, 0.6, 0.9, 0.7)
+                } else if self.disabled {
+                    LinearRgba::with_components(0.2, 0.2, 0.25, 0.3)
+                } else {
+                    LinearRgba::with_components(0.3, 0.3, 0.35, 0.5)
+                }),
+                ..Default::default()
+            })
+            .border(BoxDimension::new(Dimension::Pixels(1.0)))
+            .padding(BoxDimension {
+                left: Dimension::Pixels(8.0),
+                right: Dimension::Pixels(8.0),
+                top: Dimension::Pixels(6.0),
+                bottom: Dimension::Pixels(6.0),
+            })
+    }
+
+    /// Handle mouse click to position cursor
+    pub fn handle_click(&mut self, relative_pos: Point2D<f32>, font: &Rc<LoadedFont>) {
+        if self.disabled {
+            return;
+        }
+
+        // Calculate line height from font metrics
+        let line_height = font.metrics().cell_height.get() as f32;
+
+        // Determine which display line was clicked
+        let display_line = (relative_pos.y / line_height) as usize;
+
+        if display_line < self.display_lines {
+            let actual_line = self.scroll_offset + display_line;
+            if actual_line < self.lines.len() {
+                self.cursor_line = actual_line;
+
+                // Estimate column position from x coordinate
+                // For now, use a simple character width approximation
+                let line_text = &self.lines[actual_line];
+                // Use cell_width as approximation for average character width
+                let char_width = font.metrics().cell_width.get() as f32;
+                let estimated_col = (relative_pos.x / char_width) as usize;
+
+                // Convert character position to actual column, handling UTF-8
+                let mut col = 0;
+                for (idx, _) in line_text.char_indices() {
+                    if idx >= estimated_col {
+                        break;
+                    }
+                    col += 1;
+                }
+
+                self.cursor_col = col.min(line_text.chars().count());
+                self.selection_start = None; // Clear any existing selection
+            }
+        }
+    }
+
+    /// Start text selection at current cursor position
+    pub fn start_selection(&mut self) {
+        if !self.disabled {
+            self.selection_start = Some((self.cursor_line, self.cursor_col));
+        }
+    }
+
+    /// Update selection end point based on mouse position
+    pub fn update_selection(&mut self, relative_pos: Point2D<f32>, font: &Rc<LoadedFont>) {
+        if self.disabled || self.selection_start.is_none() {
+            return;
+        }
+
+        // Similar to handle_click but preserves selection_start
+        let line_height = font.metrics().cell_height.get() as f32;
+        let display_line = (relative_pos.y / line_height) as usize;
+
+        if display_line < self.display_lines {
+            let actual_line = self.scroll_offset + display_line;
+            if actual_line < self.lines.len() {
+                self.cursor_line = actual_line;
+
+                let line_text = &self.lines[actual_line];
+                // Use cell_width as approximation for average character width
+                let char_width = font.metrics().cell_width.get() as f32;
+                let estimated_col = (relative_pos.x / char_width) as usize;
+
+                let mut col = 0;
+                for (idx, _) in line_text.char_indices() {
+                    if idx >= estimated_col {
+                        break;
+                    }
+                    col += 1;
+                }
+
+                self.cursor_col = col.min(line_text.chars().count());
+                self.update_scroll();
+            }
+        }
+    }
+
+    /// Get the currently selected text
+    pub fn get_selected_text(&self) -> Option<String> {
+        let (start_line, start_col) = self.selection_start?;
+        let (end_line, end_col) = (self.cursor_line, self.cursor_col);
+
+        // Normalize selection direction
+        let (start_line, start_col, end_line, end_col) =
+            if start_line < end_line || (start_line == end_line && start_col <= end_col) {
+                (start_line, start_col, end_line, end_col)
+            } else {
+                (end_line, end_col, start_line, start_col)
+            };
+
+        // Handle single-line selection
+        if start_line == end_line {
+            let line = &self.lines[start_line];
+            let chars: Vec<char> = line.chars().collect();
+
+            if start_col < chars.len() && end_col <= chars.len() && start_col < end_col {
+                return Some(chars[start_col..end_col].iter().collect());
+            }
+            return None;
+        }
+
+        // Handle multi-line selection
+        let mut selected = String::new();
+
+        // First line (from start_col to end)
+        if start_line < self.lines.len() {
+            let chars: Vec<char> = self.lines[start_line].chars().collect();
+            if start_col < chars.len() {
+                selected.push_str(&chars[start_col..].iter().collect::<String>());
+                selected.push('\n');
+            }
+        }
+
+        // Middle lines (full lines)
+        for line_idx in (start_line + 1)..end_line {
+            if line_idx < self.lines.len() {
+                selected.push_str(&self.lines[line_idx]);
+                selected.push('\n');
+            }
+        }
+
+        // Last line (from beginning to end_col)
+        if end_line < self.lines.len() && end_col > 0 {
+            let chars: Vec<char> = self.lines[end_line].chars().collect();
+            if end_col <= chars.len() {
+                selected.push_str(&chars[..end_col].iter().collect::<String>());
+            }
+        }
+
+        if selected.is_empty() {
+            None
+        } else {
+            Some(selected)
+        }
+    }
+
+    /// Handle keyboard events with modifiers
+    pub fn handle_key_event(
+        &mut self,
+        key: &KeyCode,
+        modifiers: KeyModifiers,
+    ) -> Result<bool, anyhow::Error> {
+        if self.disabled {
+            return Ok(false);
+        }
+
+        match key {
+            // Text navigation with selection support
+            KeyCode::LeftArrow => {
+                if modifiers.contains(KeyModifiers::SHIFT) {
+                    if self.selection_start.is_none() {
+                        self.start_selection();
+                    }
+                }
+                self.move_left();
+                if !modifiers.contains(KeyModifiers::SHIFT) {
+                    self.selection_start = None;
+                }
+                Ok(true)
+            }
+            KeyCode::RightArrow => {
+                if modifiers.contains(KeyModifiers::SHIFT) {
+                    if self.selection_start.is_none() {
+                        self.start_selection();
+                    }
+                }
+                self.move_right();
+                if !modifiers.contains(KeyModifiers::SHIFT) {
+                    self.selection_start = None;
+                }
+                Ok(true)
+            }
+            KeyCode::UpArrow => {
+                if modifiers.contains(KeyModifiers::SHIFT) {
+                    if self.selection_start.is_none() {
+                        self.start_selection();
+                    }
+                }
+                self.move_up();
+                if !modifiers.contains(KeyModifiers::SHIFT) {
+                    self.selection_start = None;
+                }
+                Ok(true)
+            }
+            KeyCode::DownArrow => {
+                if modifiers.contains(KeyModifiers::SHIFT) {
+                    if self.selection_start.is_none() {
+                        self.start_selection();
+                    }
+                }
+                self.move_down();
+                if !modifiers.contains(KeyModifiers::SHIFT) {
+                    self.selection_start = None;
+                }
+                Ok(true)
+            }
+            KeyCode::Home => {
+                if modifiers.contains(KeyModifiers::SHIFT) {
+                    if self.selection_start.is_none() {
+                        self.start_selection();
+                    }
+                }
+                self.cursor_col = 0;
+                if !modifiers.contains(KeyModifiers::SHIFT) {
+                    self.selection_start = None;
+                }
+                Ok(true)
+            }
+            KeyCode::End => {
+                if modifiers.contains(KeyModifiers::SHIFT) {
+                    if self.selection_start.is_none() {
+                        self.start_selection();
+                    }
+                }
+                self.cursor_col = self.lines[self.cursor_line].chars().count();
+                if !modifiers.contains(KeyModifiers::SHIFT) {
+                    self.selection_start = None;
+                }
+                Ok(true)
+            }
+            // Select all
+            KeyCode::Char('a')
+                if modifiers.contains(KeyModifiers::CTRL)
+                    || modifiers.contains(KeyModifiers::SUPER) =>
+            {
+                self.selection_start = Some((0, 0));
+                self.cursor_line = self.lines.len().saturating_sub(1);
+                self.cursor_col = self.lines.last().map(|l| l.chars().count()).unwrap_or(0);
+                self.update_scroll();
+                Ok(true)
+            }
+            // Character input
+            KeyCode::Char(c) => {
+                // Delete selection if any
+                if self.selection_start.is_some() {
+                    self.delete_selection();
+                }
+                self.insert_char(*c);
+                Ok(true)
+            }
+            KeyCode::Backspace => {
+                if self.selection_start.is_some() {
+                    self.delete_selection();
+                } else {
+                    self.backspace();
+                }
+                Ok(true)
+            }
+            KeyCode::Delete => {
+                if self.selection_start.is_some() {
+                    self.delete_selection();
+                } else {
+                    self.delete();
+                }
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    /// Delete the currently selected text
+    fn delete_selection(&mut self) {
+        if let Some((start_line, start_col)) = self.selection_start {
+            let (end_line, end_col) = (self.cursor_line, self.cursor_col);
+
+            // Normalize selection direction
+            let (start_line, start_col, end_line, end_col) =
+                if start_line < end_line || (start_line == end_line && start_col <= end_col) {
+                    (start_line, start_col, end_line, end_col)
+                } else {
+                    (end_line, end_col, start_line, start_col)
+                };
+
+            if start_line == end_line {
+                // Single line deletion
+                let line = &mut self.lines[start_line];
+                let chars: Vec<char> = line.chars().collect();
+                if start_col < chars.len() && end_col <= chars.len() && start_col < end_col {
+                    *line = chars[..start_col].iter().chain(&chars[end_col..]).collect();
+                }
+            } else {
+                // Multi-line deletion
+                let start_line_text = self.lines[start_line]
+                    .chars()
+                    .take(start_col)
+                    .collect::<String>();
+                let end_line_text = self.lines[end_line]
+                    .chars()
+                    .skip(end_col)
+                    .collect::<String>();
+
+                // Combine the parts
+                self.lines[start_line] = start_line_text + &end_line_text;
+
+                // Remove the lines in between
+                for _ in 0..(end_line - start_line) {
+                    if start_line + 1 < self.lines.len() {
+                        self.lines.remove(start_line + 1);
+                    }
+                }
+            }
+
+            self.cursor_line = start_line;
+            self.cursor_col = start_col;
+            self.selection_start = None;
+            self.update_scroll();
+        }
+    }
+
+    /// Get visible lines for rendering
+    pub fn visible_lines(&self) -> impl Iterator<Item = &String> {
+        self.lines
+            .iter()
+            .skip(self.scroll_offset)
+            .take(self.display_lines)
+    }
+
+    /// Get the first visible line index
+    pub fn first_visible_line(&self) -> usize {
+        self.scroll_offset
+    }
+
+    /// Create style spans for text with selection
+    fn create_selection_spans(
+        &self,
+        text: &str,
+        start_byte: usize,
+        end_byte: usize,
+    ) -> Vec<StyleSpan> {
+        let mut spans = vec![];
+
+        // Text before selection (if any)
+        if start_byte > 0 {
+            spans.push(StyleSpan {
+                start: 0,
+                end: start_byte,
+                colors: ElementColors::default(),
+                font: None,
+                font_style: None,
+            });
+        }
+
+        // Selected text with blue background
+        spans.push(StyleSpan {
+            start: start_byte,
+            end: end_byte,
+            colors: ElementColors {
+                bg: LinearRgba::with_components(0.3, 0.5, 0.8, 0.8).into(),
+                text: LinearRgba::with_components(1.0, 1.0, 1.0, 1.0).into(),
+                ..Default::default()
+            },
+            font: None,
+            font_style: None,
+        });
+
+        // Text after selection (if any)
+        if end_byte < text.len() {
+            spans.push(StyleSpan {
+                start: end_byte,
+                end: text.len(),
+                colors: ElementColors::default(),
+                font: None,
+                font_style: None,
+            });
+        }
+
+        spans
+    }
+
+    /// Render with selection highlighting
+    pub fn render_with_selection(&self, font: &Rc<LoadedFont>) -> Element {
+        let mut line_elements = Vec::new();
+
+        for (idx, line_text) in self.visible_lines().enumerate() {
+            let actual_line_idx = self.first_visible_line() + idx;
+            let is_cursor_line = actual_line_idx == self.cursor_line;
+
+            // Check if this line has any selection
+            if let Some((start_line, start_col)) = self.selection_start {
+                let (end_line, end_col) = (self.cursor_line, self.cursor_col);
+
+                // Normalize selection direction
+                let (start_line, start_col, end_line, end_col) =
+                    if start_line < end_line || (start_line == end_line && start_col <= end_col) {
+                        (start_line, start_col, end_line, end_col)
+                    } else {
+                        (end_line, end_col, start_line, start_col)
+                    };
+
+                if actual_line_idx >= start_line && actual_line_idx <= end_line {
+                    // This line has selection
+                    let (sel_start_col, sel_end_col) =
+                        if actual_line_idx == start_line && actual_line_idx == end_line {
+                            // Selection within single line
+                            (start_col, end_col)
+                        } else if actual_line_idx == start_line {
+                            // Selection starts on this line
+                            (start_col, line_text.chars().count())
+                        } else if actual_line_idx == end_line {
+                            // Selection ends on this line
+                            (0, end_col)
+                        } else {
+                            // Entire line is selected
+                            (0, line_text.chars().count())
+                        };
+
+                    // Convert column positions to byte offsets
+                    let start_byte = line_text
+                        .char_indices()
+                        .nth(sel_start_col)
+                        .map(|(idx, _)| idx)
+                        .unwrap_or(line_text.len());
+                    let end_byte = line_text
+                        .char_indices()
+                        .nth(sel_end_col)
+                        .map(|(idx, _)| idx)
+                        .unwrap_or(line_text.len());
+
+                    // Create styled text with selection
+                    if start_byte < end_byte {
+                        let spans = self.create_selection_spans(line_text, start_byte, end_byte);
+
+                        // Add cursor if on this line
+                        let display_text = if is_cursor_line && self.focused {
+                            let mut text = line_text.clone();
+                            let cursor_byte = line_text
+                                .char_indices()
+                                .nth(self.cursor_col)
+                                .map(|(idx, _)| idx)
+                                .unwrap_or(line_text.len());
+                            text.insert_str(cursor_byte, "\u{2502}");
+                            text
+                        } else {
+                            line_text.clone()
+                        };
+
+                        line_elements.push(
+                            Element::new(
+                                font,
+                                ElementContent::StyledWrappedText {
+                                    text: display_text,
+                                    style_spans: spans,
+                                },
+                            )
+                            .padding(BoxDimension {
+                                left: Dimension::Pixels(4.0),
+                                right: Dimension::Pixels(4.0),
+                                top: Dimension::Pixels(2.0),
+                                bottom: Dimension::Pixels(2.0),
+                            }),
+                        );
+                        continue;
+                    }
+                }
+            }
+
+            // No selection on this line - render normally
+            let display_text = if is_cursor_line && self.focused {
+                let mut text = line_text.clone();
+                let cursor_byte = line_text
+                    .char_indices()
+                    .nth(self.cursor_col)
+                    .map(|(idx, _)| idx)
+                    .unwrap_or(line_text.len());
+                text.insert_str(cursor_byte, "\u{2502}");
+                text
+            } else if line_text.is_empty()
+                && actual_line_idx == 0
+                && self.lines.len() == 1
+                && !self.focused
+            {
+                // Show placeholder
+                self.placeholder.clone()
+            } else {
+                line_text.clone()
+            };
+
+            let text_color = if line_text.is_empty()
+                && actual_line_idx == 0
+                && self.lines.len() == 1
+                && !self.focused
+            {
+                LinearRgba::with_components(0.5, 0.5, 0.5, 1.0)
+            } else {
+                LinearRgba::with_components(0.9, 0.9, 0.9, 1.0)
+            };
+
+            line_elements.push(
+                Element::new(font, ElementContent::Text(display_text))
+                    .colors(ElementColors {
+                        text: text_color.into(),
+                        ..Default::default()
+                    })
+                    .padding(BoxDimension {
+                        left: Dimension::Pixels(4.0),
+                        right: Dimension::Pixels(4.0),
+                        top: Dimension::Pixels(2.0),
+                        bottom: Dimension::Pixels(2.0),
+                    }),
+            );
         }
 
         // Add empty lines if needed to fill display area

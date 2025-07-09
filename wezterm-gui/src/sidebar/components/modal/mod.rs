@@ -242,7 +242,9 @@ impl ModalManager {
                     })
                     .display(DisplayType::Block)
                     .min_width(Some(Dimension::Pixels(sidebar_bounds.width())))
-                    .min_height(Some(Dimension::Pixels(window_bounds.height() - content_area_bottom)))
+                    .min_height(Some(Dimension::Pixels(
+                        window_bounds.height() - content_area_bottom,
+                    )))
                     .margin(BoxDimension {
                         left: Dimension::Pixels(sidebar_bounds.min_x()),
                         top: Dimension::Pixels(content_area_bottom),
@@ -308,7 +310,9 @@ impl ModalManager {
                             ..Default::default()
                         })
                         .display(DisplayType::Block)
-                        .min_width(Some(Dimension::Pixels(modal_bounds.min_x() - sidebar_bounds.min_x())))
+                        .min_width(Some(Dimension::Pixels(
+                            modal_bounds.min_x() - sidebar_bounds.min_x(),
+                        )))
                         .min_height(Some(Dimension::Pixels(window_bounds.height())))
                         .margin(BoxDimension {
                             left: Dimension::Pixels(sidebar_bounds.min_x()),
@@ -319,7 +323,7 @@ impl ModalManager {
                         .zindex(22),
                 );
             }
-            
+
             // Right dimmer section (from modal edge to sidebar edge)
             if modal_bounds.max_x() < sidebar_bounds.max_x() {
                 elements.push(
@@ -329,7 +333,9 @@ impl ModalManager {
                             ..Default::default()
                         })
                         .display(DisplayType::Block)
-                        .min_width(Some(Dimension::Pixels(sidebar_bounds.max_x() - modal_bounds.max_x())))
+                        .min_width(Some(Dimension::Pixels(
+                            sidebar_bounds.max_x() - modal_bounds.max_x(),
+                        )))
                         .min_height(Some(Dimension::Pixels(window_bounds.height())))
                         .margin(BoxDimension {
                             left: Dimension::Pixels(modal_bounds.max_x()),
@@ -459,7 +465,6 @@ impl ModalManager {
                 // Update content height with extra padding for visibility
                 self.content_height = modal.content.get_content_height() + 20.0;
             }
-            
 
             // Render scrollbar if needed at z-index 23 (above everything else)
             log::debug!(

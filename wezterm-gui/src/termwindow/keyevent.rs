@@ -600,14 +600,42 @@ impl super::TermWindow {
         // Only route keyboard events to sidebars if they have focus or an active modal
         {
             let sidebar_manager = self.sidebar_manager.borrow();
-            
+
             // Check right sidebar - only handle if it has an active modal
             if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
                 if let Ok(mut sidebar) = sidebar.lock() {
-                    // Check if this sidebar has an active modal that should capture keyboard input
-                    if sidebar.has_modal_focus() {
+                    // Check if this sidebar should capture keyboard input
+                    if sidebar.has_keyboard_focus() {
+                        // Check for Ctrl+C / Cmd+C for copy operation
+                        if window_key.key_is_down {
+                            let is_copy = match &window_key.key {
+                                ::window::KeyCode::Char('c') => {
+                                    #[cfg(target_os = "macos")]
+                                    let copy_mod = window_key.modifiers.contains(Modifiers::SUPER);
+                                    #[cfg(not(target_os = "macos"))]
+                                    let copy_mod = window_key.modifiers.contains(Modifiers::CTRL);
+                                    copy_mod
+                                }
+                                _ => false,
+                            };
+                            
+                            if is_copy {
+                                if let Some(ai_sidebar) = sidebar
+                                    .as_any_mut()
+                                    .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+                                {
+                                    if ai_sidebar.handle_copy(context) {
+                                        context.invalidate();
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                        
                         // Convert window KeyCode to termwiz KeyCode
-                        if let Key::Code(key_code) = self.win_key_code_to_termwiz_key_code(&window_key.key) {
+                        if let Key::Code(key_code) =
+                            self.win_key_code_to_termwiz_key_code(&window_key.key)
+                        {
                             if let Ok(handled) = sidebar.handle_key_event(&key_code) {
                                 if handled {
                                     context.invalidate();
@@ -618,14 +646,34 @@ impl super::TermWindow {
                     }
                 }
             }
-            
+
             // Check left sidebar - only handle if it has an active modal
             if let Some(sidebar) = sidebar_manager.get_left_sidebar() {
                 if let Ok(mut sidebar) = sidebar.lock() {
-                    // Check if this sidebar has an active modal that should capture keyboard input
-                    if sidebar.has_modal_focus() {
+                    // Check if this sidebar should capture keyboard input
+                    if sidebar.has_keyboard_focus() {
+                        // Check for Ctrl+C / Cmd+C for copy operation
+                        if window_key.key_is_down {
+                            let is_copy = match &window_key.key {
+                                ::window::KeyCode::Char('c') => {
+                                    #[cfg(target_os = "macos")]
+                                    let copy_mod = window_key.modifiers.contains(Modifiers::SUPER);
+                                    #[cfg(not(target_os = "macos"))]
+                                    let copy_mod = window_key.modifiers.contains(Modifiers::CTRL);
+                                    copy_mod
+                                }
+                                _ => false,
+                            };
+                            
+                            if is_copy {
+                                // Left sidebar currently doesn't support copy, but structure is here for future
+                            }
+                        }
+                        
                         // Convert window KeyCode to termwiz KeyCode
-                        if let Key::Code(key_code) = self.win_key_code_to_termwiz_key_code(&window_key.key) {
+                        if let Key::Code(key_code) =
+                            self.win_key_code_to_termwiz_key_code(&window_key.key)
+                        {
                             if let Ok(handled) = sidebar.handle_key_event(&key_code) {
                                 if handled {
                                     context.invalidate();
@@ -637,11 +685,45 @@ impl super::TermWindow {
                 }
             }
         }
-        
+
         let pane = match self.get_active_pane_or_overlay() {
             Some(pane) => pane,
             None => return,
         };
+        
+        // Check for Ctrl+C / Cmd+C even when sidebar doesn't have focus
+        // (since we allow selection without changing focus)
+        if window_key.key_is_down {
+            let is_copy = match &window_key.key {
+                ::window::KeyCode::Char('c') => {
+                    #[cfg(target_os = "macos")]
+                    let copy_mod = window_key.modifiers.contains(Modifiers::SUPER);
+                    #[cfg(not(target_os = "macos"))]
+                    let copy_mod = window_key.modifiers.contains(Modifiers::CTRL);
+                    copy_mod
+                }
+                _ => false,
+            };
+            
+            if is_copy {
+                let sidebar_manager = self.sidebar_manager.borrow();
+                
+                // Check right sidebar for selections
+                if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
+                    if let Ok(mut sidebar) = sidebar.lock() {
+                        if let Some(ai_sidebar) = sidebar
+                            .as_any_mut()
+                            .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+                        {
+                            if ai_sidebar.handle_copy(context) {
+                                context.invalidate();
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // The leader key is a kind of modal modifier key.
         // It is allowed to be active for up to the leader timeout duration,
