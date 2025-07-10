@@ -369,6 +369,9 @@ pub struct AiSidebar {
     activity_item_bounds: HashMap<usize, euclid::Rect<f32, window::PixelUnit>>,
     suggestion_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
     goal_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
+    
+    // Last known window height for mouse event handling
+    last_viewport_height: Option<f32>,
 }
 
 impl AiSidebar {
@@ -490,7 +493,7 @@ impl AiSidebar {
             current_goal: None,
             current_suggestion: None,
             activity_log: Vec::new(),
-            chat_input: MultilineTextInput::new(3).with_placeholder("Type a message..."),
+            chat_input: MultilineTextInput::new(2).with_placeholder("Type a message..."),
             activity_log_height_cache: HashMap::new(),
             height_trackers: HashMap::new(),
             activity_log_last_width: None,
@@ -509,6 +512,7 @@ impl AiSidebar {
             activity_item_bounds: HashMap::new(),
             suggestion_bounds: None,
             goal_bounds: None,
+            last_viewport_height: None,
         }
     }
 
@@ -1985,20 +1989,42 @@ This example demonstrates:
     }
 
     fn render_chat_input(&self, fonts: &SidebarFonts) -> Element {
-        let input_field = self
-            .chat_input
-            .render_with_selection(&fonts.body)
-            .item_type(UIItemType::ChatInput);
+        // Calculate available width for input field (sidebar width - padding - send button)
+        let send_button_width = 60.0; // Approximate width of "Send" button
+        let horizontal_padding = 32.0; // 16px left + 16px right
+        let spacing = 8.0; // Space between input and button
+        let input_width = self.width as f32 - horizontal_padding - send_button_width - spacing;
+
+        // Get line height from font metrics
+        let line_height = fonts.body.metrics().cell_height.get();
+        // Calculate exact height for 2 lines plus padding
+        let two_lines_height = line_height * 2.0 + 12.0; // 6px padding top + 6px bottom from forms.rs
+
+        // Create a container that enforces the height constraint
+        let input_container = Element::new(
+            &fonts.body,
+            ElementContent::Children(vec![
+                self.chat_input
+                    .render_with_selection(&fonts.body)
+                    .item_type(UIItemType::ChatInput)
+                    .max_width(Some(Dimension::Pixels(input_width)))
+                    .min_width(Some(Dimension::Pixels(input_width)))
+            ])
+        )
+        .display(DisplayType::Block)
+        .min_height(Some(Dimension::Pixels((two_lines_height + 2.0) as f32))) // Ensure consistent height
+        .zindex(14); // Right sidebar main content
 
         let send_button = Chip::new("Send".to_string())
             .with_style(ChipStyle::Primary)
             .with_size(ChipSize::Medium)
             .clickable(true)
-            .render(&fonts.body);
+            .render(&fonts.body)
+            .zindex(14); // Same z-index as input
 
         Element::new(
             &fonts.body,
-            ElementContent::Children(vec![input_field, send_button]),
+            ElementContent::Children(vec![input_container, send_button]),
         )
         .display(DisplayType::Block)
         .padding(BoxDimension {
@@ -2007,6 +2033,7 @@ This example demonstrates:
             top: Dimension::Pixels(8.0),
             bottom: Dimension::Pixels(16.0),
         })
+        .zindex(14) // Right sidebar main content
     }
 
     pub fn render_activity_log_content(
@@ -2084,8 +2111,8 @@ This example demonstrates:
         // Total height = sum of all components
         // We already have: header + status + filters + goal + suggestion = bounds.origin.y
         // We need: spacer + chat_input = window_height - bounds.origin.y
-        // So spacer = window_height - bounds.origin.y - chat_input_height
-        let chat_input_height = 74.0;
+        // Chat input needs: 2 lines (~60px) + padding (16px top + 16px bottom) + some margin
+        let chat_input_height = 120.0; // Increased to properly show 2 lines with padding
         let spacer_height = (window_height - bounds.origin.y - chat_input_height).max(0.0);
 
         log::debug!(
@@ -2240,8 +2267,8 @@ This example demonstrates:
         top += 10.0; // Increased for better visual separation
 
         // Bottom calculation
-        // Add small margin to ensure it doesn't touch the bottom
-        let bottom = window_height - 90.0;
+        // Leave space for chat input at the bottom
+        let bottom = window_height - 120.0; // Match chat_input_height in render_content
         let left = 16.0; // Padding
         let right = self.width as f32 - 16.0; // Right padding for scrollbar
 
@@ -2388,6 +2415,8 @@ This example demonstrates:
 
 impl Sidebar for AiSidebar {
     fn render(&mut self, fonts: &SidebarFonts, window_height: f32) -> Element {
+        // Store window height for mouse event handling
+        self.last_viewport_height = Some(window_height);
         self.render_content(fonts, window_height)
     }
 
@@ -2497,10 +2526,12 @@ impl Sidebar for AiSidebar {
                     old_offset, self.activity_log_scroll_offset, max_scroll, amount, scroll_amount, actually_scrolled
                 );
 
-                // Return true even if we didn't move to consume the event
+                // Return true to consume the event since we're over the activity log
                 return Ok(true);
             } else {
                 log::debug!("No scrollbar renderer for scroll wheel");
+                // Still over activity log but no scrollbar - don't consume
+                return Ok(false);
             }
         }
 
@@ -2574,7 +2605,7 @@ impl Sidebar for AiSidebar {
 
         // Handle chat input keyboard events when it has focus
         if self.chat_input.focused {
-            log::debug!("Chat input has focus, handling key event");
+            log::debug!("Chat input has focus, handling key event: {:?}", key);
 
             // Special handling for Enter key
             match key {
@@ -2592,64 +2623,26 @@ impl Sidebar for AiSidebar {
                 }
                 _ => {
                     // Let MultilineTextInput handle all other keys including Shift+Enter
-                    return self.chat_input.handle_key_event(key, KeyModifiers::empty());
+                    let result = self.chat_input.handle_key_event(key, KeyModifiers::empty());
+                    log::debug!("MultilineTextInput.handle_key_event returned: {:?}", result);
+                    return result;
                 }
             }
         }
 
         // If neither modal nor chat input has focus, don't capture keyboard events
         // This allows the terminal to maintain focus by default
-        if !self.modal_manager.is_active() && !self.chat_input.focused {
-            return Ok(false);
-        }
-
-        // Legacy keyboard handling for backwards compatibility
-        match key {
-            KeyCode::Char('\n') | KeyCode::Char('\r') => {
-                // Newline characters - insert newline
-                self.chat_input.insert_newline();
-                Ok(true)
-            }
-            KeyCode::Char(c) => {
-                // All other characters
-                self.chat_input.insert_char(*c);
-                Ok(true)
-            }
-            KeyCode::Enter => {
-                // Enter to send
-                self.handle_chat_send();
-                Ok(true)
-            }
-            KeyCode::Backspace => {
-                self.chat_input.backspace();
-                Ok(true)
-            }
-            KeyCode::Delete => {
-                self.chat_input.delete();
-                Ok(true)
-            }
-            KeyCode::UpArrow => {
-                self.chat_input.move_up();
-                Ok(true)
-            }
-            KeyCode::DownArrow => {
-                self.chat_input.move_down();
-                Ok(true)
-            }
-            KeyCode::LeftArrow => {
-                self.chat_input.move_left();
-                Ok(true)
-            }
-            KeyCode::RightArrow => {
-                self.chat_input.move_right();
-                Ok(true)
-            }
-            _ => Ok(false),
-        }
+        Ok(false)
     }
 
     fn has_keyboard_focus(&self) -> bool {
         self.modal_manager.is_active() || self.chat_input.focused
+    }
+
+    fn clear_focus(&mut self) {
+        // Clear chat input focus
+        self.chat_input.focused = false;
+        // Note: We don't clear modal focus here as modals should handle their own dismissal
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

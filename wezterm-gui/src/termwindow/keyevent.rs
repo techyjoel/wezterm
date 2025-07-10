@@ -633,13 +633,16 @@ impl super::TermWindow {
                         }
                         
                         // Convert window KeyCode to termwiz KeyCode
-                        if let Key::Code(key_code) =
-                            self.win_key_code_to_termwiz_key_code(&window_key.key)
-                        {
-                            if let Ok(handled) = sidebar.handle_key_event(&key_code) {
-                                if handled {
-                                    context.invalidate();
-                                    return;
+                        // Only process key down events to avoid double processing
+                        if window_key.key_is_down {
+                            if let Key::Code(key_code) =
+                                self.win_key_code_to_termwiz_key_code(&window_key.key)
+                            {
+                                if let Ok(handled) = sidebar.handle_key_event(&key_code) {
+                                    if handled {
+                                        context.invalidate();
+                                        return;
+                                    }
                                 }
                             }
                         }
@@ -671,13 +674,16 @@ impl super::TermWindow {
                         }
                         
                         // Convert window KeyCode to termwiz KeyCode
-                        if let Key::Code(key_code) =
-                            self.win_key_code_to_termwiz_key_code(&window_key.key)
-                        {
-                            if let Ok(handled) = sidebar.handle_key_event(&key_code) {
-                                if handled {
-                                    context.invalidate();
-                                    return;
+                        // Only process key down events to avoid double processing
+                        if window_key.key_is_down {
+                            if let Key::Code(key_code) =
+                                self.win_key_code_to_termwiz_key_code(&window_key.key)
+                            {
+                                if let Ok(handled) = sidebar.handle_key_event(&key_code) {
+                                    if handled {
+                                        context.invalidate();
+                                        return;
+                                    }
                                 }
                             }
                         }

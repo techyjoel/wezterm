@@ -482,6 +482,8 @@ impl MultilineTextInput {
                     LinearRgba::with_components(0.9, 0.9, 0.9, 1.0)
                 };
 
+            // Use Text instead of WrappedText to prevent line expansion
+            // Long lines will be clipped, which is better than expanding the input box
             let line_element = Element::new(font, ElementContent::Text(display_text))
                 .colors(ElementColors {
                     text: text_color.into(),
@@ -492,20 +494,37 @@ impl MultilineTextInput {
                     right: Dimension::Pixels(4.0),
                     top: Dimension::Pixels(2.0),
                     bottom: Dimension::Pixels(2.0),
-                });
+                })
+                .max_width(Some(Dimension::Pixels(250.0))); // Constrain width
 
             line_elements.push(line_element);
         }
 
         // Add empty lines if needed to fill display area
         while line_elements.len() < self.display_lines {
+            let empty_line_idx = self.scroll_offset + line_elements.len();
+            let is_cursor_on_empty_line = self.focused && self.cursor_line == empty_line_idx && self.cursor_col == 0;
+            
+            let display_text = if is_cursor_on_empty_line {
+                "\u{2502}".to_string() // Just cursor on empty line
+            } else {
+                " ".to_string() // Empty space to maintain height
+            };
+            
             line_elements.push(
-                Element::new(font, ElementContent::Text(" ".to_string())).padding(BoxDimension {
-                    left: Dimension::Pixels(4.0),
-                    right: Dimension::Pixels(4.0),
-                    top: Dimension::Pixels(2.0),
-                    bottom: Dimension::Pixels(2.0),
-                }),
+                Element::new(font, ElementContent::Text(display_text))
+                    .colors(ElementColors {
+                        text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
+                        ..Default::default()
+                    })
+                    .padding(BoxDimension {
+                        left: Dimension::Pixels(4.0),
+                        right: Dimension::Pixels(4.0),
+                        top: Dimension::Pixels(2.0),
+                        bottom: Dimension::Pixels(2.0),
+                    })
+                    .display(DisplayType::Block) // Ensure block display for proper height
+                    .min_height(Some(Dimension::Pixels(font.metrics().cell_height.get() as f32))), // Ensure minimum line height
             );
         }
 
@@ -612,6 +631,25 @@ impl MultilineTextInput {
         }
     }
 
+    /// Handle mouse wheel events for scrolling
+    pub fn handle_wheel(&mut self, delta: i32) -> bool {
+        if !self.focused || self.lines.len() <= self.display_lines {
+            return false;
+        }
+        
+        let old_offset = self.scroll_offset;
+        if delta > 0 {
+            // Scroll up
+            self.scroll_offset = self.scroll_offset.saturating_sub(1);
+        } else {
+            // Scroll down
+            let max_offset = self.lines.len().saturating_sub(self.display_lines);
+            self.scroll_offset = (self.scroll_offset + 1).min(max_offset);
+        }
+        
+        old_offset != self.scroll_offset
+    }
+    
     /// Get the currently selected text
     pub fn get_selected_text(&self) -> Option<String> {
         let (start_line, start_col) = self.selection_start?;
@@ -791,6 +829,16 @@ impl MultilineTextInput {
                 }
                 Ok(true)
             }
+            KeyCode::Enter => {
+                // Enter with Shift inserts newline
+                if modifiers.contains(KeyModifiers::SHIFT) {
+                    self.insert_newline();
+                    Ok(true)
+                } else {
+                    // Plain Enter - let parent handle (for send action)
+                    Ok(false)
+                }
+            }
             _ => Ok(false),
         }
     }
@@ -907,6 +955,13 @@ impl MultilineTextInput {
     /// Render with selection highlighting
     pub fn render_with_selection(&self, font: &Rc<LoadedFont>) -> Element {
         let mut line_elements = Vec::new();
+        
+        // Debug: Ensure we only process display_lines
+        let visible_line_count = self.visible_lines().count();
+        if visible_line_count > self.display_lines {
+            log::error!("BUG: visible_lines() returned {} lines but display_lines is {}", 
+                       visible_line_count, self.display_lines);
+        }
 
         for (idx, line_text) in self.visible_lines().enumerate() {
             let actual_line_idx = self.first_visible_line() + idx;
@@ -1022,6 +1077,7 @@ impl MultilineTextInput {
                 LinearRgba::with_components(0.9, 0.9, 0.9, 1.0)
             };
 
+            // Use Text instead of WrappedText to prevent line expansion
             line_elements.push(
                 Element::new(font, ElementContent::Text(display_text))
                     .colors(ElementColors {
@@ -1033,24 +1089,52 @@ impl MultilineTextInput {
                         right: Dimension::Pixels(4.0),
                         top: Dimension::Pixels(2.0),
                         bottom: Dimension::Pixels(2.0),
-                    }),
+                    })
+                    .max_width(Some(Dimension::Pixels(250.0))), // Constrain width
             );
         }
 
         // Add empty lines if needed to fill display area
         while line_elements.len() < self.display_lines {
+            let empty_line_idx = self.scroll_offset + line_elements.len();
+            let is_cursor_on_empty_line = self.focused && self.cursor_line == empty_line_idx && self.cursor_col == 0;
+            
+            let display_text = if is_cursor_on_empty_line {
+                "\u{2502}".to_string() // Just cursor on empty line
+            } else {
+                " ".to_string() // Empty space to maintain height
+            };
+            
             line_elements.push(
-                Element::new(font, ElementContent::Text(" ".to_string())).padding(BoxDimension {
-                    left: Dimension::Pixels(4.0),
-                    right: Dimension::Pixels(4.0),
-                    top: Dimension::Pixels(2.0),
-                    bottom: Dimension::Pixels(2.0),
-                }),
+                Element::new(font, ElementContent::Text(display_text))
+                    .colors(ElementColors {
+                        text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
+                        ..Default::default()
+                    })
+                    .padding(BoxDimension {
+                        left: Dimension::Pixels(4.0),
+                        right: Dimension::Pixels(4.0),
+                        top: Dimension::Pixels(2.0),
+                        bottom: Dimension::Pixels(2.0),
+                    })
+                    .display(DisplayType::Block) // Ensure block display for proper height
+                    .min_height(Some(Dimension::Pixels(font.metrics().cell_height.get() as f32))), // Ensure minimum line height
             );
         }
 
+        // Check if scrolling is needed (more lines than display_lines)
+        let can_scroll_up = self.scroll_offset > 0;
+        let can_scroll_down = self.scroll_offset + self.display_lines < self.lines.len();
+        
+        // Add visual indicator for scrollable content
+        let right_padding = if can_scroll_up || can_scroll_down {
+            6.0 // Less padding to show scroll indicator
+        } else {
+            8.0 // Normal padding
+        };
+
         // Container with border
-        Element::new(font, ElementContent::Children(line_elements))
+        let mut container = Element::new(font, ElementContent::Children(line_elements))
             .display(DisplayType::Block)
             .colors(ElementColors {
                 bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),
@@ -1066,10 +1150,18 @@ impl MultilineTextInput {
             .border(BoxDimension::new(Dimension::Pixels(1.0)))
             .padding(BoxDimension {
                 left: Dimension::Pixels(8.0),
-                right: Dimension::Pixels(8.0),
+                right: Dimension::Pixels(right_padding),
                 top: Dimension::Pixels(6.0),
                 bottom: Dimension::Pixels(6.0),
-            })
+            });
+            
+        // Add a subtle visual hint when content is scrollable
+        if can_scroll_up || can_scroll_down {
+            // The border color change already provides feedback
+            // The reduced right padding also hints at scrollable content
+        }
+        
+        container
     }
 }
 

@@ -751,3 +751,327 @@ Clipboard integration was implemented by:
 - `wezterm-gui/src/termwindow/mouseevent.rs` - Added selection mouse handlers
 - `wezterm-gui/src/sidebar/mod.rs` - Renamed has_modal_focus to has_keyboard_focus
 - `wezterm-gui/src/termwindow/keyevent.rs` - Updated to use has_keyboard_focus
+
+---
+
+## Current Issues and Comprehensive Fix Plan
+
+### Issue Analysis
+
+After thorough code review and testing, the following issues have been identified:
+
+1. **Focus Management**: Focus never leaves chat input when clicking terminal area (it should)
+2. **Chat Input Placeholder**: Only disappears after clicking and then mousing out. As soon as the user clicks in the chat input box the default message should go away and there should be a cursor indicator.
+3. **Double Character Typing**: Each character typed appears twice
+4. **Cursor Positioning**: Cursor is spaced too far to the right from typed characters, it should sit immediately to the right of the current char.
+5. **Chat Input Width**: Follows text width instead of staying fixed. It should always stay at a fixed width (the whole width of the sidebar, including the send button)
+6. **No Text Wrapping in chat input**: Long lines just keep expanding the input box, should wrap instead.
+7. **Chat Input Height Issues**: Input is 1 line tall instead of 2 lines that it should be
+8. **No Scrolling in Chat Input**: No scrollbar for overflow text. Needs scrolling for text beyond 2 lines.
+9. **Click-to-Place Cursor in Chat Input**: Not working - cursor doesn't move to click position, needs to work.
+10. **Activity Log Selection**: Entire element gets overlaid, text becomes invisible (at least mostly)
+11. **No Text Selection in Chat Input**: Selection not implemented
+12. **Broken Click-and-Drag**: Selection drag events not processed correctly. User should be able to click and drag to select any chars/words within a given element (e.g. an item in the activity log, the suggestion card text, the chat input box, the goal text)
+
+### Root Cause Analysis
+
+1. **Focus Issues**: `mouse_event_terminal()` doesn't communicate with sidebar to clear focus
+2. **Chat Input Rendering**: Missing width constraints on container, no cursor rendering implemented
+3. **Placeholder Logic**: Currently tied to mouse events instead of focus state
+4. **Selection Rendering**: StyleSpan backgrounds work correctly, but likely z-index or calculation issues causing visibility problems
+
+### Implementation Plan
+
+#### Part 1: Fix Focus Management (Priority: Critical)
+
+**Problem**: Terminal clicks don't clear chat input focus.
+
+**Solution**:
+1. Add `clear_sidebar_focus()` method to TermWindow
+2. Call from both sidebar managers when terminal is clicked
+3. Implement in `mouse_event_terminal()`:
+
+```rust
+// In termwindow/mouseevent.rs
+fn mouse_event_terminal(&mut self, ...) {
+    // Clear any sidebar focus first
+    if let Some(ref mut sidebar) = self.left_sidebar {
+        sidebar.clear_focus();
+    }
+    if let Some(ref mut sidebar) = self.right_sidebar {
+        sidebar.clear_focus();
+    }
+    // Then process terminal event...
+}
+```
+
+#### Part 2: Fix Chat Input Issues (Priority: High)
+
+**A. Fix Placeholder Logic**
+
+Update placeholder to clear on focus, not mouse events:
+
+```rust
+// In render_chat_input()
+let placeholder_visible = !self.chat_input.focused && self.chat_input.get_text().is_empty();
+```
+
+**B. Fixed Width Container**
+
+Add width constraints to the chat input container:
+
+```rust
+Element::new(&fonts.body, ElementContent::Children(vec![input_field]))
+    .max_width(Dimension::Pixels(sidebar_width - 60.0)) // Account for send button
+    .display(DisplayType::Block)
+```
+
+**C. Fixed Height with Scrolling**
+
+Implement using **Element-based scrolling** (like modals) rather than external GPU rendering (like activity log):
+
+**Rationale for Element-based approach**:
+- Chat input is a self-contained component at z-index 14
+- Simpler implementation without external ScrollbarRenderer
+- Better suited for small, fixed-height scrollable areas
+- Modals successfully use this pattern at similar z-indices
+
+Implementation:
+1. Set `display_lines = 2` as fixed visible height
+2. Wrap content in ScrollableContainer with Element-based scrollbar
+3. Use `ScrollbarState` for auto-hide behavior
+4. Render scrollbar as Element at same z-index (14)
+
+**D. Fix Cursor Positioning**
+
+The cursor IS rendered but positioned incorrectly (too far right). The issue is likely incorrect width calculation:
+
+```rust
+// Current code probably uses simple character count * cell_width
+// This creates spacing issues with proportional fonts
+
+// Fix: Use actual font metrics for cursor positioning
+fn calculate_cursor_x_position(&self, line: &str, cursor_col: usize, font: &FontConfigPtr) -> f32 {
+    let text_before_cursor = &line[..self.char_to_byte_offset(line, cursor_col)];
+    
+    // For proportional fonts, measure actual width
+    if !font.is_monospace() {
+        let shaped = font.shape(text_before_cursor, params)?;
+        shaped.width()
+    } else {
+        // For monospace, simple calculation works
+        cursor_col as f32 * cell_width
+    }
+}
+```
+
+**E. Fix Click-to-Position**
+
+Pre-calculate character positions during rendering (like ActivityItemText):
+
+```rust
+// During render, calculate and store positions
+let char_positions = calculate_char_positions(line_text, font);
+// Attach to UIItemType for use in mouse handlers
+UIItemType::ChatInput { line_index, char_positions }
+```
+
+**F. Fix Double Character Issue**
+
+Debug and trace where characters are inserted twice:
+1. Add logging in `handle_key_event()` 
+2. Verify return value is `true` when handled
+3. Check if parent components are also processing the key event
+
+#### Part 3: Fix Text Selection Rendering (Priority: High)
+
+**Problem**: Selection rendering makes text invisible, likely due to z-index or color issues.
+
+**Analysis**: StyleSpan DOES support per-cell backgrounds correctly. The issue is likely:
+1. Wrong z-index ordering causing overlay issues
+2. Selection color making text invisible
+3. Incorrect span calculations
+
+**Solution A: Debug Current Implementation**
+
+```rust
+// The existing create_selection_spans() is correct in principle
+// Debug why text becomes invisible:
+1. Check if white text on blue background has sufficient contrast
+2. Verify z-index ordering isn't causing elements to overlay incorrectly
+3. Log the actual ElementColors being used
+```
+
+**Solution B: Fix Selection Visibility**
+
+```rust
+// Ensure proper color contrast
+StyleSpan {
+    start: start_byte,
+    end: end_byte,
+    colors: ElementColors {
+        bg: InheritableColor::Color(LinearRgba::with_components(0.3, 0.5, 0.8, 0.8)),
+        text: InheritableColor::Color(LinearRgba::with_components(1.0, 1.0, 1.0, 1.0)),
+        ..Default::default()
+    },
+    font: None,
+    font_style: None,
+}
+```
+
+**Solution C: Fix Drag Handling**
+
+```rust
+// In handle_mouse_event() - process Move events during drag
+MouseEventKind::Move if self.selection_state.is_dragging => {
+    // Update selection based on current mouse position
+    if let Some(hit) = self.hit_test_for_selection(event.coords) {
+        self.selection_state.update_current_position(hit);
+    }
+    return Ok(true);
+}
+```
+
+**Solution D: Fix Selection Calculation**
+
+```rust
+// Ensure selection spans are calculated correctly
+// The whole element shouldn't be selected - only the text range
+fn calculate_selection_spans(&self) -> Option<(usize, usize)> {
+    let (start, end) = self.selection_state.get_byte_range()?;
+    // Ensure start < end
+    Some((start.min(end), start.max(end)))
+}
+
+```
+
+### Implementation Order
+
+1. **First**: Fix focus management (30 mins)
+   - Simple change with high impact
+   - Unblocks testing of other features
+
+2. **Second**: Fix chat input issues (3-4 hours)
+   - Fix placeholder logic
+   - Add width/height constraints
+   - Fix cursor positioning (use font metrics not cell width)
+   - Element-based scrolling
+   - Pre-calculate character positions for click handling
+   - Debug double character issue (confirmed: "test" becomes "tteestst")
+
+3. **Third**: Fix selection rendering (2-3 hours)
+   - Debug why selection makes text invisible
+   - Fix drag event handling
+   - Ensure proper selection span calculations
+   - Test with all text components
+
+### Technical Constraints Respected
+
+1. **UIItemType Usage**: All interactive elements use UIItemType for click detection
+2. **Two-Phase Rendering**: No GPU operations during element processing
+3. **Sub-Layer Limits**: Only using sub-layers 0, 1, 2
+4. **Wrap-Before-Shape**: Text wrapping estimates widths before shaping
+5. **Explicit Colors**: No use of ElementColors::Inherited without parent
+6. **Thread Safety**: No Rc<LoadedFont> stored in state
+
+### Success Criteria
+
+1. Clicking terminal area returns focus to terminal
+2. Chat input has consistent width and 2-line height with scrollbar
+3. Chat input text wraps at input boundaries, scrolls as user would expect
+4. Click positions cursor at exact character in chat input
+5. Text selection visible with proper contrast
+6. All text can be selected and copied
+7. No double character typing
+8. Cursor is positioned immediately to the right of text in the chat input
+
+This plan addresses all issues systematically while working within WezTerm's architectural constraints.
+
+### Additional Considerations (from Technical Review)
+
+1. **UTF-8 Safety**: Ensure all byte offset calculations handle multi-byte characters correctly
+2. **Performance**: Monitor impact of pre-calculated character positions on rendering performance
+3. **Edge Cases**: Test with RTL text, emoji, and combining characters
+4. **Debugging Tools**: Add comprehensive logging to trace issues like double character insertion
+5. **Existing Code**: The selection infrastructure (create_selection_spans) is already correct - focus on debugging why it appears broken rather than reimplementing
+
+---
+
+## Implementation Status Update (Latest)
+
+### Completed Issues ✅
+
+1. **Focus Management**: Focus properly leaves chat input when clicking terminal area
+2. **Focus Indicator Delay**: Fixed by adding `context.invalidate()` after setting focus
+3. **Double Character Typing**: Fixed by only processing key down events (following terminal pattern)
+4. **Chat Input Width**: Stays fixed, doesn't follow text size
+5. **Placeholder Logic**: Shows when unfocused and empty
+6. **Chat Input Shows 2 Lines**: Empty lines now render with proper height
+
+### Working But Needs Improvement ⚠️
+
+7. **Chat Input Position**: Increased to 120px, no longer cut off at bottom
+8. **Chat Input Text Wrapping**: Currently using `Text` which clips long lines instead of wrapping
+   - **Issue**: `WrappedText` causes input box to expand beyond 2 lines
+   - **Root Cause**: WezTerm Elements have no max-height/overflow constraints
+   - **Solution Needed**: Look at how suggestion card modals handle wrapping + scrolling
+
+### Fixed Issues ✅
+
+9. **Activity Log Scroll**: Mouse wheel doesn't work over activity log (regression)
+   - **Worked in**: commit 495018f9e
+   - **Broke when**: Text selection UI items were added for activity log text
+   - **Root Cause**: New UIItemType variants (ActivityItemText, SuggestionText, GoalText) were intercepting all mouse events, including scroll wheel events, preventing them from reaching the sidebar's scroll handler
+   - **Fix**: Added scroll event forwarding in mouseevent.rs - when a VertWheel event hits a text selection UI item, it's forwarded to mouse_event_sidebar() which properly handles scrolling
+   - **Files Modified**: 
+     - `wezterm-gui/src/termwindow/mouseevent.rs`: Added `WMEK::VertWheel(_)` case to forward scroll events in:
+       - `mouse_event_activity_item_text()`
+       - `mouse_event_suggestion_text()`
+       - `mouse_event_goal_text()`
+
+### Broken Issues ❌
+
+10. **Chat Input Scrolling**: No scrolling when text exceeds 2 lines
+    - **Issue**: Using `Text` prevents wrapping, `WrappedText` breaks height constraint
+    - **Solution Needed**: Implement proper scrollable container like suggestion card modal uses
+
+### What Was Attempted
+
+1. **Scroll Fix Attempts**:
+   - Added bounds checking (made it worse)
+   - Removed bounds checking (didn't fix it)
+   - Issue persists - events likely not reaching sidebar
+
+2. **Text Wrapping Attempts**:
+   - `WrappedText` - causes expansion beyond 2 lines
+   - `Text` with max_width - prevents wrapping entirely
+   - Need different approach using scrollable container
+
+3. **Height Constraint Attempts**:
+   - `min_height` on container - doesn't prevent expansion
+   - `max_height` doesn't exist in Element system
+   - Need to constrain at data level, not rendering level
+
+### Suggested Next Steps
+
+1. **Fix Activity Log Scroll** (Critical):
+   - Debug if mouse events create UIItemType::Sidebar
+   - Check event routing in mouseevent.rs
+   - Compare exact event flow with working commit
+
+2. **Fix Chat Input Wrapping + Scrolling**:
+   - Study how suggestion card modals implement scrollable text
+   - Look at ModalManager's ScrollbarState usage
+   - Implement similar pattern for chat input
+
+3. **Architecture Insights**:
+   - Elements always expand to fit content (no overflow:hidden)
+   - Scrolling requires explicit container with ScrollbarState
+   - Mouse events must have correct UIItemType to route to sidebar
+
+### Key Code Locations
+
+- **Suggestion Modal Scrolling**: `sidebar/components/modal/suggestion_modal.rs`
+- **Modal ScrollbarState**: `sidebar/components/modal/mod.rs` lines 50-75
+- **Activity Log Scrolling**: Works via external ScrollbarRenderer, not Elements
+- **Mouse Event Routing**: `termwindow/mouseevent.rs` - UIItemType resolution

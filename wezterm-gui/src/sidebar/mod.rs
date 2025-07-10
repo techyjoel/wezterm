@@ -271,6 +271,11 @@ pub trait Sidebar: Send + Sync {
         false
     }
 
+    /// Clear any focus state in the sidebar (e.g., chat input focus)
+    fn clear_focus(&mut self) {
+        // Default implementation does nothing
+    }
+
     // Allow downcasting for specialized rendering
     fn as_any(&self) -> &dyn std::any::Any;
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any;

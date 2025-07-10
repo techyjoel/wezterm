@@ -98,12 +98,12 @@ where
 
 impl super::TermWindow {
     fn resolve_ui_item(&self, event: &MouseEvent) -> Option<UIItem> {
-        let x = event.coords.x as f32;
+        let x = event.coords.x;
         let y = event.coords.y;
         self.ui_items
             .iter()
             .rev()
-            .find(|item| item.hit_test(x as isize, y as isize))
+            .find(|item| item.hit_test(x, y))
             .cloned()
     }
 
@@ -985,6 +985,24 @@ impl super::TermWindow {
         context: &dyn WindowOps,
         capture_mouse: bool,
     ) {
+        // Clear any sidebar focus when clicking on terminal
+        if matches!(event.kind, WMEK::Press(_)) {
+            if let Ok(mut sidebar_manager) = self.sidebar_manager.try_borrow_mut() {
+                // Clear focus from left sidebar if it exists
+                if let Some(sidebar) = sidebar_manager.get_left_sidebar() {
+                    if let Ok(mut sidebar) = sidebar.lock() {
+                        sidebar.clear_focus();
+                    }
+                }
+                // Clear focus from right sidebar if it exists
+                if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
+                    if let Ok(mut sidebar) = sidebar.lock() {
+                        sidebar.clear_focus();
+                    }
+                }
+            }
+        }
+
         let mut is_click_to_focus_pane = false;
 
         let ClickPosition {
@@ -1577,6 +1595,7 @@ impl super::TermWindow {
                                 .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
                             ) {
                                 ai_sidebar.focus_chat_input();
+                                context.invalidate(); // Trigger repaint to show focus immediately
 
                                 // TODO: Calculate relative position within input for cursor placement
                                 // For now, just set focus
@@ -1627,6 +1646,10 @@ impl super::TermWindow {
                 with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
                     ai_sidebar.end_selection();
                 });
+            }
+            WMEK::VertWheel(_) => {
+                // Forward scroll events to the sidebar handler
+                self.mouse_event_sidebar(crate::sidebar::SidebarPosition::Right, event, context);
             }
             _ => {}
         }
@@ -1690,6 +1713,10 @@ impl super::TermWindow {
                     }
                 }
             }
+            WMEK::VertWheel(_) => {
+                // Forward scroll events to the sidebar handler
+                self.mouse_event_sidebar(crate::sidebar::SidebarPosition::Right, event, context);
+            }
             _ => {}
         }
     }
@@ -1751,6 +1778,10 @@ impl super::TermWindow {
                         }
                     }
                 }
+            }
+            WMEK::VertWheel(_) => {
+                // Forward scroll events to the sidebar handler
+                self.mouse_event_sidebar(crate::sidebar::SidebarPosition::Right, event, context);
             }
             _ => {}
         }
