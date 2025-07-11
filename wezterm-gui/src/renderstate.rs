@@ -659,12 +659,19 @@ impl RenderLayer {
     }
 
     /// Update this layer's scissor rect
+    /// Note: Currently replaces any existing scissor rect rather than combining them.
+    /// This is appropriate for the current use case where only one element per layer
+    /// uses scissor clipping. If multiple elements need different scissor regions
+    /// at the same z-index, this behavior would need to be reconsidered.
     pub fn update_scissor_rect(&self, rect: euclid::default::Rect<f32>) {
+        debug_assert!(
+            rect.size.width > 0.0 && rect.size.height > 0.0,
+            "Invalid scissor rect dimensions: {:?}",
+            rect
+        );
+
         let mut scissor = self.scissor_rect.borrow_mut();
-        *scissor = match *scissor {
-            Some(existing) => Some(existing.union(&rect)),
-            None => Some(rect),
-        };
+        *scissor = Some(rect);
     }
 
     /// Get scissor rect for drawing (doesn't remove it)

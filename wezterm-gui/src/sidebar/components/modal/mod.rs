@@ -18,6 +18,13 @@ pub use animation::*;
 pub use content::*;
 pub use suggestion_modal::*;
 
+// Modal layout constants
+const MODAL_HEADER_HEIGHT: f32 = 40.0;
+const MODAL_PADDING: f32 = 20.0;
+const MODAL_SHADOW_OFFSET: f32 = 4.0;
+const MODAL_CLOSE_BUTTON_SIZE: f32 = 40.0;
+const MODAL_CLOSE_BUTTON_MARGIN: f32 = 8.0;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ModalSize {
     FillSidebar,
@@ -160,7 +167,7 @@ impl ModalManager {
             }
 
             // Update visible height for scrolling
-            self.visible_height = modal_bounds.height() - 60.0; // Account for header and padding
+            self.visible_height = modal_bounds.height() - MODAL_HEADER_HEIGHT - MODAL_PADDING;
 
             // Update scrollbar state dimensions
             self.scrollbar_state
@@ -173,7 +180,7 @@ impl ModalManager {
                 self.visible_height
             );
 
-            // Render modal container with shadow at z-index 21
+            // Render modal shadow at z-index 20 (with modal structure)
             let shadow_color = LinearRgba(0.0, 0.0, 0.0, 0.3 * opacity);
 
             // Shadow (offset slightly)
@@ -188,20 +195,19 @@ impl ModalManager {
                     .min_width(Some(Dimension::Pixels(modal_bounds.width() as f32)))
                     .min_height(Some(Dimension::Pixels(modal_bounds.height() as f32)))
                     .margin(BoxDimension {
-                        left: Dimension::Pixels(modal_bounds.min_x() + 4.0),
-                        top: Dimension::Pixels(modal_bounds.min_y() + 4.0),
+                        left: Dimension::Pixels(modal_bounds.min_x() + MODAL_SHADOW_OFFSET),
+                        top: Dimension::Pixels(modal_bounds.min_y() + MODAL_SHADOW_OFFSET),
                         right: Dimension::Pixels(0.0),
                         bottom: Dimension::Pixels(0.0),
                     })
-                    .zindex(21),
+                    .zindex(20),
             );
 
-            // Modal background with cut-a-hole pattern
-            // We'll render the background in sections, leaving a hole for the scrollable content
-            let content_area_top = modal_bounds.min_y() + 40.0; // Header height
-            let content_area_bottom = modal_bounds.max_y() - 20.0; // Bottom padding
-            let content_area_left = modal_bounds.min_x() + 20.0;
-            let content_area_right = modal_bounds.max_x() - 20.0;
+            // Define content area bounds for later use
+            let content_area_top = modal_bounds.min_y() + MODAL_HEADER_HEIGHT;
+            let content_area_bottom = modal_bounds.max_y() - MODAL_PADDING;
+            let content_area_left = modal_bounds.min_x() + MODAL_PADDING;
+            let content_area_right = modal_bounds.max_x() - MODAL_PADDING;
 
             // TODO: The modal appearance is ugly and needs visual design improvements:
             // - Better color scheme that matches the terminal theme
@@ -212,8 +218,7 @@ impl ModalManager {
             let bg_color = LinearRgba(0.2, 0.2, 0.2, 1.0);
             let border_color = LinearRgba(0.4, 0.4, 0.4, 1.0);
 
-            // Top section (header area) at z-index 22
-            // Extend from top of window to top of content area to mask any overflow
+            // Modal background (entire modal area) at z-index 20
             elements.push(
                 Element::new(&fonts.body, ElementContent::Text(String::new()))
                     .colors(ElementColors {
@@ -221,133 +226,20 @@ impl ModalManager {
                         ..Default::default()
                     })
                     .display(DisplayType::Block)
-                    .min_width(Some(Dimension::Pixels(sidebar_bounds.width())))
-                    .min_height(Some(Dimension::Pixels(content_area_top)))
-                    .margin(BoxDimension {
-                        left: Dimension::Pixels(sidebar_bounds.min_x()),
-                        top: Dimension::Pixels(0.0),
-                        right: Dimension::Pixels(0.0),
-                        bottom: Dimension::Pixels(0.0),
-                    })
-                    .zindex(22),
-            );
-
-            // Bottom section at z-index 22
-            // Extend from bottom of content area to bottom of window to mask any overflow
-            elements.push(
-                Element::new(&fonts.body, ElementContent::Text(String::new()))
-                    .colors(ElementColors {
-                        bg: bg_color.into(),
-                        ..Default::default()
-                    })
-                    .display(DisplayType::Block)
-                    .min_width(Some(Dimension::Pixels(sidebar_bounds.width())))
-                    .min_height(Some(Dimension::Pixels(
-                        window_bounds.height() - content_area_bottom,
-                    )))
-                    .margin(BoxDimension {
-                        left: Dimension::Pixels(sidebar_bounds.min_x()),
-                        top: Dimension::Pixels(content_area_bottom),
-                        right: Dimension::Pixels(0.0),
-                        bottom: Dimension::Pixels(0.0),
-                    })
-                    .zindex(22),
-            );
-
-            // Left edge at z-index 22
-            elements.push(
-                Element::new(&fonts.body, ElementContent::Text(String::new()))
-                    .colors(ElementColors {
-                        bg: bg_color.into(),
-                        ..Default::default()
-                    })
-                    .display(DisplayType::Block)
-                    .min_width(Some(Dimension::Pixels(
-                        content_area_left - modal_bounds.min_x(),
-                    )))
-                    .min_height(Some(Dimension::Pixels(
-                        content_area_bottom - content_area_top,
-                    )))
+                    .min_width(Some(Dimension::Pixels(modal_bounds.width())))
+                    .min_height(Some(Dimension::Pixels(modal_bounds.height())))
                     .margin(BoxDimension {
                         left: Dimension::Pixels(modal_bounds.min_x()),
-                        top: Dimension::Pixels(content_area_top),
+                        top: Dimension::Pixels(modal_bounds.min_y()),
                         right: Dimension::Pixels(0.0),
                         bottom: Dimension::Pixels(0.0),
                     })
-                    .zindex(22),
+                    .zindex(20),
             );
 
-            // Right edge (includes scrollbar area) at z-index 22
-            elements.push(
-                Element::new(&fonts.body, ElementContent::Text(String::new()))
-                    .colors(ElementColors {
-                        bg: bg_color.into(),
-                        ..Default::default()
-                    })
-                    .display(DisplayType::Block)
-                    .min_width(Some(Dimension::Pixels(
-                        modal_bounds.max_x() - content_area_right,
-                    )))
-                    .min_height(Some(Dimension::Pixels(
-                        content_area_bottom - content_area_top,
-                    )))
-                    .margin(BoxDimension {
-                        left: Dimension::Pixels(content_area_right),
-                        top: Dimension::Pixels(content_area_top),
-                        right: Dimension::Pixels(0.0),
-                        bottom: Dimension::Pixels(0.0),
-                    })
-                    .zindex(22),
-            );
+            // Extra dimmer sections are no longer needed - the main dimmer covers the entire sidebar
 
-            // Add dimmer sections outside the modal to cover the rest of the sidebar
-            // Left dimmer section (from sidebar edge to modal)
-            if modal_bounds.min_x() > sidebar_bounds.min_x() {
-                elements.push(
-                    Element::new(&fonts.body, ElementContent::Text(String::new()))
-                        .colors(ElementColors {
-                            bg: LinearRgba(0.0, 0.0, 0.0, opacity * 0.5).into(),
-                            ..Default::default()
-                        })
-                        .display(DisplayType::Block)
-                        .min_width(Some(Dimension::Pixels(
-                            modal_bounds.min_x() - sidebar_bounds.min_x(),
-                        )))
-                        .min_height(Some(Dimension::Pixels(window_bounds.height())))
-                        .margin(BoxDimension {
-                            left: Dimension::Pixels(sidebar_bounds.min_x()),
-                            top: Dimension::Pixels(0.0),
-                            right: Dimension::Pixels(0.0),
-                            bottom: Dimension::Pixels(0.0),
-                        })
-                        .zindex(22),
-                );
-            }
-
-            // Right dimmer section (from modal edge to sidebar edge)
-            if modal_bounds.max_x() < sidebar_bounds.max_x() {
-                elements.push(
-                    Element::new(&fonts.body, ElementContent::Text(String::new()))
-                        .colors(ElementColors {
-                            bg: LinearRgba(0.0, 0.0, 0.0, opacity * 0.5).into(),
-                            ..Default::default()
-                        })
-                        .display(DisplayType::Block)
-                        .min_width(Some(Dimension::Pixels(
-                            sidebar_bounds.max_x() - modal_bounds.max_x(),
-                        )))
-                        .min_height(Some(Dimension::Pixels(window_bounds.height())))
-                        .margin(BoxDimension {
-                            left: Dimension::Pixels(modal_bounds.max_x()),
-                            top: Dimension::Pixels(0.0),
-                            right: Dimension::Pixels(0.0),
-                            bottom: Dimension::Pixels(0.0),
-                        })
-                        .zindex(22),
-                );
-            }
-
-            // Modal border at z-index 22 (same as frame sections)
+            // Modal border at z-index 20 (with modal structure)
             elements.push(
                 Element::new(&fonts.body, ElementContent::Text(String::new()))
                     .colors(ElementColors {
@@ -365,7 +257,7 @@ impl ModalManager {
                         right: Dimension::Pixels(0.0),
                         bottom: Dimension::Pixels(0.0),
                     })
-                    .zindex(22),
+                    .zindex(20),
             );
 
             // Render close button with proper positioning
@@ -391,8 +283,8 @@ impl ModalManager {
                         bottom: Dimension::Pixels(4.0),
                     })
                     .margin(BoxDimension {
-                        left: Dimension::Pixels(modal_bounds.max_x() - 40.0),
-                        top: Dimension::Pixels(modal_bounds.min_y() + 8.0),
+                        left: Dimension::Pixels(modal_bounds.max_x() - MODAL_CLOSE_BUTTON_SIZE),
+                        top: Dimension::Pixels(modal_bounds.min_y() + MODAL_CLOSE_BUTTON_MARGIN),
                         right: Dimension::Pixels(0.0),
                         bottom: Dimension::Pixels(0.0),
                     })
@@ -403,35 +295,18 @@ impl ModalManager {
                     }))
                     .item_type(UIItemType::ModalCloseButton)
                     .display(DisplayType::Block)
-                    .zindex(22),
+                    .zindex(20),
             );
 
             // Render modal content
             let content_bounds = euclid::rect(
-                modal_bounds.min_x() + 20.0,
-                modal_bounds.min_y() + 40.0,
-                modal_bounds.width() - 40.0,
-                modal_bounds.height() - 60.0,
+                modal_bounds.min_x() + MODAL_PADDING,
+                modal_bounds.min_y() + MODAL_HEADER_HEIGHT,
+                modal_bounds.width() - (MODAL_PADDING * 2.0),
+                modal_bounds.height() - MODAL_HEADER_HEIGHT - MODAL_PADDING,
             );
 
-            // Add content area background at z-index 20 (lowest layer, will show through the hole)
-            elements.push(
-                Element::new(&fonts.body, ElementContent::Text(String::new()))
-                    .colors(ElementColors {
-                        bg: bg_color.into(),
-                        ..Default::default()
-                    })
-                    .display(DisplayType::Block)
-                    .min_width(Some(Dimension::Pixels(content_bounds.width())))
-                    .min_height(Some(Dimension::Pixels(content_bounds.height())))
-                    .margin(BoxDimension {
-                        left: Dimension::Pixels(content_bounds.min_x()),
-                        top: Dimension::Pixels(content_bounds.min_y()),
-                        right: Dimension::Pixels(0.0),
-                        bottom: Dimension::Pixels(0.0),
-                    })
-                    .zindex(20),
-            );
+            // Content area background is no longer needed - modal background covers everything
 
             let context = ModalRenderContext {
                 modal_bounds: content_bounds,
@@ -445,8 +320,16 @@ impl ModalManager {
                 // Create a container for the modal content with proper bounds
                 let content_element = modal.content.render(&context);
 
-                // Wrap content in a positioned container with proper width constraints
-                // Use z-index 21 so it renders on top of the content background (20) but below the modal frame (22)
+                // Wrap content in a positioned container with scissor rect clipping
+                // Use z-index 21 (dedicated for modal scrollable content) with scissor rect
+                // Calculate viewport for scissor clipping
+                let viewport = euclid::rect(
+                    content_bounds.min_x(),
+                    content_bounds.min_y(),
+                    content_bounds.width(),
+                    content_bounds.height(),
+                );
+
                 let positioned_content =
                     Element::new(&fonts.body, ElementContent::Children(vec![content_element]))
                         .display(DisplayType::Block)
@@ -458,7 +341,8 @@ impl ModalManager {
                             right: Dimension::Pixels(0.0),
                             bottom: Dimension::Pixels(0.0),
                         })
-                        .zindex(21);
+                        .zindex(21)
+                        .with_layer_scissor(viewport);
 
                 elements.push(positioned_content);
 

@@ -141,16 +141,37 @@ Modal integration points:
 
 ### Scrollable Regions and Scrollbars
 
-#### The "Cut-a-Hole" Pattern
+#### Scissor Rect Clipping (PREFERRED)
 
-For scrollable content with visual layering:
+Use hardware-accelerated scissor rect clipping for scrollable content:
+
+```rust
+// Reserve dedicated z-index for scrollable content
+let content = Element::new(&fonts.body, ElementContent::Children(items))
+    .zindex(21)  // Dedicated z-index
+    .with_layer_scissor(viewport_rect)
+    .margin(BoxDimension {
+        top: Dimension::Pixels(-scroll_offset),
+        ..Default::default()
+    });
+```
+
+**Key points:**
+- Dedicate entire z-index to scrollable content
+- GPU clips anything outside viewport bounds
+- Clean, performant, no visual artifacts
+- See rendering-pipeline.md for details
+
+#### The "Cut-a-Hole" Pattern (LEGACY)
+
+Still used in older components but should be migrated:
 
 1. Render scrollable content at lower z-index (e.g., 10)
 2. Render container background at higher z-index (e.g., 12) 
 3. Exclude rectangular region where content shows through
 4. Scrollbar at highest z-index (e.g., 16)
 
-This enables independent scrolling while maintaining visual hierarchy.
+**Problems:** Complex implementation, visual seams, performance overhead
 
 #### Scrollbar Implementation Patterns
 

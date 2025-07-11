@@ -116,17 +116,13 @@ impl ModalContent for SuggestionModal {
             children.push(button_container);
         }
 
-        // Create scrollable content container with explicit width constraint
+        // Create scrollable content container
+        // With scissor rect clipping, we can simply use negative margin for scroll offset
+        // The GPU will clip any content outside the viewport bounds
         let content_container =
             Element::new(&context.fonts.body, ElementContent::Children(children))
                 .display(DisplayType::Block)
                 .max_width(Some(Dimension::Pixels(context.modal_bounds.width())))
-                .padding(BoxDimension {
-                    left: Dimension::Pixels(0.0),
-                    right: Dimension::Pixels(0.0),
-                    top: Dimension::Pixels(0.0),
-                    bottom: Dimension::Pixels(0.0),
-                })
                 .margin(BoxDimension {
                     left: Dimension::Pixels(0.0),
                     top: Dimension::Pixels(-context.scroll_offset),

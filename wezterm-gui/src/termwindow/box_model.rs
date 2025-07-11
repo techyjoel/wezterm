@@ -628,9 +628,6 @@ pub enum ClipBounds {
 pub struct LayerScissor {
     /// The clipping rectangle in screen coordinates
     pub rect: euclid::default::Rect<f32>,
-
-    /// Optional scroll offset to apply
-    pub scroll_offset: Option<euclid::default::Point2D<f32>>,
 }
 
 /// Core UI element with CSS-like box model properties
@@ -894,18 +891,7 @@ impl Element {
 
     /// Mark element to contribute scissor bounds
     pub fn with_layer_scissor(mut self, viewport: euclid::default::Rect<f32>) -> Self {
-        self.layer_scissor = Some(LayerScissor {
-            rect: viewport,
-            scroll_offset: None,
-        });
-        self
-    }
-
-    /// Update scroll offset for scissor
-    pub fn with_scroll_offset(mut self, offset: euclid::default::Point2D<f32>) -> Self {
-        if let Some(scissor) = &mut self.layer_scissor {
-            scissor.scroll_offset = Some(offset);
-        }
+        self.layer_scissor = Some(LayerScissor { rect: viewport });
         self
     }
 }

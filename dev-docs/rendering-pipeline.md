@@ -20,13 +20,14 @@ WezTerm's rendering is fundamentally two-phase:
 **Never attempt to draw during element processing** - GPU state doesn't persist between phases.
 **Type**: Architectural requirement (fundamental to batched rendering design)
 
-### Clipping Approaches That Don't Work Reliably
+### Per-Layer Scissor Rect Constraints (ARCHITECTURAL REQUIREMENT)
+Scissor rect clipping applies to ENTIRE z-index layers, not individual elements:
+- **Dedicate z-indices**: Reserve specific z-indices exclusively for scissor-clipped content
+- **No sharing**: All elements at a scissor-clipped z-index will be clipped
+- **One rect per layer**: Only one scissor rect can apply to each z-index
+**Type**: Architectural requirement (GPU scissor state applies per render pass)
 
-#### GPU Scissor Rects (BROKEN)
-**Why it fails**: Scissor state applies per render pass, not per element. Each z-index creates a new render pass, resetting GPU state.
-**Type**: Architectural limitation (would require complete rendering rewrite)
-
-#### ClipBounds::Explicit (CAUSES CRASHES)  
+### ClipBounds::Explicit (CAUSES CRASHES)  
 **Why it fails**: Causes RefCell BorrowMutError due to nested borrows in quad allocator.
 **Type**: Current implementation bug (could potentially be fixed)
 
@@ -136,45 +137,64 @@ Backend selection in `config.front_end` setting.
 
 ## Clipping and Overflow
 
-### Current Limitations
+### Per-Layer Scissor Rect (IMPLEMENTED)
 
-The Element system lacks true overflow containers:
-- No equivalent to CSS `overflow: hidden`
-- Parent bounds don't constrain children
-- Elements expand to contain all content
+WezTerm now supports hardware-accelerated scissor rect clipping at the z-index layer level:
 
-### Failed Clipping Approaches
+```rust
+// Apply scissor rect to all elements at a specific z-index
+element.with_layer_scissor(viewport_rect).zindex(21)
+```
 
-Based on extensive testing (see HORIZONTAL_SCROLL_ATTEMPTS.md):
+**Key characteristics:**
+- Scissor rect applies to ALL elements at the same z-index
+- Hardware-accelerated GPU clipping (zero performance cost)
+- Proper coordinate handling for WebGPU (top-left) and OpenGL (bottom-left)
+- Must dedicate entire z-index to scissor-clipped content
 
-1. **GPU Scissor Rects** (Failed)
-   - Timing mismatch: scissor set during element phase, used in draw phase
-   - State doesn't persist across z-indices
-   - Each render pass resets GPU state
+**Implementation details:**
+- `RenderLayer` has `scissor_rect: RefCell<Option<Rect>>` field
+- Elements mark scissor contribution via `element.with_layer_scissor(viewport_rect)`
+- During render_element(), scissor bounds propagate to the layer
+- GPU drawing phase applies scissor rect per render pass:
+  - WebGPU: `render_pass.set_scissor_rect()` with top-left origin
+  - OpenGL: `glium::DrawParameters { scissor: Some(rect) }` with Y-flip for bottom-left
+- Frame state cleared via `render_state.clear_frame_state()` each frame
+
+**Usage for scrollable content:**
+1. Reserve a dedicated z-index for scrollable content (e.g., z-index 21)
+2. Apply scissor rect with viewport bounds
+3. Use negative margin for scroll offset - GPU clips overflow
+4. Scrollbar must use higher z-index to avoid being clipped
+
+**Example:**
+```rust
+let viewport = euclid::rect(x, y, width, height);
+let content = Element::new(&fonts.body, ElementContent::Children(items))
+    .zindex(21)  // Dedicated z-index for this scrollable region
+    .with_layer_scissor(viewport)
+    .margin(BoxDimension {
+        top: Dimension::Pixels(-scroll_offset),
+        ..Default::default()
+    });
+```
+
+### Legacy Approaches (Avoid)
+
+1. **Cut-a-Hole Pattern** (Deprecated)
+   - Complex: Requires frame elements at higher z-index
+   - Visual artifacts: Seams between frame sections
+   - Performance: Multiple overlapping elements
+   - Still used in some older components
 
 2. **Manual Clipping** (Ineffective)
-   - Can clip individual glyphs/sprites
+   - Only clips individual glyphs/sprites
    - Doesn't prevent element expansion
    - Other z-indices still render in "clipped" area
 
-3. **Explicit ClipBounds** (Causes crashes)
+3. **Explicit ClipBounds** (Broken)
    - Causes RefCell borrow conflicts
-   - Nested borrows in quad allocator
-   - Currently incompatible with architecture
-
-### Recommended Approaches
-
-1. **Cut-a-Hole Pattern** (Currently Used)
-   - Render content at lower z-index
-   - Render background at higher z-index with holes
-   - Content shows through holes
-   - Used in sidebar scrollable regions
-
-2. **Render-to-Texture** (Future)
-   - Render scrollable content to off-screen texture
-   - Display texture with UV scrolling
-   - True GPU-level clipping
-   - Enables caching and effects
+   - Incompatible with current architecture
 
 ## Special Effects
 

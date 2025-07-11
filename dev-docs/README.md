@@ -17,9 +17,9 @@ This directory contains technical documentation for developers working on our We
   - *No critical notes* - This is overview documentation
 
 ### Rendering System
-- **rendering-pipeline.md** - GPU rendering system, Element/Box model, z-index layers, and visual effects
+- **rendering-pipeline.md** - GPU rendering system, Element/Box model, z-index layers, scissor rect clipping, and visual effects
   - **Read Critical Notes if**: Working on rendering, clipping, z-indices, or GPU operations
-  - **Key warnings**: Sub-layer constraints, two-phase rendering, failed clipping approaches
+  - **Key warnings**: Sub-layer constraints, two-phase rendering, per-layer scissor rect scope
 
 ### Sidebar Implementation
 - **sidebar-patterns.md** - Sidebar implementation patterns, UI components, and lessons learned from specific features

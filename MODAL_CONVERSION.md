@@ -23,8 +23,10 @@ This document outlines the plan to convert the suggestion card modal from the cu
 
 ### New Z-Index Structure
 - **Z-index 20**: Modal structure (dimmer, background, border, header, footer)
-- **Z-index 21**: Scrollable content (with scissor rect clipping)
+- **Z-index 21**: Scrollable content (with scissor rect clipping) - DEDICATED z-index
 - **Z-index 23**: Scrollbar (unchanged - intentionally above clipped content)
+
+**CRITICAL**: Z-index 21 must be used EXCLUSIVELY for modal scrollable content. Any other UI elements at this z-index will also be clipped by the scissor rect since clipping applies to the entire layer.
 
 ### Visual Structure
 ```
@@ -94,17 +96,36 @@ for (idx, item) in visible_items.iter().enumerate() {
 
 ### Testing Plan
 
-1. Verify modal appears correctly with background and border
-2. Test scrolling works smoothly without visual glitches
-3. Ensure content is properly clipped at viewport boundaries
-4. Check that scrollbar remains visible and functional
-5. Test with different modal sizes and content amounts
-6. Verify text selection still works within the modal
-7. Test on both WebGPU and OpenGL backends
+1. **Verify scissor rect is working**: Create a simple test element with scissor clipping
+2. Verify modal appears correctly with background and border
+3. Test scrolling works smoothly without visual glitches
+4. Ensure content is properly clipped at viewport boundaries
+5. Check that scrollbar remains visible and functional
+6. Test with different modal sizes and content amounts
+7. Verify text selection still works within the modal
+8. Test on both WebGPU and OpenGL backends
+9. **Verify no other UI elements use z-index 21**: Check that the modal's dedicated z-index doesn't conflict
 
 ### Migration Notes
 
-- The scissor rect applies to ALL elements at the specified z-index
-- Ensure interactive elements (buttons, links) use the same z-index as content to be clipped
-- The scrollbar must remain at a higher z-index to avoid being clipped
+- **CRITICAL**: The scissor rect applies to ALL elements at the specified z-index across the entire window
+- Z-index 21 must be dedicated exclusively to modal scrollable content
+- Ensure interactive elements (buttons, links) within the scrollable area use z-index 21 to be clipped
+- Modal structure elements (background, border, header) must use z-index 20 to avoid clipping
+- The scrollbar must remain at z-index 23 to avoid being clipped
 - Virtual rendering (only creating elements for visible items) should still be used for performance
+
+### Known Limitations
+
+1. **Per-layer clipping**: Scissor rects apply to entire z-index layers, not individual elements
+2. **Coordinate systems**: WebGPU uses top-left origin, OpenGL uses bottom-left (handled in implementation)
+3. **No nested clipping**: Cannot have multiple scissor regions at the same z-index
+
+### Implementation Verification Steps
+
+Before starting the modal conversion:
+1. Create a simple test case with a colored rectangle at a dedicated z-index
+2. Apply scissor clipping to verify it works as expected
+3. Test on both WebGPU and OpenGL backends
+4. Verify clipping boundaries are pixel-perfect
+5. Only proceed with modal conversion after basic functionality is confirmed

@@ -274,12 +274,17 @@ Consider making this configurable for different font combinations.
 
 ## Future Improvements
 
-### Render-to-Texture
+### Text Clipping Options
 
-For perfect text clipping in scrollable regions:
+**Scissor Rect (Preferred)**: Use hardware scissor rect for scrollable text regions
+- Simple: Just apply `.with_layer_scissor(viewport)` to container
+- Fast: Hardware-accelerated GPU clipping
+- See rendering-pipeline.md for implementation
+
+**Render-to-Texture (Advanced)**: For special effects or caching needs
 1. Render full text to off-screen texture
 2. Display viewport portion via UV coordinates
-3. Enables pixel-perfect scrolling
+3. Enables pixel-perfect scrolling with texture caching
 
 ### Advanced Layout
 
