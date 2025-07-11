@@ -398,85 +398,35 @@ impl crate::TermWindow {
         };
         let activity_log_height = activity_log_bottom - activity_log_top;
 
-        log::debug!("Cut-a-hole rendering: sidebar_x={}, visible_width={}, activity_log bounds: top={}, bottom={}, height={}", 
+        log::debug!("Scissor rect rendering: sidebar_x={}, visible_width={}, activity_log bounds: top={}, bottom={}, height={}", 
             sidebar_x, visible_width, activity_log_top, activity_log_bottom, activity_log_height);
 
-        // Paint sidebar background at z-index 12 with a "hole" for the activity log
+        // Paint full sidebar background at z-index 10
         let gl_state = self.render_state.as_ref().unwrap();
-
-        // Top section (above activity log)
-        if activity_log_top > 0.0 {
-            let layer = gl_state.layer_for_zindex(12)?;
-            let mut layers = layer.quad_allocator();
-            let top_rect = euclid::rect(sidebar_x, 0.0, visible_width, activity_log_top);
-            self.filled_rectangle(&mut layers, 0, top_rect, sidebar_bg_color)?;
-        }
-
-        // Bottom section (below activity log)
-        if activity_log_bottom < self.dimensions.pixel_height as f32 {
-            let layer = gl_state.layer_for_zindex(12)?;
-            let mut layers = layer.quad_allocator();
-            let bottom_rect = euclid::rect(
-                sidebar_x,
-                activity_log_bottom,
-                visible_width,
-                self.dimensions.pixel_height as f32 - activity_log_bottom,
-            );
-            self.filled_rectangle(&mut layers, 0, bottom_rect, sidebar_bg_color)?;
-        }
-
-        // Left edge of activity log area (if needed for borders)
-        if activity_log_left > 0.0 {
-            let layer = gl_state.layer_for_zindex(12)?;
-            let mut layers = layer.quad_allocator();
-            let left_rect = euclid::rect(
-                sidebar_x,
-                activity_log_top,
-                activity_log_left,
-                activity_log_height,
-            );
-            self.filled_rectangle(&mut layers, 0, left_rect, sidebar_bg_color)?;
-        }
-
-        // Right edge of activity log area (for scrollbar background)
-        let right_edge_width = visible_width - activity_log_right;
-        if right_edge_width > 0.0 {
-            let layer = gl_state.layer_for_zindex(12)?;
-            let mut layers = layer.quad_allocator();
-            let right_rect = euclid::rect(
-                sidebar_x + activity_log_right,
-                activity_log_top,
-                right_edge_width,
-                activity_log_height,
-            );
-            self.filled_rectangle(&mut layers, 0, right_rect, sidebar_bg_color)?;
-        }
-
-        // DEBUG: Add a red border around the hole to make it visible
-        let debug_color = LinearRgba::with_components(1.0, 0.0, 0.0, 0.5);
-        let border_width = 2.0;
-
-        // Get layer for debug borders
-        let layer = gl_state.layer_for_zindex(12)?;
+        let layer = gl_state.layer_for_zindex(10)?;
         let mut layers = layer.quad_allocator();
 
-        // Top border
-        let top_border = euclid::rect(
-            sidebar_x + activity_log_left,
-            activity_log_top - border_width,
-            activity_log_right - activity_log_left,
-            border_width,
+        // Render full sidebar background
+        let sidebar_rect = euclid::rect(
+            sidebar_x,
+            0.0,
+            visible_width,
+            self.dimensions.pixel_height as f32,
         );
-        self.filled_rectangle(&mut layers, 1, top_border, debug_color)?;
+        self.filled_rectangle(&mut layers, 0, sidebar_rect, sidebar_bg_color)?;
 
-        // Bottom border
-        let bottom_border = euclid::rect(
+        // Render activity log background color in its area (creates visual frame)
+        // This also stays at z-index 10 to create the frame effect
+        let activity_log_bg_rect = euclid::rect(
             sidebar_x + activity_log_left,
-            activity_log_bottom,
+            activity_log_top,
             activity_log_right - activity_log_left,
-            border_width,
+            activity_log_height,
         );
-        self.filled_rectangle(&mut layers, 1, bottom_border, debug_color)?;
+        // Activity log background color
+        let activity_log_bg_color = LinearRgba::with_components(0.03, 0.03, 0.035, 1.0);
+        self.filled_rectangle(&mut layers, 0, activity_log_bg_rect, activity_log_bg_color)?;
+
 
         // Add UI item for the sidebar area to capture mouse events
         // Exclude bottom-right corner for window resize handle
@@ -592,7 +542,7 @@ impl crate::TermWindow {
                         )
                     });
 
-                // Compute it at z-index 10 with bounds matching the hole
+                // Compute it at z-index 12 with bounds matching the viewport
                 let mut activity_log_computed = self.compute_element(
                     &LayoutContext {
                         width: DimensionContext {
@@ -613,7 +563,7 @@ impl crate::TermWindow {
                         ),
                         metrics: &self.render_metrics,
                         gl_state: self.render_state.as_ref().unwrap(),
-                        zindex: 10, // Activity log content at z-index 10
+                        zindex: 12, // Activity log content at z-index 12
                     },
                     &activity_log_element,
                 )?;
@@ -632,14 +582,26 @@ impl crate::TermWindow {
                     activity_bounds.origin.y
                 );
 
-                // Render the activity log
+                // Apply scissor rect to z-index 12 before rendering
                 let gl_state = self.render_state.as_ref().unwrap();
+                let layer = gl_state.layer_for_zindex(12)?;
+
+                // Convert bounds to window coordinates for scissor rect
+                let scissor_rect = euclid::rect(
+                    sidebar_x + activity_bounds.origin.x,
+                    activity_bounds.origin.y,
+                    activity_bounds.size.width,
+                    activity_bounds.size.height,
+                );
+                layer.update_scissor_rect(scissor_rect);
+
+                // Render the activity log (now clipped by scissor rect)
                 self.render_element(&activity_log_computed, gl_state, None)?;
 
                 // CRITICAL: Extract UI items from activity log for mouse handling
                 self.ui_items.extend(activity_log_computed.ui_items());
                 log::debug!(
-                    "Activity log rendered at z-index 10 with {} UI items",
+                    "Activity log rendered at z-index 12 with scissor rect and {} UI items",
                     activity_log_computed.ui_items().len()
                 );
 

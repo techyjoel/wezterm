@@ -74,12 +74,13 @@ See `renderstate.rs:layer_for_zindex()` and `quad.rs:HeapQuadAllocator::allocate
 #### Z-Index Assignments
 - **Z-index 0**: Terminal content
 - **Z-index 1**: Tab bar
-- **Z-index 10**: Right sidebar activity log content
-- **Z-index 12**: Right sidebar background
+- **Z-index 10**: Right sidebar background
+- **Z-index 12**: Right sidebar activity log content (with scissor rect)
 - **Z-index 14**: Right sidebar main content
 - **Z-index 16**: Right sidebar scrollbars(s) and buttons
 - **Z-index 20**: Right sidebar overlays (e.g. modals)
-- **Z-index 22**: Right sidebar overlay content within overlays (such as sidebars within overlays)
+- **Z-index 21**: Right sidebar modal scrollable content (with scissor rect)
+- **Z-index 23**: Right sidebar modal scrollbars
 - **Z-index 30**: Left sidebar content for scrolling
 - **Z-index 32**: Left sidebar background and main content (shared layer)
 - **Z-index 36**: Left sidebar toggle button and scrollbars
