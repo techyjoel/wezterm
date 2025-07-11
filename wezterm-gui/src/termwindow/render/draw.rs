@@ -121,6 +121,25 @@ impl crate::TermWindow {
                     });
                     cleared = true;
 
+                    // Apply scissor rect if layer has one
+                    if let Some(scissor_rect) = layer.get_scissor_rect() {
+                        // WebGPU uses top-left origin, same as our element coords
+                        render_pass.set_scissor_rect(
+                            scissor_rect.origin.x as u32,
+                            scissor_rect.origin.y as u32,
+                            scissor_rect
+                                .size
+                                .width
+                                .min(self.dimensions.pixel_width as f32)
+                                as u32,
+                            scissor_rect
+                                .size
+                                .height
+                                .min(self.dimensions.pixel_height as f32)
+                                as u32,
+                        );
+                    }
+
                     uniforms = webgpu.create_uniform(ShaderUniform {
                         foreground_text_hsb,
                         milliseconds,
@@ -262,12 +281,37 @@ impl crate::TermWindow {
                     uniforms.add_struct("blink", &blink);
                     uniforms.add_struct("rapid_blink", &rapid_blink);
 
+                    // Prepare draw parameters with optional scissor
+                    let scissor_test = if let Some(scissor_rect) = layer.get_scissor_rect() {
+                        // OpenGL uses bottom-left origin, need to flip Y
+                        Some(glium::Rect {
+                            left: scissor_rect.origin.x as u32,
+                            bottom: (self.dimensions.pixel_height as f32
+                                - scissor_rect.origin.y
+                                - scissor_rect.size.height)
+                                as u32,
+                            width: scissor_rect
+                                .size
+                                .width
+                                .min(self.dimensions.pixel_width as f32)
+                                as u32,
+                            height: scissor_rect
+                                .size
+                                .height
+                                .min(self.dimensions.pixel_height as f32)
+                                as u32,
+                        })
+                    } else {
+                        None
+                    };
+
                     let draw_params = glium::DrawParameters {
                         blend: if subpixel_aa {
                             dual_source_blending.blend
                         } else {
                             alpha_blending.blend
                         },
+                        scissor: scissor_test,
                         ..Default::default()
                     };
 

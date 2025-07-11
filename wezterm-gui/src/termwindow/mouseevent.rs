@@ -44,7 +44,7 @@ fn find_byte_offset_from_x(x: f32, char_positions: &[(f32, f32, usize)]) -> usiz
     if char_positions.is_empty() {
         return 0;
     }
-    
+
     // Find the character that contains this x position
     for (x_start, x_end, byte_offset) in char_positions {
         if x >= *x_start && x <= *x_end {
@@ -54,8 +54,10 @@ fn find_byte_offset_from_x(x: f32, char_positions: &[(f32, f32, usize)]) -> usiz
                 return *byte_offset;
             } else {
                 // Return the next character's offset if available
-                if let Some(next) = char_positions.iter()
-                    .find(|(_, _, offset)| *offset > *byte_offset) {
+                if let Some(next) = char_positions
+                    .iter()
+                    .find(|(_, _, offset)| *offset > *byte_offset)
+                {
                     return next.2;
                 }
                 // Otherwise, we're at the end of the text
@@ -63,19 +65,19 @@ fn find_byte_offset_from_x(x: f32, char_positions: &[(f32, f32, usize)]) -> usiz
             }
         }
     }
-    
+
     // If x is before the first character, return 0
     if let Some(first) = char_positions.first() {
         if x < first.0 {
             return 0;
         }
     }
-    
+
     // If x is after the last character, return the end position
     if let Some(last) = char_positions.last() {
         return last.2 + 1; // Assume single-byte char for simplicity
     }
-    
+
     0
 }
 
@@ -601,7 +603,10 @@ impl super::TermWindow {
             UIItemType::ChatInput => {
                 self.mouse_event_chat_input(event, context);
             }
-            UIItemType::ActivityItemText { index, char_positions } => {
+            UIItemType::ActivityItemText {
+                index,
+                char_positions,
+            } => {
                 self.mouse_event_activity_item_text(*index, char_positions, event, context);
             }
             UIItemType::SuggestionText { char_positions } => {
@@ -1634,7 +1639,7 @@ impl super::TermWindow {
                 // Update selection during drag
                 let x = event.coords.x as f32;
                 let byte_offset = find_byte_offset_from_x(x, char_positions);
-                
+
                 with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
                     if ai_sidebar.is_selecting() {
                         ai_sidebar.update_selection_drag(byte_offset);
@@ -1655,7 +1660,12 @@ impl super::TermWindow {
         }
     }
 
-    pub fn mouse_event_suggestion_text(&mut self, char_positions: &[(f32, f32, usize)], event: MouseEvent, context: &dyn WindowOps) {
+    pub fn mouse_event_suggestion_text(
+        &mut self,
+        char_positions: &[(f32, f32, usize)],
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
         context.set_cursor(Some(MouseCursor::Text));
 
         match event.kind {
@@ -1672,8 +1682,8 @@ impl super::TermWindow {
                         if let Ok(mut sidebar) = sidebar.lock() {
                             if let Some(ai_sidebar) = sidebar
                                 .as_any_mut()
-                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
-                            {
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
+                            ) {
                                 ai_sidebar.start_suggestion_selection(byte_offset);
                             }
                         }
@@ -1687,8 +1697,8 @@ impl super::TermWindow {
                         if let Ok(mut sidebar) = sidebar.lock() {
                             if let Some(ai_sidebar) = sidebar
                                 .as_any_mut()
-                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
-                            {
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
+                            ) {
                                 if ai_sidebar.is_selecting() {
                                     let x = event.coords.x as f32;
                                     let byte_offset = find_byte_offset_from_x(x, char_positions);
@@ -1705,8 +1715,8 @@ impl super::TermWindow {
                         if let Ok(mut sidebar) = sidebar.lock() {
                             if let Some(ai_sidebar) = sidebar
                                 .as_any_mut()
-                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
-                            {
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
+                            ) {
                                 ai_sidebar.end_selection();
                             }
                         }
@@ -1721,7 +1731,12 @@ impl super::TermWindow {
         }
     }
 
-    pub fn mouse_event_goal_text(&mut self, char_positions: &[(f32, f32, usize)], event: MouseEvent, context: &dyn WindowOps) {
+    pub fn mouse_event_goal_text(
+        &mut self,
+        char_positions: &[(f32, f32, usize)],
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
         context.set_cursor(Some(MouseCursor::Text));
 
         match event.kind {
@@ -1738,8 +1753,8 @@ impl super::TermWindow {
                         if let Ok(mut sidebar) = sidebar.lock() {
                             if let Some(ai_sidebar) = sidebar
                                 .as_any_mut()
-                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
-                            {
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
+                            ) {
                                 ai_sidebar.start_goal_selection(byte_offset);
                             }
                         }
@@ -1753,8 +1768,8 @@ impl super::TermWindow {
                         if let Ok(mut sidebar) = sidebar.lock() {
                             if let Some(ai_sidebar) = sidebar
                                 .as_any_mut()
-                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
-                            {
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
+                            ) {
                                 if ai_sidebar.is_selecting() {
                                     let x = event.coords.x as f32;
                                     let byte_offset = find_byte_offset_from_x(x, char_positions);
@@ -1771,8 +1786,8 @@ impl super::TermWindow {
                         if let Ok(mut sidebar) = sidebar.lock() {
                             if let Some(ai_sidebar) = sidebar
                                 .as_any_mut()
-                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
-                            {
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
+                            ) {
                                 ai_sidebar.end_selection();
                             }
                         }

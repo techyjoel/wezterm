@@ -556,6 +556,10 @@ pub struct RenderLayer {
     pub vb: RefCell<[TripleVertexBuffer; 3]>,
     context: RenderContext,
     zindex: i8,
+
+    /// Optional scissor rect for this layer
+    /// Accumulated from all elements that contribute scissor bounds
+    scissor_rect: RefCell<Option<euclid::default::Rect<f32>>>,
 }
 
 impl RenderLayer {
@@ -570,6 +574,7 @@ impl RenderLayer {
             context: context.clone(),
             vb: RefCell::new(vb),
             zindex,
+            scissor_rect: RefCell::new(None),
         })
     }
 
@@ -651,6 +656,20 @@ impl RenderLayer {
         };
 
         Ok(buffer)
+    }
+
+    /// Update this layer's scissor rect
+    pub fn update_scissor_rect(&self, rect: euclid::default::Rect<f32>) {
+        let mut scissor = self.scissor_rect.borrow_mut();
+        *scissor = match *scissor {
+            Some(existing) => Some(existing.union(&rect)),
+            None => Some(rect),
+        };
+    }
+
+    /// Get scissor rect for drawing (doesn't remove it)
+    pub fn get_scissor_rect(&self) -> Option<euclid::default::Rect<f32>> {
+        *self.scissor_rect.borrow()
     }
 }
 
@@ -743,6 +762,14 @@ impl RenderState {
     }
 
     /// Returns true if any of the layers needed more quads to be allocated,
+    /// Clear all layer scissor rects at start of frame
+    pub fn clear_frame_state(&mut self) -> anyhow::Result<()> {
+        for layer in self.layers.borrow().iter() {
+            layer.scissor_rect.borrow_mut().take();
+        }
+        Ok(())
+    }
+
     /// and if we successfully allocated them.
     /// Returns false if the quads were sufficient.
     /// Returns Err if we needed to allocate but failed.

@@ -774,6 +774,7 @@ impl crate::TermWindow {
             content_rect,
             baseline: 1.0,
             clip_bounds: None,
+            layer_scissor: None,
             content: ComputedElementContent::Children(vec![]),
         })
     }

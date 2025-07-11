@@ -29,6 +29,11 @@ impl crate::TermWindow {
             log::trace!("Cleared {} effects from previous frame", prev_count);
         }
 
+        // Clear scissor rects from previous frame
+        if let Some(ref mut render_state) = self.render_state.as_mut() {
+            render_state.clear_frame_state().ok();
+        }
+
         let start = Instant::now();
 
         {

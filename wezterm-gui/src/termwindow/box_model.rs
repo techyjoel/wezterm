@@ -623,6 +623,16 @@ pub enum ClipBounds {
     Explicit { width: Dimension, height: Dimension },
 }
 
+/// Scissor clipping information for a render layer
+#[derive(Clone, Debug)]
+pub struct LayerScissor {
+    /// The clipping rectangle in screen coordinates
+    pub rect: euclid::default::Rect<f32>,
+
+    /// Optional scroll offset to apply
+    pub scroll_offset: Option<euclid::default::Point2D<f32>>,
+}
+
 /// Core UI element with CSS-like box model properties
 ///
 /// Elements are the building blocks of WezTerm's UI system. Each element has:
@@ -656,6 +666,8 @@ pub struct Element {
     pub clip_bounds: Option<ClipBounds>,
     /// Cached height from previous render (if available)
     pub computed_height: Option<f32>,
+    /// Whether this element contributes scissor bounds to its layer
+    pub layer_scissor: Option<LayerScissor>,
 }
 
 impl Element {
@@ -681,6 +693,7 @@ impl Element {
             min_height: None,
             clip_bounds: None,
             computed_height: None,
+            layer_scissor: None,
         }
     }
 
@@ -878,6 +891,23 @@ impl Element {
         self.clip_bounds = Some(bounds);
         self
     }
+
+    /// Mark element to contribute scissor bounds
+    pub fn with_layer_scissor(mut self, viewport: euclid::default::Rect<f32>) -> Self {
+        self.layer_scissor = Some(LayerScissor {
+            rect: viewport,
+            scroll_offset: None,
+        });
+        self
+    }
+
+    /// Update scroll offset for scissor
+    pub fn with_scroll_offset(mut self, offset: euclid::default::Point2D<f32>) -> Self {
+        if let Some(scissor) = &mut self.layer_scissor {
+            scissor.scroll_offset = Some(offset);
+        }
+        self
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -923,6 +953,8 @@ pub struct ComputedElement {
     pub baseline: f32,
     /// Clip bounds in absolute window coordinates (if any)
     pub clip_bounds: Option<RectF>,
+    /// Whether this element contributes scissor bounds to its layer
+    pub layer_scissor: Option<LayerScissor>,
 
     pub content: ComputedElementContent,
 }
@@ -2060,6 +2092,7 @@ impl super::TermWindow {
                     padding: rects.padding,
                     content_rect: rects.content_rect,
                     clip_bounds,
+                    layer_scissor: element.layer_scissor.clone(),
                     content: ComputedElementContent::Text(computed_cells),
                 })
             }
@@ -2101,6 +2134,7 @@ impl super::TermWindow {
                     padding: rects.padding,
                     content_rect: rects.content_rect,
                     clip_bounds,
+                    layer_scissor: element.layer_scissor.clone(),
                     content: ComputedElementContent::MultilineText {
                         lines,
                         line_height,
@@ -2222,6 +2256,7 @@ impl super::TermWindow {
                     padding: rects.padding,
                     content_rect: rects.content_rect,
                     clip_bounds,
+                    layer_scissor: element.layer_scissor.clone(),
                     content: ComputedElementContent::Children(computed_kids),
                 })
             }
@@ -2244,6 +2279,7 @@ impl super::TermWindow {
                     padding: rects.padding,
                     content_rect: rects.content_rect,
                     clip_bounds,
+                    layer_scissor: element.layer_scissor.clone(),
                     content: ComputedElementContent::Poly {
                         poly,
                         line_width: *line_width,
@@ -2283,6 +2319,7 @@ impl super::TermWindow {
                     padding: rects.padding,
                     content_rect: rects.content_rect,
                     clip_bounds,
+                    layer_scissor: element.layer_scissor.clone(),
                     content: ComputedElementContent::MultilineText {
                         lines,
                         line_height,
@@ -2301,6 +2338,12 @@ impl super::TermWindow {
         inherited_colors: Option<&ElementColors>,
     ) -> anyhow::Result<()> {
         let layer = gl_state.layer_for_zindex(element.zindex)?;
+
+        // If element contributes scissor, update layer
+        if let Some(layer_scissor) = &element.layer_scissor {
+            layer.update_scissor_rect(layer_scissor.rect);
+        }
+
         let mut layers = layer.quad_allocator();
 
         let colors = match &element.hover_colors {

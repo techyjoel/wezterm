@@ -127,35 +127,44 @@ impl SelectionState {
         match &self.active_selection {
             None => None,
             Some(selection) => match selection {
-            SelectionTarget::ActivityItem { index, anchor_byte, current_byte } => {
-                sidebar.activity_log.get(*index).and_then(|item| {
+                SelectionTarget::ActivityItem {
+                    index,
+                    anchor_byte,
+                    current_byte,
+                } => sidebar.activity_log.get(*index).and_then(|item| {
                     let text = get_item_text(item);
                     let start = anchor_byte.min(current_byte);
                     let end = anchor_byte.max(current_byte);
                     text.get(*start..*end).map(|s| s.to_string())
-                })
-            }
-            SelectionTarget::Suggestion { anchor_byte, current_byte } => {
-                if let Some(suggestion) = &sidebar.current_suggestion {
-                    let start = anchor_byte.min(current_byte);
-                    let end = anchor_byte.max(current_byte);
-                    suggestion.content.get(*start..*end).map(|s| s.to_string())
-                } else {
-                    None
+                }),
+                SelectionTarget::Suggestion {
+                    anchor_byte,
+                    current_byte,
+                } => {
+                    if let Some(suggestion) = &sidebar.current_suggestion {
+                        let start = anchor_byte.min(current_byte);
+                        let end = anchor_byte.max(current_byte);
+                        suggestion.content.get(*start..*end).map(|s| s.to_string())
+                    } else {
+                        None
+                    }
                 }
-            }
-            SelectionTarget::Goal { anchor_byte, current_byte } => {
-                if let Some(goal) = &sidebar.current_goal {
-                    let start = anchor_byte.min(current_byte);
-                    let end = anchor_byte.max(current_byte);
-                    goal.text.get(*start..*end).map(|s| s.to_string())
-                } else {
-                    None
+                SelectionTarget::Goal {
+                    anchor_byte,
+                    current_byte,
+                } => {
+                    if let Some(goal) = &sidebar.current_goal {
+                        let start = anchor_byte.min(current_byte);
+                        let end = anchor_byte.max(current_byte);
+                        goal.text.get(*start..*end).map(|s| s.to_string())
+                    } else {
+                        None
+                    }
                 }
-            }
-        }}
+            },
+        }
     }
-    
+
     pub fn clear(&mut self) {
         self.active_selection = None;
         self.is_dragging = false;
@@ -166,9 +175,9 @@ impl SelectionState {
 fn get_item_text(item: &ActivityItem) -> &str {
     match item {
         ActivityItem::Chat { message, .. } => message,
-        ActivityItem::Command { command, output, .. } => {
-            output.as_deref().unwrap_or(command)
-        }
+        ActivityItem::Command {
+            command, output, ..
+        } => output.as_deref().unwrap_or(command),
         ActivityItem::Suggestion { content, .. } => content,
         ActivityItem::Goal { text, .. } => text,
     }
@@ -180,27 +189,27 @@ fn calculate_char_positions(text: &str, font: &Rc<LoadedFont>) -> Vec<(f32, f32,
     let char_width = font.metrics().cell_width.get() as f32;
     let mut x = 0.0;
     let mut byte_offset = 0;
-    
+
     for ch in text.chars() {
         let ch_width = if ch.is_ascii() {
             char_width
         } else {
             char_width * 1.5 // Rough estimate for non-ASCII
         };
-        
+
         positions.push((x, x + ch_width, byte_offset));
-        
+
         x += ch_width;
         byte_offset += ch.len_utf8();
     }
-    
+
     positions
 }
 
 /// Create style spans for text with selection
 fn create_selection_spans(text: &str, start_byte: usize, end_byte: usize) -> Vec<StyleSpan> {
     let mut spans = vec![];
-    
+
     // Text before selection (if any)
     if start_byte > 0 {
         spans.push(StyleSpan {
@@ -211,7 +220,7 @@ fn create_selection_spans(text: &str, start_byte: usize, end_byte: usize) -> Vec
             font_style: None,
         });
     }
-    
+
     // Selected text with blue background
     spans.push(StyleSpan {
         start: start_byte,
@@ -224,7 +233,7 @@ fn create_selection_spans(text: &str, start_byte: usize, end_byte: usize) -> Vec
         font: None,
         font_style: None,
     });
-    
+
     // Text after selection (if any)
     if end_byte < text.len() {
         spans.push(StyleSpan {
@@ -235,7 +244,7 @@ fn create_selection_spans(text: &str, start_byte: usize, end_byte: usize) -> Vec
             font_style: None,
         });
     }
-    
+
     spans
 }
 
@@ -364,18 +373,17 @@ pub struct AiSidebar {
 
     // Text selection state
     selection_state: SelectionState,
-    
+
     // Track bounds for hit testing
     activity_item_bounds: HashMap<usize, euclid::Rect<f32, window::PixelUnit>>,
     suggestion_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
     goal_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
-    
+
     // Last known window height for mouse event handling
     last_viewport_height: Option<f32>,
 }
 
 impl AiSidebar {
-    
     /// Start selection at the given byte offset for an activity item
     pub fn start_activity_item_selection(&mut self, index: usize, byte_offset: usize) {
         if index < self.activity_log.len() {
@@ -387,8 +395,7 @@ impl AiSidebar {
             self.selection_state.is_dragging = true;
         }
     }
-    
-    
+
     /// Start selection at the given byte offset for the suggestion
     pub fn start_suggestion_selection(&mut self, byte_offset: usize) {
         if self.current_suggestion.is_some() {
@@ -399,8 +406,7 @@ impl AiSidebar {
             self.selection_state.is_dragging = true;
         }
     }
-    
-    
+
     /// Start selection at the given byte offset for the goal
     pub fn start_goal_selection(&mut self, byte_offset: usize) {
         if self.current_goal.is_some() {
@@ -411,13 +417,13 @@ impl AiSidebar {
             self.selection_state.is_dragging = true;
         }
     }
-    
+
     /// Update selection during drag
     pub fn update_selection_drag(&mut self, byte_offset: usize) {
         if !self.selection_state.is_dragging {
             return;
         }
-        
+
         // Update the current byte offset for the active selection
         match &mut self.selection_state.active_selection {
             Some(SelectionTarget::ActivityItem { current_byte, .. }) => {
@@ -432,20 +438,22 @@ impl AiSidebar {
             None => {}
         }
     }
-    
+
     /// Check if currently selecting text
     pub fn is_selecting(&self) -> bool {
         self.selection_state.is_dragging
     }
-    
+
     /// End selection
     pub fn end_selection(&mut self) {
         self.selection_state.is_dragging = false;
     }
-    
+
     /// Clear selection if activity log items change
     pub fn clear_selection_if_invalid(&mut self) {
-        if let Some(SelectionTarget::ActivityItem { index, .. }) = &self.selection_state.active_selection {
+        if let Some(SelectionTarget::ActivityItem { index, .. }) =
+            &self.selection_state.active_selection
+        {
             if *index >= self.activity_log.len() {
                 self.selection_state.clear();
             }
@@ -453,31 +461,37 @@ impl AiSidebar {
     }
 
     /// Estimate text position for hit testing
-    fn estimate_text_position(&self, item_bounds: &euclid::Rect<f32, window::PixelUnit>, click_x: f32, text: &str, font: &Rc<LoadedFont>) -> usize {
+    fn estimate_text_position(
+        &self,
+        item_bounds: &euclid::Rect<f32, window::PixelUnit>,
+        click_x: f32,
+        text: &str,
+        font: &Rc<LoadedFont>,
+    ) -> usize {
         let relative_x = (click_x - item_bounds.origin.x).max(0.0);
-        
+
         // For MVP, use a simple approach with character iteration
         let mut accumulated_width = 0.0;
         let mut byte_offset = 0;
-        
+
         // Use cell width for character width approximation
         let char_width = font.metrics().cell_width.get() as f32;
-        
+
         for ch in text.chars() {
             let ch_width = if ch.is_ascii() {
                 char_width
             } else {
                 char_width * 1.5 // Rough estimate for non-ASCII
             };
-            
+
             if accumulated_width + ch_width / 2.0 > relative_x {
                 break;
             }
-            
+
             accumulated_width += ch_width;
             byte_offset += ch.len_utf8();
         }
-        
+
         byte_offset
     }
 
@@ -1001,31 +1015,37 @@ This example demonstrates:
         } else {
             // Check if this goal has a selection
             let selection = match &self.selection_state.active_selection {
-                Some(SelectionTarget::Goal { anchor_byte, current_byte }) => {
-                    Some((*anchor_byte.min(current_byte), *anchor_byte.max(current_byte)))
-                }
+                Some(SelectionTarget::Goal {
+                    anchor_byte,
+                    current_byte,
+                }) => Some((
+                    *anchor_byte.min(current_byte),
+                    *anchor_byte.max(current_byte),
+                )),
                 _ => None,
             };
-            
+
             let elem = if let Some((start, end)) = selection {
                 let spans = create_selection_spans(&goal.text, start, end);
-                Element::new(&fonts.body, ElementContent::StyledWrappedText { 
-                    text: goal.text.clone(), 
-                    style_spans: spans 
-                })
+                Element::new(
+                    &fonts.body,
+                    ElementContent::StyledWrappedText {
+                        text: goal.text.clone(),
+                        style_spans: spans,
+                    },
+                )
             } else {
                 Element::new(&fonts.body, ElementContent::WrappedText(goal.text.clone()))
             };
-            
-            elem
-                .item_type(UIItemType::GoalText {
-                    char_positions: calculate_char_positions(&goal.text, &fonts.body),
-                })
-                .colors(ElementColors {
-                    text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
-                    ..Default::default()
-                })
-                .padding(BoxDimension::new(Dimension::Pixels(8.0)))
+
+            elem.item_type(UIItemType::GoalText {
+                char_positions: calculate_char_positions(&goal.text, &fonts.body),
+            })
+            .colors(ElementColors {
+                text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
+                ..Default::default()
+            })
+            .padding(BoxDimension::new(Dimension::Pixels(8.0)))
         };
         content.push(goal_text);
 
@@ -1136,29 +1156,35 @@ This example demonstrates:
         } else {
             // Check if this suggestion has a selection
             let selection = match &self.selection_state.active_selection {
-                Some(SelectionTarget::Suggestion { anchor_byte, current_byte }) => {
-                    Some((*anchor_byte.min(current_byte), *anchor_byte.max(current_byte)))
-                }
+                Some(SelectionTarget::Suggestion {
+                    anchor_byte,
+                    current_byte,
+                }) => Some((
+                    *anchor_byte.min(current_byte),
+                    *anchor_byte.max(current_byte),
+                )),
                 _ => None,
             };
-            
+
             // For short content, still use fixed height
             let elem = if let Some((start, end)) = selection {
                 let spans = create_selection_spans(&suggestion.content, start, end);
-                Element::new(&fonts.body, ElementContent::StyledWrappedText { 
-                    text: suggestion.content.clone(), 
-                    style_spans: spans 
-                })
+                Element::new(
+                    &fonts.body,
+                    ElementContent::StyledWrappedText {
+                        text: suggestion.content.clone(),
+                        style_spans: spans,
+                    },
+                )
             } else {
                 Element::new(
                     &fonts.body,
                     ElementContent::WrappedText(suggestion.content.clone()),
                 )
             };
-            
+
             content_elements.push(
-                elem
-                .item_type(UIItemType::SuggestionText {
+                elem.item_type(UIItemType::SuggestionText {
                     char_positions: calculate_char_positions(&suggestion.content, &fonts.body),
                 })
                 .colors(ElementColors {
@@ -1320,10 +1346,14 @@ This example demonstrates:
 
                 // Check if this message has a selection
                 let selection = match &self.selection_state.active_selection {
-                    Some(SelectionTarget::ActivityItem { index, anchor_byte, current_byte }) 
-                        if *index == item_index => {
-                        Some((*anchor_byte.min(current_byte), *anchor_byte.max(current_byte)))
-                    }
+                    Some(SelectionTarget::ActivityItem {
+                        index,
+                        anchor_byte,
+                        current_byte,
+                    }) if *index == item_index => Some((
+                        *anchor_byte.min(current_byte),
+                        *anchor_byte.max(current_byte),
+                    )),
                     _ => None,
                 };
 
@@ -1332,11 +1362,14 @@ This example demonstrates:
                     // User messages - check for selection
                     if let Some((start, end)) = selection {
                         let spans = create_selection_spans(message, start, end);
-                        Element::new(&fonts.body, ElementContent::StyledWrappedText { 
-                            text: message.clone(), 
-                            style_spans: spans 
-                        })
-                        .item_type(UIItemType::ActivityItemText { 
+                        Element::new(
+                            &fonts.body,
+                            ElementContent::StyledWrappedText {
+                                text: message.clone(),
+                                style_spans: spans,
+                            },
+                        )
+                        .item_type(UIItemType::ActivityItemText {
                             index: item_index,
                             char_positions: calculate_char_positions(message, &fonts.body),
                         })
@@ -1346,24 +1379,27 @@ This example demonstrates:
                         })
                     } else {
                         Element::new(&fonts.body, ElementContent::WrappedText(message.clone()))
-                        .item_type(UIItemType::ActivityItemText { 
-                            index: item_index,
-                            char_positions: calculate_char_positions(message, &fonts.body),
-                        })
-                        .colors(ElementColors {
-                            text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
-                            ..Default::default()
-                        })
+                            .item_type(UIItemType::ActivityItemText {
+                                index: item_index,
+                                char_positions: calculate_char_positions(message, &fonts.body),
+                            })
+                            .colors(ElementColors {
+                                text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
+                                ..Default::default()
+                            })
                     }
                 } else {
                     // AI messages with selection - render as plain text with selection
                     if let Some((start, end)) = selection {
                         let spans = create_selection_spans(message, start, end);
-                        Element::new(&fonts.body, ElementContent::StyledWrappedText { 
-                            text: message.clone(), 
-                            style_spans: spans 
-                        })
-                        .item_type(UIItemType::ActivityItemText { 
+                        Element::new(
+                            &fonts.body,
+                            ElementContent::StyledWrappedText {
+                                text: message.clone(),
+                                style_spans: spans,
+                            },
+                        )
+                        .item_type(UIItemType::ActivityItemText {
                             index: item_index,
                             char_positions: calculate_char_positions(message, &fonts.body),
                         })
@@ -1402,9 +1438,9 @@ This example demonstrates:
                             MarkdownRenderer::render_with_fonts(message, fonts, Some(content_width))
                         }
                         .max_width(Some(Dimension::Pixels(content_width)));
-                        
+
                         // Add item type for click handling
-                        elem = elem.item_type(UIItemType::ActivityItemText { 
+                        elem = elem.item_type(UIItemType::ActivityItemText {
                             index: item_index,
                             char_positions: calculate_char_positions(message, &fonts.body),
                         });
@@ -2003,13 +2039,12 @@ This example demonstrates:
         // Create a container that enforces the height constraint
         let input_container = Element::new(
             &fonts.body,
-            ElementContent::Children(vec![
-                self.chat_input
-                    .render_with_selection(&fonts.body)
-                    .item_type(UIItemType::ChatInput)
-                    .max_width(Some(Dimension::Pixels(input_width)))
-                    .min_width(Some(Dimension::Pixels(input_width)))
-            ])
+            ElementContent::Children(vec![self
+                .chat_input
+                .render_with_selection(&fonts.body)
+                .item_type(UIItemType::ChatInput)
+                .max_width(Some(Dimension::Pixels(input_width)))
+                .min_width(Some(Dimension::Pixels(input_width)))]),
         )
         .display(DisplayType::Block)
         .min_height(Some(Dimension::Pixels((two_lines_height + 2.0) as f32))) // Ensure consistent height
@@ -2543,7 +2578,7 @@ impl Sidebar for AiSidebar {
                 return Ok(true);
             }
         }
-        
+
         // Handle mouse release to end selection
         if let WMEK::Release(MousePress::Left) = event.kind {
             self.selection_state.is_dragging = false;
@@ -2674,7 +2709,7 @@ impl AiSidebar {
     pub fn focus_chat_input(&mut self) {
         self.chat_input.focused = true;
     }
-    
+
     /// Handle copy operation (Ctrl+C / Cmd+C)
     pub fn handle_copy(&mut self, window: &dyn window::WindowOps) -> bool {
         // Check if chat input has focus and selection
@@ -2684,13 +2719,13 @@ impl AiSidebar {
                 return true;
             }
         }
-        
+
         // Check sidebar selection state
         if let Some(text) = self.selection_state.get_selected_text(self) {
             window.set_clipboard(window::Clipboard::Clipboard, text);
             return true;
         }
-        
+
         false
     }
 

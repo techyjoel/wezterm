@@ -618,12 +618,12 @@ impl super::TermWindow {
                                 }
                                 _ => false,
                             };
-                            
+
                             if is_copy {
                                 if let Some(ai_sidebar) = sidebar
                                     .as_any_mut()
-                                    .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
-                                {
+                                    .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
+                                ) {
                                     if ai_sidebar.handle_copy(context) {
                                         context.invalidate();
                                         return;
@@ -631,7 +631,7 @@ impl super::TermWindow {
                                 }
                             }
                         }
-                        
+
                         // Convert window KeyCode to termwiz KeyCode
                         // Only process key down events to avoid double processing
                         if window_key.key_is_down {
@@ -667,12 +667,12 @@ impl super::TermWindow {
                                 }
                                 _ => false,
                             };
-                            
+
                             if is_copy {
                                 // Left sidebar currently doesn't support copy, but structure is here for future
                             }
                         }
-                        
+
                         // Convert window KeyCode to termwiz KeyCode
                         // Only process key down events to avoid double processing
                         if window_key.key_is_down {
@@ -696,7 +696,7 @@ impl super::TermWindow {
             Some(pane) => pane,
             None => return,
         };
-        
+
         // Check for Ctrl+C / Cmd+C even when sidebar doesn't have focus
         // (since we allow selection without changing focus)
         if window_key.key_is_down {
@@ -710,17 +710,17 @@ impl super::TermWindow {
                 }
                 _ => false,
             };
-            
+
             if is_copy {
                 let sidebar_manager = self.sidebar_manager.borrow();
-                
+
                 // Check right sidebar for selections
                 if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
                     if let Ok(mut sidebar) = sidebar.lock() {
                         if let Some(ai_sidebar) = sidebar
                             .as_any_mut()
-                            .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
-                        {
+                            .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
+                        ) {
                             if ai_sidebar.handle_copy(context) {
                                 context.invalidate();
                                 return;

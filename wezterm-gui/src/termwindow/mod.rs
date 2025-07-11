@@ -166,11 +166,11 @@ pub enum UIItemType {
     ShowMoreButton(String), // suggestion_id
     SuggestionRunButton,
     SuggestionDismissButton,
-    CodeBlockContent(String),          // code_block_id
-    CodeBlockCopyButton(String),       // code_block_id
-    ModalCloseButton,                  // For modal X button
-    ChatInput,                         // For chat input field
-    ActivityItemText { 
+    CodeBlockContent(String),    // code_block_id
+    CodeBlockCopyButton(String), // code_block_id
+    ModalCloseButton,            // For modal X button
+    ChatInput,                   // For chat input field
+    ActivityItemText {
         index: usize,
         // Pre-calculated character position mapping for hit testing
         // Vec of (x_start, x_end, byte_offset) for each character
@@ -183,7 +183,7 @@ pub enum UIItemType {
     GoalText {
         // Pre-calculated character position mapping for hit testing
         char_positions: Vec<(f32, f32, usize)>,
-    }
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
