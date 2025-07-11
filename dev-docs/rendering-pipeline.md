@@ -77,6 +77,7 @@ See `renderstate.rs:layer_for_zindex()` and `quad.rs:HeapQuadAllocator::allocate
 - **Z-index 10**: Right sidebar background
 - **Z-index 12**: Right sidebar activity log content (with scissor rect)
 - **Z-index 14**: Right sidebar main content
+- **Z-index 15**: Right sidebar chat input text content (with scissor rect)
 - **Z-index 16**: Right sidebar scrollbars(s) and buttons
 - **Z-index 20**: Right sidebar overlays (e.g. modals)
 - **Z-index 21**: Right sidebar modal scrollable content (with scissor rect)
@@ -152,6 +153,7 @@ element.with_layer_scissor(viewport_rect).zindex(21)
 - Hardware-accelerated GPU clipping (zero performance cost)
 - Proper coordinate handling for WebGPU (top-left) and OpenGL (bottom-left)
 - Must dedicate entire z-index to scissor-clipped content
+- **Viewport must use absolute window coordinates**, not relative coordinates
 
 **Implementation details:**
 - `RenderLayer` has `scissor_rect: RefCell<Option<Rect>>` field
@@ -164,13 +166,19 @@ element.with_layer_scissor(viewport_rect).zindex(21)
 
 **Usage for scrollable content:**
 1. Reserve a dedicated z-index for scrollable content (e.g., z-index 21)
-2. Apply scissor rect with viewport bounds
+2. Apply scissor rect with viewport bounds in **absolute window coordinates**
 3. Use negative margin for scroll offset - GPU clips overflow
 4. Scrollbar must use higher z-index to avoid being clipped
 
-**Example:**
+**Example (Modal Pattern):**
 ```rust
-let viewport = euclid::rect(x, y, width, height);
+// viewport uses absolute window coordinates
+let viewport = euclid::rect(
+    content_bounds.min_x(),  // absolute x
+    content_bounds.min_y(),  // absolute y
+    content_bounds.width(),
+    content_bounds.height()
+);
 let content = Element::new(&fonts.body, ElementContent::Children(items))
     .zindex(21)  // Dedicated z-index for this scrollable region
     .with_layer_scissor(viewport)
@@ -179,6 +187,54 @@ let content = Element::new(&fonts.body, ElementContent::Children(items))
         ..Default::default()
     });
 ```
+
+**Example (Activity Log Pattern):**
+```rust
+// When rendering in separate phases, apply scissor rect to the layer directly
+let layer = gl_state.layer_for_zindex(12)?;
+layer.update_scissor_rect(absolute_viewport_rect);
+```
+
+### Z-Index Conflicts and Opaque Elements
+
+**Critical Issue**: Elements with opaque backgrounds can block content at higher z-indices when rendered in separate compute phases.
+
+**The Problem:**
+```rust
+// BROKEN: Opaque element at z-index 14 blocks separately-rendered content at z-index 17
+let container = Element::new(...).colors(bg: opaque_color).zindex(14);
+// ... later in separate render pass ...
+let text = compute_element(zindex: 17, ...);  // Text not visible!
+```
+
+**Why This Happens:**
+- WezTerm's rendering isn't purely z-index based when elements come from different compute phases
+- Opaque elements seem to create "barriers" that block separately-rendered content
+- This only affects elements rendered in separate `compute_element()` calls
+
+**Working Patterns:**
+
+1. **Modal Pattern (Nested Elements):**
+```rust
+// All content in single element tree - z-indices work correctly
+let container = Element::new(..., ElementContent::Children(vec![
+    background_element.zindex(20),
+    content_element.zindex(21),  // Renders correctly above background
+]));
+```
+
+2. **Activity Log Pattern (Filled Rectangles):**
+```rust
+// Background as GPU primitive, content as Element - no conflicts
+self.filled_rectangle(&mut layers, 0, bg_rect, bg_color)?;  // Direct GPU draw
+let content = compute_element(zindex: 12, ...);  // Renders above rectangle
+```
+
+**Best Practices:**
+- When background and content need different z-indices, use filled rectangles for backgrounds
+- When using Elements, keep related content in the same element tree
+- Avoid rendering opaque Elements and their content in separate compute phases
+- For form inputs with backgrounds, consider the activity log pattern
 
 ### Legacy Approaches (Avoid)
 
@@ -196,6 +252,10 @@ let content = Element::new(&fonts.body, ElementContent::Children(items))
 3. **Explicit ClipBounds** (Broken)
    - Causes RefCell borrow conflicts
    - Incompatible with current architecture
+
+4. **Separate Compute Phases with Opaque Elements** (Problematic)
+   - Opaque elements block higher z-index content from separate renders
+   - Use filled rectangles or nested elements instead
 
 ## Special Effects
 

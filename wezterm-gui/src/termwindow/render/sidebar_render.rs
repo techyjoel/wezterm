@@ -427,7 +427,6 @@ impl crate::TermWindow {
         let activity_log_bg_color = LinearRgba::with_components(0.03, 0.03, 0.035, 1.0);
         self.filled_rectangle(&mut layers, 0, activity_log_bg_rect, activity_log_bg_color)?;
 
-
         // Add UI item for the sidebar area to capture mouse events
         // Exclude bottom-right corner for window resize handle
         let resize_exclusion = 20;
@@ -615,6 +614,8 @@ impl crate::TermWindow {
                 }
             }
 
+            // Note: We'll render chat input text AFTER capturing bounds from the current frame
+
             // Now get the main sidebar element
             let element = sidebar_locked.render(&fonts, self.dimensions.pixel_height as f32);
             drop(sidebar_locked);
@@ -655,6 +656,123 @@ impl crate::TermWindow {
 
             // Extract UI items for mouse handling
             self.ui_items.extend(computed.ui_items());
+
+
+            // Render chat input background and content using activity log pattern
+            if let Ok(mut sidebar_guard) = sidebar.lock() {
+                if let Some(ai_sidebar) = sidebar_guard.as_any_mut().downcast_mut::<AiSidebar>() {
+                    // Find the ChatInput UI item to get its bounds
+                    let chat_input_bounds = computed.ui_items()
+                        .iter()
+                        .find(|item| matches!(item.item_type, crate::termwindow::UIItemType::ChatInput))
+                        .map(|item| euclid::rect::<f32, euclid::UnknownUnit>(
+                            item.x as f32,
+                            item.y as f32,
+                            item.width as f32,
+                            item.height as f32,
+                        ));
+                    
+                    if let Some(bounds) = chat_input_bounds {
+                        
+                        // Render background at z-index 13 (below main content)
+                        let bg_color = ai_sidebar.get_chat_input_bg_color();
+                        self.filled_rectangle(
+                            &mut layers,
+                            2, // sub-layer 2 for UI elements
+                            euclid::rect(
+                                bounds.origin.x,
+                                bounds.origin.y,
+                                bounds.size.width,
+                                bounds.size.height,
+                            ),
+                            bg_color,
+                        )?;
+                        
+                        // Render border
+                        let border_color = ai_sidebar.get_chat_input_border_color();
+                        let border_thickness = 1.0;
+                        
+                        // Top border
+                        self.filled_rectangle(
+                            &mut layers,
+                            2,
+                            euclid::rect(bounds.origin.x, bounds.origin.y, bounds.size.width, border_thickness),
+                            border_color,
+                        )?;
+                        // Bottom border
+                        self.filled_rectangle(
+                            &mut layers,
+                            2,
+                            euclid::rect(bounds.origin.x, bounds.origin.y + bounds.size.height - border_thickness, bounds.size.width, border_thickness),
+                            border_color,
+                        )?;
+                        // Left border
+                        self.filled_rectangle(
+                            &mut layers,
+                            2,
+                            euclid::rect(bounds.origin.x, bounds.origin.y, border_thickness, bounds.size.height),
+                            border_color,
+                        )?;
+                        // Right border
+                        self.filled_rectangle(
+                            &mut layers,
+                            2,
+                            euclid::rect(bounds.origin.x + bounds.size.width - border_thickness, bounds.origin.y, border_thickness, bounds.size.height),
+                            border_color,
+                        )?;
+                        
+                        // Calculate text viewport (inside padding and border)
+                        let text_padding = 8.0;
+                        let text_bounds = euclid::rect(
+                            bounds.origin.x + border_thickness + text_padding,
+                            bounds.origin.y + border_thickness + 6.0, // 6px top padding
+                            bounds.size.width - (border_thickness * 2.0) - (text_padding * 2.0),
+                            ai_sidebar.get_chat_input_display_lines() as f32 * fonts.body.metrics().cell_height.get() as f32,
+                        );
+                        
+                        // Get the chat input text content element
+                        let chat_input_element = ai_sidebar.render_chat_input_content(&fonts, text_bounds.size.width);
+                        
+                        // Compute the chat input text at z-index 15
+                        let mut chat_input_computed = self.compute_element(
+                            &LayoutContext {
+                                width: DimensionContext {
+                                    dpi: self.dimensions.dpi as f32,
+                                    pixel_cell: self.render_metrics.cell_size.width as f32,
+                                    pixel_max: text_bounds.size.width,
+                                },
+                                height: DimensionContext {
+                                    dpi: self.dimensions.dpi as f32,
+                                    pixel_cell: self.render_metrics.cell_size.height as f32,
+                                    pixel_max: text_bounds.size.height,
+                                },
+                                bounds: euclid::rect(0.0, 0.0, text_bounds.size.width, text_bounds.size.height),
+                                metrics: &self.render_metrics,
+                                gl_state: self.render_state.as_ref().unwrap(),
+                                zindex: 15, // Chat input text at z-index 15
+                            },
+                            &chat_input_element,
+                        )?;
+                        
+                        // Translate to absolute position
+                        chat_input_computed.translate(euclid::vec2(
+                            text_bounds.origin.x,
+                            text_bounds.origin.y,
+                        ));
+                        
+                        // Apply scissor rect to z-index 15
+                        let gl_state = self.render_state.as_ref().unwrap();
+                        if let Ok(layer) = gl_state.layer_for_zindex(15) {
+                            layer.update_scissor_rect(text_bounds);
+                        } else {
+                            log::error!("Failed to get layer for z-index 15 for chat input scissor rect");
+                        }
+                        
+                        // Render the chat input text (now clipped by scissor rect)
+                        self.render_element(&chat_input_computed, gl_state, None)?;
+                    }
+                }
+            }
 
             // Render sidebar scrollbars at z-index 16
             let sidebar_scrollbars = sidebar.lock().unwrap().get_scrollbars();

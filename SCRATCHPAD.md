@@ -9,29 +9,22 @@
     - Enter to send, Shift+Enter for newline
     - Proper focus management
 
-## Current Status (Updated)
+## Current Status
 
-### Completed (Phases 0-2)
+### Completed Features
 1. ✅ **MultilineTextInput Foundation** - All core methods implemented with proper UTF-8 handling
 2. ✅ **Focus Infrastructure** - Extended sidebar focus system, keyboard routing works
 3. ✅ **Chat Input Focus** - Click-to-focus works, Enter sends, Shift+Enter newlines, Escape unfocuses
+4. ✅ **Clipboard Integration** - Ctrl/Cmd+C implemented, need to test
+5. ✅ **Chat Input Rendering** - Using activity log pattern with filled rectangles and scissor rect
+6. ✅ **Focus Visual Feedback** - Border color changes on focus/blur
+7. ✅ **Implemented scissor rect clipping**  and converted chat input box to using it
 
-### Completed (Phase 3)
-1. **Phase 3: Text Selection in Sidebar** - COMPLETED
-   - ✅ SelectionState and SelectionTarget types implemented
-   - ✅ Selection rendering with StyleSpan (blue background)
-   - ✅ Character-level hit testing during rendering phase
-   - ✅ Pre-calculated character positions stored in UIItemType
-   - ✅ Mouse event handlers for all text types
-   - ✅ Drag-to-extend selection working properly
-   - ✅ UTF-8 safe byte offset tracking
-
-### Completed (Phase 4)
-1. **Phase 4: Clipboard Integration** - COMPLETED
-   - ✅ Ctrl/Cmd+C keyboard shortcut intercepted
-   - ✅ Works with both focused chat input selections
-   - ✅ Works with sidebar text selections (even without focus)
-   - ✅ Platform-specific modifier handling (Cmd on macOS, Ctrl elsewhere)
+### In Progress
+1. ⚠️ **Text Selection in Sidebar** - Selection is partially implemented but not working properly
+2. ⚠️ **Chat Input Height** - Box clipping isn't quite tall enough for 2 full lines
+3. ❌ **Chat Input Scrolling** - Framework in place but not yet functional
+4. ❌ **Click-to-Position Cursor** - Mouse events captured but positioning not implemented
 
 ## Key Implementation Details
 
@@ -53,222 +46,56 @@
 - Proper text shaping would be better but this works for MVP
 - Handle UTF-8 properly when converting positions to byte offsets
 
-## Phase 1: Focus Infrastructure
 
-### 1.1 Extended Sidebar Focus System
-Build on the existing focus system but rename for clarity:
+## Remaining Work
 
+### 1. Fix Chat Input Height
+**Problem**: Scissor rect viewport and the text input box aren't quite tall enough for 2 full lines with padding
+**Solution**: Adjust the viewport height calculation to account for line spacing and padding:
 ```rust
-// In ai_sidebar.rs - rename and extend focus tracking
-impl AiSidebar {
-    // Rename has_modal_focus() to has_keyboard_focus() for clarity
-    pub fn has_keyboard_focus(&self) -> bool {
-        self.modal_manager.is_active() || self.chat_input.focused
-    }
-    
-    // Keep the old name as deprecated alias during transition
-    #[deprecated(note = "Use has_keyboard_focus() instead")]
-    pub fn has_modal_focus(&self) -> bool {
-        self.has_keyboard_focus()
-    }
-    
-    // More specific focus queries
-    pub fn has_input_focus(&self) -> bool {
-        self.chat_input.focused
-    }
-    
-    pub fn has_modal_active(&self) -> bool {
-        self.modal_manager.is_active()
-    }
-    
-    // For restoring focus after modal
-    pub fn restore_focus(&mut self) {
-        if self.had_chat_focus_before_modal {
-            self.chat_input.focused = true;
-        }
-    }
-}
-
-// Update keyevent.rs to use the new method name
-// Replace sidebar.has_modal_focus() with sidebar.has_keyboard_focus()
+// In sidebar_render.rs
+let text_bounds = euclid::rect(
+    bounds.origin.x + border_thickness + text_padding,
+    bounds.origin.y + border_thickness + 6.0,
+    bounds.size.width - (border_thickness * 2.0) - (text_padding * 2.0),
+    // Add extra height for proper 2-line display
+    ai_sidebar.get_chat_input_display_lines() as f32 * 
+        fonts.body.metrics().cell_height.get() as f32 * 1.1, // Add 10% for line spacing
+);
 ```
 
-Focus rules remain the same:
-1. Default to terminal area
-2. Only move focus when clicking on input components
-3. Text selection doesn't change focus
-4. Modals steal focus and return it when closed
-5. Keyboard events route based on `has_keyboard_focus()`
-
-### 1.2 Add UIItemType Variants
+### 2. Implement Chat Input Scrolling
+**Current State**: Mouse wheel events are captured but scrolling logic incomplete. User needs to be able to scroll the text, plus the text should auto-scroll to the bottom whenever the user types.
+**Example Implementation**:
 ```rust
-// In termwindow/mod.rs
-UIItemType::ChatInput,
-UIItemType::ActivityItemText { index: usize },
-UIItemType::SuggestionText,
-UIItemType::GoalText,
-// For future extensibility of selectable text areas
-```
-
-### 1.3 Update AI Sidebar State
-```rust
-// In ai_sidebar.rs
-pub struct AiSidebar {
-    // ... existing fields ...
-    selection_state: SelectionState,
-    
-    // Track bounds for hit testing
-    activity_item_bounds: HashMap<usize, euclid::default::Rect<f32>>,
-    suggestion_bounds: Option<euclid::default::Rect<f32>>,
-    goal_bounds: Option<euclid::default::Rect<f32>>,
-}
-```
-
-### 1.4 Update Keyboard Event Routing
-The existing keyboard event routing needs to be updated to use the new method name:
-```rust
-// In keyevent.rs - update method calls
-if let Some(sidebar) = &mut self.left_sidebar {
-    if sidebar.has_keyboard_focus() {  // Changed from has_modal_focus()
-        if sidebar.handle_key_event(&key.key).unwrap_or(false) {
-            return true;
-        }
-    }
-}
-// Same for right_sidebar...
-```
-
-Since we're extending the focus check to include chat input focus, keyboard routing will automatically work for both modals and chat input!
-
-## Phase 2: Multi-line Chat Input Full Functionality
-
-### 2.1 Update Chat Input Rendering
-```rust
-// In render_chat_input()
-let input_field = self.chat_input.render(&fonts.body)
-    .with_item_type(UIItemType::ChatInput);
-```
-
-### 2.2 Handle ChatInput Click in mouseevent.rs
-```rust
-// In mouseevent.rs - add to UIItemType match
-UIItemType::ChatInput => {
-    if let Some(tw) = context.window.as_any().downcast_ref::<TermWindow>() {
-        // Get the actual bounds used during rendering
-        let bounds = /* retrieve from context or stored location */;
-        
-        tw.with_right_sidebar_mut(|sidebar| {
-            if let Some(ai_sidebar) = sidebar.as_any_mut().downcast_mut::<AiSidebar>() {
-                ai_sidebar.chat_input.focused = true;
-                
-                // Calculate relative position within the input field
-                let relative_pos = euclid::point2(
-                    coords.x - bounds.origin.x,
-                    coords.y - bounds.origin.y,
-                );
-                
-                // TODO: Implement handle_click after adding it to MultilineTextInput
-                // ai_sidebar.chat_input.handle_click(relative_pos);
-            }
-        });
-    }
-}
-```
-
-### 2.3 First Implement Missing MultilineTextInput Methods
-```rust
-// In MultilineTextInput - these methods need to be implemented first!
+// In MultilineTextInput
 impl MultilineTextInput {
-    // Use proper font metrics instead of character width estimation
-    pub fn handle_click(&mut self, relative_pos: Point2D<f32>, font: &FontConfigPtr) {
-        // Determine which display line was clicked
-        let line_height = font.get_line_height(); // Get actual line height
-        let display_line = (relative_pos.y / line_height) as usize;
+    pub fn handle_wheel_scroll(&mut self, delta: f32, line_height: f32) -> bool {
+        let total_height = self.lines.len() as f32 * line_height;
+        let viewport_height = self.display_lines as f32 * line_height;
         
-        if display_line < self.display_lines {
-            let actual_line = self.first_visible_line + display_line;
-            if actual_line < self.lines.len() {
-                // Get the actual text and use font metrics for hit testing
-                let text = &self.lines[actual_line];
-                // TODO: Use proper text shaping for hit testing
-                // let shaped = font.shape_text(text);
-                // let hit = shaped.hit_test(relative_pos.x);
-                // self.cursor_column = hit.char_index;
-                
-                self.cursor_line = actual_line;
-                self.selection_start = None;
-            }
-        }
-    }
-    
-    pub fn start_selection(&mut self) {
-        self.selection_start = Some((self.cursor_line, self.cursor_column));
-    }
-    
-    pub fn update_selection(&mut self, relative_pos: Point2D<f32>, font: &FontConfigPtr) {
-        // Similar to handle_click but preserves selection_start
-        self.handle_click(relative_pos, font);
-    }
-    
-    pub fn get_selected_text(&self) -> Option<String> {
-        let (start_line, start_col) = self.selection_start?;
-        let (end_line, end_col) = (self.cursor_line, self.cursor_column);
-        
-        // Handle single-line selection
-        if start_line == end_line {
-            let line = &self.lines[start_line];
-            let start = start_col.min(end_col);
-            let end = start_col.max(end_col);
-            
-            // Convert character indices to byte offsets
-            let start_byte = line.chars().take(start).map(|c| c.len_utf8()).sum();
-            let end_byte = line.chars().take(end).map(|c| c.len_utf8()).sum();
-            
-            return Some(line[start_byte..end_byte].to_string());
+        if total_height <= viewport_height {
+            return false; // No scrolling needed
         }
         
-        // Handle multi-line selection
-        // TODO: Implement multi-line selection
-        None
+        // Update scroll position
+        let old_offset = self.scroll_pixel_offset;
+        self.scroll_pixel_offset = (self.scroll_pixel_offset - delta)
+            .max(0.0)
+            .min(total_height - viewport_height);
+        
+        old_offset != self.scroll_pixel_offset
     }
 }
 ```
 
-### 2.4 Update Keyboard Event Handling
-```rust
-// In ai_sidebar.rs - modify handle_key_event()
-fn handle_key_event(&mut self, key: &KeyCode, modifiers: Modifiers) -> Result<bool> {
-    // Always check chat input first when it has focus
-    if self.chat_input.focused {
-        match (key, modifiers) {
-            (KeyCode::Escape, _) => {
-                self.chat_input.focused = false;
-                // Return focus to terminal
-                Ok(true)
-            }
-            (KeyCode::Enter, modifiers) if !modifiers.contains(Modifiers::SHIFT) => {
-                if !self.chat_input.get_text().trim().is_empty() {
-                    self.handle_chat_send();
-                }
-                Ok(true)
-            }
-            (KeyCode::Enter, modifiers) if modifiers.contains(Modifiers::SHIFT) => {
-                // Insert newline
-                self.chat_input.insert_newline();
-                Ok(true)
-            }
-            _ => {
-                // Forward all other keys to MultilineTextInput
-                self.chat_input.handle_key_event(key, modifiers)
-            }
-        }
-    } else if self.modal_manager.is_active() {
-        // ... existing modal handling ...
-    } else {
-        Ok(false)
-    }
-}
-```
+### 3. Implement Click-to-Position Cursor
+**Current State**: Click focuses input but doesn't position cursor
+**Required Implementation**:
+1. Calculate relative position within text bounds
+2. Determine which line was clicked
+3. Use font metrics to find character position
+4. Update cursor position
 
 ## Phase 3: Text Selection Implementation
 
@@ -379,7 +206,7 @@ fn estimate_text_position(&self, item_bounds: &Rect, click_x: f32, text: &str, f
 ```
 
 ### 3.4 Selection Rendering with StyleSpan
-StyleSpan supports background colors, so we can use it directly for selection rendering:
+StyleSpan supports background colors, so we can use it directly for selection rendering. Some selection is occurring right now, but it is for a whole chunk of text, not per-character. Example improvement:
 
 ```rust
 // Create style spans for text with selection
@@ -692,38 +519,13 @@ Clipboard integration was implemented by:
 ## Known Limitations & Future Work
 
 1. **Click-to-position in chat input** - Currently cursor goes to line start, not click position
-2. **Markdown selection** - Currently copies raw markdown, not plain text
-3. **Multi-line selection in chat** - Basic implementation, could be improved
-4. **Visual feedback** - No visual indication when text is copied
-5. **Selection across components** - Can only select within single components
+2. **Markdown selection** - Currently copies raw markdown, not plain text. This is fine, defer to backlog.
+3. **Multi-line selection in chat** - Basic implementation is partially working. Need to have per-character implementation built and fully working.
+4. **Selection across components** - Can only select within single components. This can be deferred to backlog.
 
 ## Testing Strategy
 
-1. **Focus Management**
-   - Click on chat input moves focus from terminal
-   - Click on non-input text (activity, suggestion) doesn't change focus
-   - Selecting text doesn't change focus
-   - Keyboard events route to focused component only
-   - Modal focus stealing and return works correctly
-
-2. **Chat Input**
-   - Click to focus and position cursor
-   - Focus persists until clicking elsewhere or pressing Escape
-   - Drag to select text within input
-   - Enter sends, Shift+Enter adds newline
-   - Multi-line editing operations work
-
-3. **Text Selection**
-   - Click and drag in each text area type (without changing focus)
-   - Single click doesn't start selection or change focus
-   - Selection highlighting renders correctly
-   - Can select text while terminal or chat input has focus
-
-4. **Copy/Paste**
-   - Ctrl/Cmd+C copies selected text without changing focus
-   - Works whether focus is on terminal or chat input
-   - Selected text from any component can be copied
-   - Clipboard contains plain text only
+- Have user test and provide feedback.
 
 ## Current Implementation State Summary
 
@@ -756,116 +558,7 @@ Clipboard integration was implemented by:
 
 ## Current Issues and Comprehensive Fix Plan
 
-### Issue Analysis
-
-After thorough code review and testing, the following issues have been identified:
-
-1. **Focus Management**: Focus never leaves chat input when clicking terminal area (it should)
-2. **Chat Input Placeholder**: Only disappears after clicking and then mousing out. As soon as the user clicks in the chat input box the default message should go away and there should be a cursor indicator.
-3. **Double Character Typing**: Each character typed appears twice
-4. **Cursor Positioning**: Cursor is spaced too far to the right from typed characters, it should sit immediately to the right of the current char.
-5. **Chat Input Width**: Follows text width instead of staying fixed. It should always stay at a fixed width (the whole width of the sidebar, including the send button)
-6. **No Text Wrapping in chat input**: Long lines just keep expanding the input box, should wrap instead.
-7. **Chat Input Height Issues**: Input is 1 line tall instead of 2 lines that it should be
-8. **No Scrolling in Chat Input**: No scrollbar for overflow text. Needs scrolling for text beyond 2 lines.
-9. **Click-to-Place Cursor in Chat Input**: Not working - cursor doesn't move to click position, needs to work.
-10. **Activity Log Selection**: Entire element gets overlaid, text becomes invisible (at least mostly)
-11. **No Text Selection in Chat Input**: Selection not implemented
-12. **Broken Click-and-Drag**: Selection drag events not processed correctly. User should be able to click and drag to select any chars/words within a given element (e.g. an item in the activity log, the suggestion card text, the chat input box, the goal text)
-
-### Root Cause Analysis
-
-1. **Focus Issues**: `mouse_event_terminal()` doesn't communicate with sidebar to clear focus
-2. **Chat Input Rendering**: Missing width constraints on container, no cursor rendering implemented
-3. **Placeholder Logic**: Currently tied to mouse events instead of focus state
-4. **Selection Rendering**: StyleSpan backgrounds work correctly, but likely z-index or calculation issues causing visibility problems
-
-### Implementation Plan
-
-#### Part 1: Fix Focus Management (Priority: Critical)
-
-**Problem**: Terminal clicks don't clear chat input focus.
-
-**Solution**:
-1. Add `clear_sidebar_focus()` method to TermWindow
-2. Call from both sidebar managers when terminal is clicked
-3. Implement in `mouse_event_terminal()`:
-
-```rust
-// In termwindow/mouseevent.rs
-fn mouse_event_terminal(&mut self, ...) {
-    // Clear any sidebar focus first
-    if let Some(ref mut sidebar) = self.left_sidebar {
-        sidebar.clear_focus();
-    }
-    if let Some(ref mut sidebar) = self.right_sidebar {
-        sidebar.clear_focus();
-    }
-    // Then process terminal event...
-}
-```
-
-#### Part 2: Fix Chat Input Issues (Priority: High)
-
-**A. Fix Placeholder Logic**
-
-Update placeholder to clear on focus, not mouse events:
-
-```rust
-// In render_chat_input()
-let placeholder_visible = !self.chat_input.focused && self.chat_input.get_text().is_empty();
-```
-
-**B. Fixed Width Container**
-
-Add width constraints to the chat input container:
-
-```rust
-Element::new(&fonts.body, ElementContent::Children(vec![input_field]))
-    .max_width(Dimension::Pixels(sidebar_width - 60.0)) // Account for send button
-    .display(DisplayType::Block)
-```
-
-**C. Fixed Height with Scrolling**
-
-Implement using **Element-based scrolling** (like modals) rather than external GPU rendering (like activity log):
-
-**Rationale for Element-based approach**:
-- Chat input is a self-contained component at z-index 14
-- Simpler implementation without external ScrollbarRenderer
-- Better suited for small, fixed-height scrollable areas
-- Modals successfully use this pattern at similar z-indices
-
-Implementation:
-1. Set `display_lines = 2` as fixed visible height
-2. Wrap content in ScrollableContainer with Element-based scrollbar
-3. Use `ScrollbarState` for auto-hide behavior
-4. Render scrollbar as Element at same z-index (14)
-
-**D. Fix Cursor Positioning**
-
-The cursor IS rendered but positioned incorrectly (too far right). The issue is likely incorrect width calculation:
-
-```rust
-// Current code probably uses simple character count * cell_width
-// This creates spacing issues with proportional fonts
-
-// Fix: Use actual font metrics for cursor positioning
-fn calculate_cursor_x_position(&self, line: &str, cursor_col: usize, font: &FontConfigPtr) -> f32 {
-    let text_before_cursor = &line[..self.char_to_byte_offset(line, cursor_col)];
-    
-    // For proportional fonts, measure actual width
-    if !font.is_monospace() {
-        let shaped = font.shape(text_before_cursor, params)?;
-        shaped.width()
-    } else {
-        // For monospace, simple calculation works
-        cursor_col as f32 * cell_width
-    }
-}
-```
-
-**E. Fix Click-to-Position**
+#### Fix Click-to-Position
 
 Pre-calculate character positions during rendering (like ActivityItemText):
 
@@ -876,14 +569,7 @@ let char_positions = calculate_char_positions(line_text, font);
 UIItemType::ChatInput { line_index, char_positions }
 ```
 
-**F. Fix Double Character Issue**
-
-Debug and trace where characters are inserted twice:
-1. Add logging in `handle_key_event()` 
-2. Verify return value is `true` when handled
-3. Check if parent components are also processing the key event
-
-#### Part 3: Fix Text Selection Rendering (Priority: High)
+#### Fix Text Selection Rendering (Priority: High)
 
 **Problem**: Selection rendering makes text invisible, likely due to z-index or color issues.
 
@@ -945,133 +631,4 @@ fn calculate_selection_spans(&self) -> Option<(usize, usize)> {
 
 ```
 
-### Implementation Order
 
-1. **First**: Fix focus management (30 mins)
-   - Simple change with high impact
-   - Unblocks testing of other features
-
-2. **Second**: Fix chat input issues (3-4 hours)
-   - Fix placeholder logic
-   - Add width/height constraints
-   - Fix cursor positioning (use font metrics not cell width)
-   - Element-based scrolling
-   - Pre-calculate character positions for click handling
-   - Debug double character issue (confirmed: "test" becomes "tteestst")
-
-3. **Third**: Fix selection rendering (2-3 hours)
-   - Debug why selection makes text invisible
-   - Fix drag event handling
-   - Ensure proper selection span calculations
-   - Test with all text components
-
-### Technical Constraints Respected
-
-1. **UIItemType Usage**: All interactive elements use UIItemType for click detection
-2. **Two-Phase Rendering**: No GPU operations during element processing
-3. **Sub-Layer Limits**: Only using sub-layers 0, 1, 2
-4. **Wrap-Before-Shape**: Text wrapping estimates widths before shaping
-5. **Explicit Colors**: No use of ElementColors::Inherited without parent
-6. **Thread Safety**: No Rc<LoadedFont> stored in state
-
-### Success Criteria
-
-1. Clicking terminal area returns focus to terminal
-2. Chat input has consistent width and 2-line height with scrollbar
-3. Chat input text wraps at input boundaries, scrolls as user would expect
-4. Click positions cursor at exact character in chat input
-5. Text selection visible with proper contrast
-6. All text can be selected and copied
-7. No double character typing
-8. Cursor is positioned immediately to the right of text in the chat input
-
-This plan addresses all issues systematically while working within WezTerm's architectural constraints.
-
-### Additional Considerations (from Technical Review)
-
-1. **UTF-8 Safety**: Ensure all byte offset calculations handle multi-byte characters correctly
-2. **Performance**: Monitor impact of pre-calculated character positions on rendering performance
-3. **Edge Cases**: Test with RTL text, emoji, and combining characters
-4. **Debugging Tools**: Add comprehensive logging to trace issues like double character insertion
-5. **Existing Code**: The selection infrastructure (create_selection_spans) is already correct - focus on debugging why it appears broken rather than reimplementing
-
----
-
-## Implementation Status Update (Latest)
-
-### Completed Issues ✅
-
-1. **Focus Management**: Focus properly leaves chat input when clicking terminal area
-2. **Focus Indicator Delay**: Fixed by adding `context.invalidate()` after setting focus
-3. **Double Character Typing**: Fixed by only processing key down events (following terminal pattern)
-4. **Chat Input Width**: Stays fixed, doesn't follow text size
-5. **Placeholder Logic**: Shows when unfocused and empty
-6. **Chat Input Shows 2 Lines**: Empty lines now render with proper height
-
-### Working But Needs Improvement ⚠️
-
-7. **Chat Input Position**: Increased to 120px, no longer cut off at bottom
-8. **Chat Input Text Wrapping**: Currently using `Text` which clips long lines instead of wrapping
-   - **Issue**: `WrappedText` causes input box to expand beyond 2 lines
-   - **Root Cause**: WezTerm Elements have no max-height/overflow constraints
-   - **Solution Needed**: Look at how suggestion card modals handle wrapping + scrolling
-
-### Fixed Issues ✅
-
-9. **Activity Log Scroll**: Mouse wheel doesn't work over activity log (regression)
-   - **Worked in**: commit 495018f9e
-   - **Broke when**: Text selection UI items were added for activity log text
-   - **Root Cause**: New UIItemType variants (ActivityItemText, SuggestionText, GoalText) were intercepting all mouse events, including scroll wheel events, preventing them from reaching the sidebar's scroll handler
-   - **Fix**: Added scroll event forwarding in mouseevent.rs - when a VertWheel event hits a text selection UI item, it's forwarded to mouse_event_sidebar() which properly handles scrolling
-   - **Files Modified**: 
-     - `wezterm-gui/src/termwindow/mouseevent.rs`: Added `WMEK::VertWheel(_)` case to forward scroll events in:
-       - `mouse_event_activity_item_text()`
-       - `mouse_event_suggestion_text()`
-       - `mouse_event_goal_text()`
-
-### Broken Issues ❌
-
-10. **Chat Input Scrolling**: No scrolling when text exceeds 2 lines
-    - **Issue**: Using `Text` prevents wrapping, `WrappedText` breaks height constraint
-    - **Solution Needed**: Implement proper scrollable container like suggestion card modal uses
-
-### What Was Attempted
-
-1. **Scroll Fix Attempts**:
-   - Added bounds checking (made it worse)
-   - Removed bounds checking (didn't fix it)
-   - Issue persists - events likely not reaching sidebar
-
-2. **Text Wrapping Attempts**:
-   - `WrappedText` - causes expansion beyond 2 lines
-   - `Text` with max_width - prevents wrapping entirely
-   - Need different approach using scrollable container
-
-3. **Height Constraint Attempts**:
-   - `min_height` on container - doesn't prevent expansion
-   - `max_height` doesn't exist in Element system
-   - Need to constrain at data level, not rendering level
-
-### Suggested Next Steps
-
-1. **Fix Activity Log Scroll** (Critical):
-   - Debug if mouse events create UIItemType::Sidebar
-   - Check event routing in mouseevent.rs
-   - Compare exact event flow with working commit
-
-2. **Fix Chat Input Wrapping + Scrolling**:
-   - Study how suggestion card modals implement scrollable text
-   - Look at ModalManager's ScrollbarState usage
-   - Implement similar pattern for chat input
-
-3. **Architecture Insights**:
-   - Elements always expand to fit content (no overflow:hidden)
-   - Scrolling requires explicit container with ScrollbarState
-   - Mouse events must have correct UIItemType to route to sidebar
-
-### Key Code Locations
-
-- **Suggestion Modal Scrolling**: `sidebar/components/modal/suggestion_modal.rs`
-- **Modal ScrollbarState**: `sidebar/components/modal/mod.rs` lines 50-75
-- **Activity Log Scrolling**: Works via external ScrollbarRenderer, not Elements
-- **Mouse Event Routing**: `termwindow/mouseevent.rs` - UIItemType resolution

@@ -1609,6 +1609,30 @@ impl super::TermWindow {
                     }
                 }
             }
+            WMEK::VertWheel(amount) => {
+                // Handle scroll wheel events for chat input
+                log::debug!("Chat input scroll wheel event: amount={}", amount);
+
+                // Get the AI sidebar and forward the scroll event
+                if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
+                    if let Some(sidebar) = mgr.get_right_sidebar() {
+                        if let Ok(mut sidebar) = sidebar.lock() {
+                            if let Some(ai_sidebar) = sidebar
+                                .as_any_mut()
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
+                            ) {
+                                // Forward scroll event to chat input if it's focused
+                                if ai_sidebar.has_input_focus() {
+                                    // Handle wheel event and invalidate if something changed
+                                    if ai_sidebar.handle_chat_input_wheel(amount) {
+                                        context.invalidate();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }

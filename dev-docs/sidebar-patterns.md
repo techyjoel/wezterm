@@ -370,6 +370,32 @@ Dimension::Pixels(val as f32)      // Must be f32
 - Must explicitly release to terminal
 - Handle tab key for navigation
 
+### Rendering Patterns for Complex UI
+
+When implementing UI components with backgrounds, borders, and scrollable content, choose the appropriate pattern:
+
+**1. Modal Pattern (Recommended for new components):**
+- All visual elements in single element tree
+- Background, content, and scrollbars as siblings or nested children
+- Z-indices work correctly within the tree
+- Example: Suggestion modal renders everything in one pass
+
+**2. Activity Log Pattern (For performance-critical scrolling):**
+- Background rendered as `filled_rectangle()` GPU primitive
+- Content rendered as Elements with scissor rect
+- Avoids z-index conflicts between background and content
+- Example: Activity log uses this for smooth scrolling
+
+**3. Avoid: Mixed Compute Phases**
+- Don't render background Element at one z-index then content separately at higher z-index
+- Opaque Element backgrounds can block separately-rendered content
+- This is a rendering pipeline limitation, not a bug
+
+**Scissor Rect Requirements:**
+- Always use absolute window coordinates for viewport
+- Apply scissor rect to dedicated z-index layer
+- Cannot share z-index between clipped and non-clipped content
+
 ## Testing Patterns
 
 ### Visual Testing

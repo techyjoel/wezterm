@@ -342,6 +342,9 @@ pub struct AiSidebar {
 
     // Visible range for virtual scrolling
     activity_log_visible_range: Range<usize>,
+    // Chat input colors for filled rectangle rendering
+    chat_input_bg_color: LinearRgba,
+    chat_input_border_color: LinearRgba,
 
     // Scrollbar info for external rendering
     activity_log_scrollbar: Option<ScrollbarInfo>,
@@ -526,6 +529,8 @@ impl AiSidebar {
             activity_item_bounds: HashMap::new(),
             suggestion_bounds: None,
             goal_bounds: None,
+            chat_input_bg_color: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0),
+            chat_input_border_color: LinearRgba::with_components(0.3, 0.3, 0.35, 0.5),
             last_viewport_height: None,
         }
     }
@@ -2024,42 +2029,134 @@ This example demonstrates:
         viewport
     }
 
-    fn render_chat_input(&self, fonts: &SidebarFonts) -> Element {
-        // Calculate available width for input field (sidebar width - padding - send button)
-        let send_button_width = 60.0; // Approximate width of "Send" button
+
+    /// Get the number of display lines for chat input
+    pub fn get_chat_input_display_lines(&self) -> usize {
+        self.chat_input.display_lines
+    }
+
+    /// Render just the text content of the chat input (to be clipped by scissor rect)
+    fn render_chat_input_text(
+        &mut self,
+        font: &Rc<LoadedFont>,
+        width: f32,
+        viewport_height: f32,
+    ) -> Element {
+        let line_height = font.metrics().cell_height.get() as f32;
+        let total_height = self.chat_input.lines.len() as f32 * line_height;
+
+        log::debug!(
+            "render_chat_input_text: width={:.1}, viewport_height={:.1}, line_height={:.1}, lines={}, focused={}",
+            width, viewport_height, line_height, self.chat_input.lines.len(), self.chat_input.focused
+        );
+
+        // Calculate scroll position
+        let max_scroll = (total_height - viewport_height).max(0.0);
+        let scroll_offset = if !self.chat_input.user_has_scrolled {
+            // Auto-scroll to bottom when typing
+            max_scroll
+        } else {
+            self.chat_input.scroll_pixel_offset.min(max_scroll)
+        };
+
+        // Update scroll offset
+        self.chat_input.scroll_pixel_offset = scroll_offset;
+
+        // Create line elements
+        let mut line_elements = Vec::new();
+
+        for (line_idx, line_text) in self.chat_input.lines.iter().enumerate() {
+            let is_cursor_line = line_idx == self.chat_input.cursor_line;
+            let is_placeholder = line_idx == 0
+                && self.chat_input.lines.len() == 1
+                && line_text.is_empty()
+                && !self.chat_input.focused;
+
+            let display_text = if is_placeholder {
+                self.chat_input.placeholder.clone()
+            } else if is_cursor_line && self.chat_input.focused {
+                let mut text = line_text.clone();
+                let cursor_byte = line_text
+                    .char_indices()
+                    .nth(self.chat_input.cursor_col)
+                    .map(|(idx, _)| idx)
+                    .unwrap_or(line_text.len());
+                text.insert_str(cursor_byte, "\u{2502}");
+                text
+            } else {
+                line_text.clone()
+            };
+
+            let text_color = if is_placeholder {
+                LinearRgba::with_components(0.5, 0.5, 0.5, 1.0) // Gray for placeholder
+            } else {
+                LinearRgba::with_components(0.9, 0.9, 0.9, 1.0) // Light gray for typed text
+            };
+
+            let line_element = Element::new(font, ElementContent::WrappedText(display_text))
+                .colors(ElementColors {
+                    text: text_color.into(),
+                    bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(), // Transparent background
+                    ..Default::default()
+                })
+                .max_width(Some(Dimension::Pixels(width)))
+                .display(DisplayType::Block);
+
+            line_elements.push(line_element);
+        }
+
+        // Combine all lines into a scrollable content element
+        Element::new(font, ElementContent::Children(line_elements))
+            .display(DisplayType::Block)
+            // Use negative margin to implement scrolling
+            .margin(BoxDimension {
+                top: Dimension::Pixels(-scroll_offset),
+                ..Default::default()
+            })
+        // DO NOT set zindex here - it's set via LayoutContext during compute_element
+    }
+
+    fn render_chat_input(&mut self, fonts: &SidebarFonts) -> Element {
+        // Use activity log pattern: background rendered separately as filled rectangle
+        let send_button_width = 60.0;
         let horizontal_padding = 32.0; // 16px left + 16px right
-        let spacing = 8.0; // Space between input and button
+        let spacing = 8.0;
         let input_width = self.width as f32 - horizontal_padding - send_button_width - spacing;
 
-        // Get line height from font metrics
-        let line_height = fonts.body.metrics().cell_height.get();
-        // Calculate exact height for 2 lines plus padding
-        let two_lines_height = line_height * 2.0 + 12.0; // 6px padding top + 6px bottom from forms.rs
+        // Calculate dimensions
+        let line_height = fonts.body.metrics().cell_height.get() as f32;
+        let viewport_height = self.chat_input.display_lines as f32 * line_height;
+        let container_height = viewport_height + 14.0; // +14 for padding
 
-        // Create a container that enforces the height constraint
-        let input_container = Element::new(
-            &fonts.body,
-            ElementContent::Children(vec![self
-                .chat_input
-                .render_with_selection(&fonts.body)
-                .item_type(UIItemType::ChatInput)
-                .max_width(Some(Dimension::Pixels(input_width)))
-                .min_width(Some(Dimension::Pixels(input_width)))]),
-        )
-        .display(DisplayType::Block)
-        .min_height(Some(Dimension::Pixels((two_lines_height + 2.0) as f32))) // Ensure consistent height
-        .zindex(14); // Right sidebar main content
+        // Colors are set during focus changes, not during render
 
+        // Create a minimal container for UIItemType tracking (no visual styling)
+        let input_container = Element::new(&fonts.body, ElementContent::Text(String::new()))
+            .display(DisplayType::Block)
+            .min_width(Some(Dimension::Pixels(input_width)))
+            .max_width(Some(Dimension::Pixels(input_width)))
+            .min_height(Some(Dimension::Pixels(container_height)))
+            .item_type(UIItemType::ChatInput)
+            .zindex(14); // Container for mouse event handling
+
+        // Send button
         let send_button = Chip::new("Send".to_string())
             .with_style(ChipStyle::Primary)
             .with_size(ChipSize::Medium)
             .clickable(true)
             .render(&fonts.body)
-            .zindex(14); // Same z-index as input
+            .zindex(14);
 
+        // Create horizontal layout
         Element::new(
             &fonts.body,
-            ElementContent::Children(vec![input_container, send_button]),
+            ElementContent::Children(vec![
+                input_container,
+                send_button.margin(BoxDimension {
+                    left: Dimension::Pixels(spacing),
+                    ..Default::default()
+                }),
+            ]),
         )
         .display(DisplayType::Block)
         .padding(BoxDimension {
@@ -2068,7 +2165,27 @@ This example demonstrates:
             top: Dimension::Pixels(8.0),
             bottom: Dimension::Pixels(16.0),
         })
-        .zindex(14) // Right sidebar main content
+        .zindex(14)
+    }
+
+    /// Render the chat input text content (to be rendered with scissor rect)
+    pub fn render_chat_input_content(&mut self, fonts: &SidebarFonts, width: f32) -> Element {
+        // Calculate dimensions
+        let line_height = fonts.body.metrics().cell_height.get() as f32;
+        let viewport_height = self.chat_input.display_lines as f32 * line_height;
+
+        // Return the text content directly (no wrapper needed)
+        self.render_chat_input_text(&fonts.body, width, viewport_height)
+    }
+    
+    /// Get chat input background color for filled rectangle rendering
+    pub fn get_chat_input_bg_color(&self) -> LinearRgba {
+        self.chat_input_bg_color
+    }
+    
+    /// Get chat input border color
+    pub fn get_chat_input_border_color(&self) -> LinearRgba {
+        self.chat_input_border_color
     }
 
     pub fn render_activity_log_content(
@@ -2647,6 +2764,7 @@ impl Sidebar for AiSidebar {
                 KeyCode::Escape => {
                     // Escape unfocuses the chat input, returning focus to terminal
                     self.chat_input.focused = false;
+                    self.chat_input_border_color = LinearRgba::with_components(0.3, 0.3, 0.35, 0.5);
                     return Ok(true);
                 }
                 KeyCode::Enter => {
@@ -2677,6 +2795,7 @@ impl Sidebar for AiSidebar {
     fn clear_focus(&mut self) {
         // Clear chat input focus
         self.chat_input.focused = false;
+        self.chat_input_border_color = LinearRgba::with_components(0.3, 0.3, 0.35, 0.5);
         // Note: We don't clear modal focus here as modals should handle their own dismissal
     }
 
@@ -2708,6 +2827,16 @@ impl AiSidebar {
     /// Set focus to the chat input
     pub fn focus_chat_input(&mut self) {
         self.chat_input.focused = true;
+        self.chat_input_border_color = LinearRgba::with_components(0.4, 0.6, 0.9, 0.7);
+    }
+
+    /// Handle mouse wheel events for chat input
+    pub fn handle_chat_input_wheel(&mut self, amount: i16) -> bool {
+        // Convert wheel amount to pixel delta
+        // Negative amount means scroll up, positive means scroll down
+        let line_height = 20.0; // Approximate line height, will be refined during rendering
+        let delta = amount as f32 * 3.0; // Multiply for smoother scrolling
+        self.chat_input.handle_wheel_scroll(delta, line_height)
     }
 
     /// Handle copy operation (Ctrl+C / Cmd+C)

@@ -7,7 +7,7 @@ use crate::termwindow::box_model::{
     InheritableColor, StyleSpan,
 };
 use config::Dimension;
-use euclid::default::Point2D;
+use euclid::default::{Point2D, Rect};
 use std::rc::Rc;
 use wezterm_font::LoadedFont;
 use wezterm_term::{KeyCode, KeyModifiers};
@@ -267,6 +267,10 @@ pub struct MultilineTextInput {
     pub display_lines: usize,
     /// Scroll offset (first visible line)
     pub scroll_offset: usize,
+    /// Pixel-based scroll offset for smooth scrolling
+    pub scroll_pixel_offset: f32,
+    /// Whether user has manually scrolled (disables auto-scroll to bottom)
+    pub user_has_scrolled: bool,
 }
 
 impl MultilineTextInput {
@@ -282,6 +286,8 @@ impl MultilineTextInput {
             disabled: false,
             display_lines,
             scroll_offset: 0,
+            scroll_pixel_offset: 0.0,
+            user_has_scrolled: false,
         }
     }
 
@@ -325,6 +331,7 @@ impl MultilineTextInput {
             line.insert(self.cursor_col, c);
             self.cursor_col += 1;
         }
+        self.reset_scroll_to_bottom();
     }
 
     /// Insert a newline at cursor position
@@ -343,6 +350,7 @@ impl MultilineTextInput {
         self.cursor_line += 1;
         self.cursor_col = 0;
         self.update_scroll();
+        self.reset_scroll_to_bottom();
     }
 
     /// Handle backspace
@@ -363,6 +371,7 @@ impl MultilineTextInput {
             self.lines[self.cursor_line].push_str(&current_line);
             self.update_scroll();
         }
+        self.reset_scroll_to_bottom();
     }
 
     /// Handle delete key
@@ -380,6 +389,7 @@ impl MultilineTextInput {
             let next_line = self.lines.remove(self.cursor_line + 1);
             self.lines[self.cursor_line].push_str(&next_line);
         }
+        self.reset_scroll_to_bottom();
     }
 
     /// Move cursor up
@@ -432,6 +442,16 @@ impl MultilineTextInput {
         } else if self.cursor_line >= self.scroll_offset + self.display_lines {
             self.scroll_offset = self.cursor_line - self.display_lines + 1;
         }
+    }
+
+    /// Update scroll when typing to ensure we auto-scroll to bottom
+    pub fn update_scroll_for_typing(&mut self) {
+        // Reset user scroll flag when typing
+        self.user_has_scrolled = false;
+
+        // For simplicity, reset to bottom when typing
+        // The actual pixel calculation will be done during rendering
+        self.scroll_offset = self.lines.len().saturating_sub(self.display_lines);
     }
 
     /// Clear all text
@@ -640,7 +660,12 @@ impl MultilineTextInput {
             return false;
         }
 
+        // Mark that user has manually scrolled
+        self.user_has_scrolled = true;
+
+        // Update line-based scroll offset for simple scrolling
         let old_offset = self.scroll_offset;
+
         if delta > 0 {
             // Scroll up
             self.scroll_offset = self.scroll_offset.saturating_sub(1);
@@ -649,6 +674,10 @@ impl MultilineTextInput {
             let max_offset = self.lines.len().saturating_sub(self.display_lines);
             self.scroll_offset = (self.scroll_offset + 1).min(max_offset);
         }
+
+        // Also update pixel offset to match
+        // Assume ~20 pixels per line for smooth scrolling
+        self.scroll_pixel_offset = self.scroll_offset as f32 * 20.0;
 
         old_offset != self.scroll_offset
     }
@@ -814,6 +843,7 @@ impl MultilineTextInput {
                     self.delete_selection();
                 }
                 self.insert_char(*c);
+                self.update_scroll_for_typing();
                 Ok(true)
             }
             KeyCode::Backspace => {
@@ -836,6 +866,7 @@ impl MultilineTextInput {
                 // Enter with Shift inserts newline
                 if modifiers.contains(KeyModifiers::SHIFT) {
                     self.insert_newline();
+                    self.update_scroll_for_typing();
                     Ok(true)
                 } else {
                     // Plain Enter - let parent handle (for send action)
@@ -892,6 +923,7 @@ impl MultilineTextInput {
             self.cursor_col = start_col;
             self.selection_start = None;
             self.update_scroll();
+            self.reset_scroll_to_bottom();
         }
     }
 
@@ -1171,6 +1203,39 @@ impl MultilineTextInput {
         }
 
         container
+    }
+
+    /// Render the text content with scissor rect clipping for scrollable area
+
+    /// Handle mouse wheel scrolling
+    pub fn handle_wheel_scroll(&mut self, delta: f32, line_height: f32) -> bool {
+        let total_height = self.lines.len() as f32 * line_height;
+        let viewport_height = self.display_lines as f32 * line_height;
+
+        if total_height <= viewport_height {
+            return false; // No scrolling needed
+        }
+
+        // Mark that user has manually scrolled
+        self.user_has_scrolled = true;
+
+        // Update pixel-based scroll offset
+        let old_offset = self.scroll_pixel_offset;
+        let max_scroll = (total_height - viewport_height).max(0.0);
+        self.scroll_pixel_offset = (self.scroll_pixel_offset - delta * line_height)
+            .max(0.0)
+            .min(max_scroll);
+
+        // Update line-based scroll offset for compatibility
+        self.scroll_offset = (self.scroll_pixel_offset / line_height) as usize;
+
+        old_offset != self.scroll_pixel_offset
+    }
+
+    /// Reset scroll position when content changes
+    pub fn reset_scroll_to_bottom(&mut self) {
+        self.user_has_scrolled = false;
+        // scroll_pixel_offset will be recalculated in render_with_scissor
     }
 }
 
