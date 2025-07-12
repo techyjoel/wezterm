@@ -101,6 +101,7 @@ pub enum ActivityFilter {
 #[derive(Debug, Clone, Default)]
 pub struct SelectionState {
     active_selection: Option<SelectionTarget>,
+    prepared_selection: Option<SelectionTarget>,
     is_dragging: bool,
 }
 
@@ -167,6 +168,7 @@ impl SelectionState {
 
     pub fn clear(&mut self) {
         self.active_selection = None;
+        self.prepared_selection = None;
         self.is_dragging = false;
     }
 }
@@ -210,12 +212,22 @@ fn calculate_char_positions(text: &str, font: &Rc<LoadedFont>) -> Vec<(f32, f32,
 fn create_selection_spans(text: &str, start_byte: usize, end_byte: usize) -> Vec<StyleSpan> {
     let mut spans = vec![];
 
+    log::debug!(
+        "Creating selection spans: text_len={}, start_byte={}, end_byte={}",
+        text.len(),
+        start_byte,
+        end_byte
+    );
+
     // Text before selection (if any)
     if start_byte > 0 {
         spans.push(StyleSpan {
             start: 0,
             end: start_byte,
-            colors: ElementColors::default(), // Will inherit from element
+            colors: ElementColors {
+                text: InheritableColor::Color(LinearRgba::with_components(0.9, 0.9, 0.9, 1.0)), // Normal text color
+                ..ElementColors::default()
+            },
             font: None,
             font_style: None,
         });
@@ -226,7 +238,7 @@ fn create_selection_spans(text: &str, start_byte: usize, end_byte: usize) -> Vec
         start: start_byte,
         end: end_byte,
         colors: ElementColors {
-            bg: InheritableColor::Color(LinearRgba::with_components(0.3, 0.5, 0.8, 0.8)), // Blue selection
+            bg: InheritableColor::Color(LinearRgba::with_components(0.2, 0.4, 0.7, 1.0)), // Blue selection with full opacity
             text: InheritableColor::Color(LinearRgba::with_components(1.0, 1.0, 1.0, 1.0)), // White text
             ..ElementColors::default()
         },
@@ -239,7 +251,10 @@ fn create_selection_spans(text: &str, start_byte: usize, end_byte: usize) -> Vec
         spans.push(StyleSpan {
             start: end_byte,
             end: text.len(),
-            colors: ElementColors::default(), // Will inherit from element
+            colors: ElementColors {
+                text: InheritableColor::Color(LinearRgba::with_components(0.9, 0.9, 0.9, 1.0)), // Normal text color
+                ..ElementColors::default()
+            },
             font: None,
             font_style: None,
         });
@@ -384,6 +399,9 @@ pub struct AiSidebar {
 
     // Last known window height for mouse event handling
     last_viewport_height: Option<f32>,
+
+    // Chat input bounds for scrollbar positioning
+    chat_input_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
 }
 
 impl AiSidebar {
@@ -445,6 +463,23 @@ impl AiSidebar {
     /// Check if currently selecting text
     pub fn is_selecting(&self) -> bool {
         self.selection_state.is_dragging
+    }
+
+    /// Prepare for potential selection (on mouse down)
+    pub fn prepare_selection(&mut self, target: SelectionTarget) {
+        // Store the potential selection but don't activate it yet
+        self.selection_state.prepared_selection = Some(target);
+        // Clear any existing selection
+        self.selection_state.active_selection = None;
+        self.selection_state.is_dragging = false;
+    }
+
+    /// Activate the prepared selection (on drag start)
+    pub fn activate_prepared_selection(&mut self) {
+        if let Some(prepared) = self.selection_state.prepared_selection.take() {
+            self.selection_state.active_selection = Some(prepared);
+            self.selection_state.is_dragging = true;
+        }
     }
 
     /// End selection
@@ -532,6 +567,7 @@ impl AiSidebar {
             chat_input_bg_color: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0),
             chat_input_border_color: LinearRgba::with_components(0.3, 0.3, 0.35, 0.5),
             last_viewport_height: None,
+            chat_input_bounds: None,
         }
     }
 
@@ -1043,6 +1079,10 @@ This example demonstrates:
                 Element::new(&fonts.body, ElementContent::WrappedText(goal.text.clone()))
             };
 
+            // Calculate available width for goal text
+            let sidebar_width = self.width as f32;
+            let goal_content_width = sidebar_width - 40.0; // Account for padding
+
             elem.item_type(UIItemType::GoalText {
                 char_positions: calculate_char_positions(&goal.text, &fonts.body),
             })
@@ -1050,6 +1090,7 @@ This example demonstrates:
                 text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
                 ..Default::default()
             })
+            .max_width(Some(Dimension::Pixels(goal_content_width)))
             .padding(BoxDimension::new(Dimension::Pixels(8.0)))
         };
         content.push(goal_text);
@@ -1188,6 +1229,10 @@ This example demonstrates:
                 )
             };
 
+            // Calculate available width for suggestion text
+            let sidebar_width = self.width as f32;
+            let suggestion_content_width = sidebar_width - 40.0; // Account for padding
+
             content_elements.push(
                 elem.item_type(UIItemType::SuggestionText {
                     char_positions: calculate_char_positions(&suggestion.content, &fonts.body),
@@ -1197,6 +1242,7 @@ This example demonstrates:
                     ..Default::default()
                 })
                 .display(DisplayType::Block)
+                .max_width(Some(Dimension::Pixels(suggestion_content_width)))
                 .min_height(Some(Dimension::Pixels(
                     2.0 * fonts.body.metrics().cell_height.get() as f32,
                 ))), // Fixed height for 2 lines
@@ -1343,6 +1389,14 @@ This example demonstrates:
             ActivityItem::Chat {
                 message, is_user, ..
             } => {
+                // Calculate available width for chat content
+                let sidebar_width = self.width as f32;
+                let content_width = sidebar_width
+                    - CHAT_ITEM_HORIZONTAL_MARGIN
+                    - (CHAT_ITEM_PADDING * 2.0)
+                    - (CHAT_ITEM_BORDER * 2.0)
+                    - SCROLLBAR_SPACE;
+
                 let bg_color = if *is_user {
                     LinearRgba::with_components(0.1, 0.3, 0.5, 0.3)
                 } else {
@@ -1378,10 +1432,12 @@ This example demonstrates:
                             index: item_index,
                             char_positions: calculate_char_positions(message, &fonts.body),
                         })
+                        .max_width(Some(Dimension::Pixels(content_width)))
                         .colors(ElementColors {
                             text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
                             ..Default::default()
                         })
+                        .max_width(Some(Dimension::Pixels(content_width)))
                     } else {
                         Element::new(&fonts.body, ElementContent::WrappedText(message.clone()))
                             .item_type(UIItemType::ActivityItemText {
@@ -1408,6 +1464,7 @@ This example demonstrates:
                             index: item_index,
                             char_positions: calculate_char_positions(message, &fonts.body),
                         })
+                        .max_width(Some(Dimension::Pixels(content_width)))
                     } else {
                         // AI messages use markdown rendering with code font support
                         // Need to add width constraint for proper text wrapping
@@ -2029,7 +2086,6 @@ This example demonstrates:
         viewport
     }
 
-
     /// Get the number of display lines for chat input
     pub fn get_chat_input_display_lines(&self) -> usize {
         self.chat_input.display_lines
@@ -2043,11 +2099,13 @@ This example demonstrates:
         viewport_height: f32,
     ) -> Element {
         let line_height = font.metrics().cell_height.get() as f32;
-        let total_height = self.chat_input.lines.len() as f32 * line_height;
+        // Use consistent 1.1x multiplier for line spacing
+        let line_height_with_spacing = line_height * 1.1;
+        let total_height = self.chat_input.lines.len() as f32 * line_height_with_spacing;
 
         log::debug!(
-            "render_chat_input_text: width={:.1}, viewport_height={:.1}, line_height={:.1}, lines={}, focused={}",
-            width, viewport_height, line_height, self.chat_input.lines.len(), self.chat_input.focused
+            "render_chat_input_text: width={:.1}, viewport_height={:.1}, line_height={:.1}, line_height_with_spacing={:.1}, lines={}, focused={}",
+            width, viewport_height, line_height, line_height_with_spacing, self.chat_input.lines.len(), self.chat_input.focused
         );
 
         // Calculate scroll position
@@ -2074,15 +2132,6 @@ This example demonstrates:
 
             let display_text = if is_placeholder {
                 self.chat_input.placeholder.clone()
-            } else if is_cursor_line && self.chat_input.focused {
-                let mut text = line_text.clone();
-                let cursor_byte = line_text
-                    .char_indices()
-                    .nth(self.chat_input.cursor_col)
-                    .map(|(idx, _)| idx)
-                    .unwrap_or(line_text.len());
-                text.insert_str(cursor_byte, "\u{2502}");
-                text
             } else {
                 line_text.clone()
             };
@@ -2125,7 +2174,8 @@ This example demonstrates:
 
         // Calculate dimensions
         let line_height = fonts.body.metrics().cell_height.get() as f32;
-        let viewport_height = self.chat_input.display_lines as f32 * line_height;
+        // Add 10% for line spacing to accommodate 2 full lines
+        let viewport_height = self.chat_input.display_lines as f32 * line_height * 1.1;
         let container_height = viewport_height + 14.0; // +14 for padding
 
         // Colors are set during focus changes, not during render
@@ -2172,17 +2222,70 @@ This example demonstrates:
     pub fn render_chat_input_content(&mut self, fonts: &SidebarFonts, width: f32) -> Element {
         // Calculate dimensions
         let line_height = fonts.body.metrics().cell_height.get() as f32;
-        let viewport_height = self.chat_input.display_lines as f32 * line_height;
+        // Add 10% for line spacing to match scissor rect height
+        let viewport_height = self.chat_input.display_lines as f32 * line_height * 1.1;
 
         // Return the text content directly (no wrapper needed)
         self.render_chat_input_text(&fonts.body, width, viewport_height)
     }
-    
+
+    /// Calculate cursor position for rendering
+    pub fn get_cursor_position(&self, font: &Rc<LoadedFont>) -> Option<(f32, f32)> {
+        if !self.chat_input.focused {
+            return None;
+        }
+
+        let line_height = font.metrics().cell_height.get() as f32;
+        let line_height_with_spacing = line_height * 1.1;
+
+        // Calculate Y position (line position minus scroll offset)
+        let y = self.chat_input.cursor_line as f32 * line_height_with_spacing
+            - self.chat_input.scroll_pixel_offset;
+
+        // Calculate X position by measuring text up to cursor
+        let line = &self.chat_input.lines[self.chat_input.cursor_line];
+        let text_before_cursor: String = line.chars().take(self.chat_input.cursor_col).collect();
+
+        // Use font metrics to estimate character widths
+        let char_width = font.metrics().cell_width.get() as f32;
+        let x = if text_before_cursor.is_empty() {
+            0.0
+        } else {
+            let mut x_pos = 0.0;
+            for ch in text_before_cursor.chars() {
+                // Estimate character width based on type
+                let ch_width = if ch.is_ascii_alphabetic() || ch.is_ascii_digit() {
+                    char_width // Standard width for alphanumeric
+                } else if ch == ' ' {
+                    char_width * 0.9 // Spaces are slightly narrower
+                } else if ch.is_ascii_punctuation() {
+                    char_width * 0.7 // Punctuation is narrower
+                } else {
+                    char_width * 1.5 // Non-ASCII characters (emoji, etc)
+                };
+                x_pos += ch_width;
+            }
+            x_pos
+        };
+
+        Some((x, y))
+    }
+
     /// Get chat input background color for filled rectangle rendering
     pub fn get_chat_input_bg_color(&self) -> LinearRgba {
         self.chat_input_bg_color
     }
-    
+
+    /// Get chat input bounds for scrollbar positioning
+    pub fn get_chat_input_bounds(&self) -> Option<euclid::Rect<f32, window::PixelUnit>> {
+        self.chat_input_bounds.clone()
+    }
+
+    /// Set chat input bounds for scrollbar positioning
+    pub fn set_chat_input_bounds(&mut self, bounds: euclid::Rect<f32, window::PixelUnit>) {
+        self.chat_input_bounds = Some(bounds);
+    }
+
     /// Get chat input border color
     pub fn get_chat_input_border_color(&self) -> LinearRgba {
         self.chat_input_border_color
@@ -2573,8 +2676,38 @@ impl Sidebar for AiSidebar {
     }
 
     fn get_scrollbars(&self) -> super::SidebarScrollbars {
+        // Calculate chat input scrollbar info if focused
+        let chat_input_scrollbar = if self.chat_input.focused {
+            // Calculate using consistent line height with 1.1x multiplier
+            let line_height = 20.0 * 1.1; // Estimated line height with multiplier
+            let viewport_height = self.chat_input.display_lines as f32 * line_height;
+            let total_height = self.chat_input.lines.len() as f32 * line_height;
+
+            if total_height > viewport_height {
+                // Calculate scroll position
+                let visible_range = self.chat_input.scroll_pixel_offset / total_height;
+                let thumb_size = (viewport_height / total_height).min(1.0);
+
+                Some(ScrollbarInfo {
+                    should_show: true,
+                    thumb_position: visible_range,
+                    thumb_size,
+                    content_height: total_height,
+                    viewport_height,
+                    scroll_offset: self.chat_input.scroll_pixel_offset,
+                    total_items: self.chat_input.lines.len(), // For compatibility
+                    viewport_items: self.chat_input.display_lines, // For compatibility
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         super::SidebarScrollbars {
             activity_log: self.activity_log_scrollbar.clone(),
+            chat_input: chat_input_scrollbar,
         }
     }
 
@@ -2830,11 +2963,39 @@ impl AiSidebar {
         self.chat_input_border_color = LinearRgba::with_components(0.4, 0.6, 0.9, 0.7);
     }
 
-    /// Handle mouse wheel events for chat input
-    pub fn handle_chat_input_wheel(&mut self, amount: i16) -> bool {
+    /// Handle click on chat input with position (simplified without font access)
+    pub fn handle_chat_input_click_simple(
+        &mut self,
+        click_x: f32,
+        click_y: f32,
+        bounds: &euclid::Rect<f32, euclid::UnknownUnit>,
+    ) {
+        // Focus the input
+        self.focus_chat_input();
+
+        // Calculate relative position within the chat input text area
+        let text_padding = 8.0;
+        let border_thickness = 1.0;
+        let vertical_padding = 6.0;
+
+        let relative_x = click_x - bounds.origin.x - border_thickness - text_padding;
+        let relative_y = click_y - bounds.origin.y - border_thickness - vertical_padding;
+
+        // Only position cursor if click is within the text area
+        if relative_x >= 0.0 && relative_y >= 0.0 {
+            // Use estimated font metrics WITH 1.1x multiplier to match rendering
+            let line_height = 20.0 * 1.1; // Match the rendering multiplier
+            let char_width = 8.5; // More accurate monospace char width for ~12pt font
+            self.chat_input
+                .handle_click_position(relative_x, relative_y, line_height, char_width);
+        }
+    }
+
+    /// Handle mouse wheel events for chat input (simplified without font access)
+    pub fn handle_chat_input_wheel_simple(&mut self, amount: i16) -> bool {
         // Convert wheel amount to pixel delta
         // Negative amount means scroll up, positive means scroll down
-        let line_height = 20.0; // Approximate line height, will be refined during rendering
+        let line_height = 20.0 * 1.1; // Estimated line height with rendering multiplier
         let delta = amount as f32 * 3.0; // Multiply for smoother scrolling
         self.chat_input.handle_wheel_scroll(delta, line_height)
     }

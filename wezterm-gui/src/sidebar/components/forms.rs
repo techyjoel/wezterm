@@ -1209,6 +1209,7 @@ impl MultilineTextInput {
 
     /// Handle mouse wheel scrolling
     pub fn handle_wheel_scroll(&mut self, delta: f32, line_height: f32) -> bool {
+        // Note: line_height passed in should already include the 1.1x multiplier
         let total_height = self.lines.len() as f32 * line_height;
         let viewport_height = self.display_lines as f32 * line_height;
 
@@ -1236,6 +1237,77 @@ impl MultilineTextInput {
     pub fn reset_scroll_to_bottom(&mut self) {
         self.user_has_scrolled = false;
         // scroll_pixel_offset will be recalculated in render_with_scissor
+    }
+
+    /// Handle click at a specific position with position info
+    pub fn handle_click_position(
+        &mut self,
+        relative_x: f32,
+        relative_y: f32,
+        line_height: f32,
+        char_width: f32,
+    ) {
+        // Calculate which line was clicked accounting for scroll
+        let clicked_line_f = (relative_y + self.scroll_pixel_offset) / line_height;
+        let clicked_line = clicked_line_f as usize;
+
+        log::debug!(
+            "Click position: relative_y={}, scroll_offset={}, line_height={}, clicked_line={}",
+            relative_y,
+            self.scroll_pixel_offset,
+            line_height,
+            clicked_line
+        );
+
+        // Ensure the line is valid
+        if clicked_line < self.lines.len() {
+            self.cursor_line = clicked_line;
+
+            // Calculate character position on the line
+            let line = &self.lines[clicked_line];
+            let mut x_offset = 0.0;
+            let mut char_pos = 0;
+
+            // Use more precise character width calculations
+            for ch in line.chars() {
+                let ch_width = if ch.is_ascii_alphabetic() || ch.is_ascii_digit() {
+                    char_width // Standard width for alphanumeric
+                } else if ch == ' ' {
+                    char_width * 0.9 // Spaces are slightly narrower
+                } else if ch.is_ascii_punctuation() {
+                    char_width * 0.7 // Punctuation is narrower
+                } else {
+                    char_width * 1.5 // Non-ASCII characters (emoji, etc)
+                };
+
+                // Check if click is before the midpoint of this character
+                if x_offset + ch_width / 2.0 > relative_x {
+                    break;
+                }
+
+                x_offset += ch_width;
+                char_pos += 1;
+            }
+
+            self.cursor_col = char_pos.min(line.len());
+
+            log::debug!(
+                "Positioned cursor at line {} col {}",
+                self.cursor_line,
+                self.cursor_col
+            );
+
+            // Update scroll position to ensure cursor is visible
+            self.update_scroll();
+        } else {
+            log::debug!("Click was beyond last line, positioning at end");
+            // Click was beyond the last line, position at end of text
+            if !self.lines.is_empty() {
+                self.cursor_line = self.lines.len() - 1;
+                self.cursor_col = self.lines[self.cursor_line].len();
+                self.update_scroll();
+            }
+        }
     }
 }
 

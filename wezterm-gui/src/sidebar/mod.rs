@@ -93,6 +93,7 @@ pub use settings_sidebar::SettingsSidebar;
 #[derive(Default)]
 pub struct SidebarScrollbars {
     pub activity_log: Option<ScrollbarInfo>,
+    pub chat_input: Option<ScrollbarInfo>,
     // Future: Add more scrollbar info for other scrollable areas
 }
 
