@@ -488,6 +488,7 @@ impl crate::TermWindow {
                 metrics: &metrics,
                 gl_state: self.render_state.as_ref().unwrap(),
                 zindex: 10,
+                source: RenderSource::TabBar,
             },
             &tabs,
         )?;

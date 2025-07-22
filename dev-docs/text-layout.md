@@ -38,6 +38,13 @@ StyleSpan { colors: ElementColors::new(Some(fg_color)), ... }
 - Character loss occurs without proper width calculation
 **Type**: Correctness requirement for proportional fonts
 
+### Glyph Position Tracking (NEW)
+- Sidebar text now preserves HarfBuzz cluster information in CachedGlyph
+- Use `track_cluster: true` only for sidebar text (performance optimization)
+- Access positions via `GlyphPositionMap::from_cells()` for hit testing
+- Terminal text sets cluster to None to avoid memory overhead
+**Type**: Architectural design for pixel-perfect text interaction
+
 ## Overview
 
 Text rendering in WezTerm involves complex interactions between font selection, text shaping, line wrapping, and GPU rendering. This document explains the text layout pipeline and implementation patterns.
@@ -246,6 +253,59 @@ if is_monospace_only {
 ### Syntax Highlighting Cache
 
 Cache syntax highlighter instances per language to avoid re-initialization.
+
+### Selective Cluster Tracking
+
+Cluster information only tracked for sidebar text to minimize memory overhead:
+```rust
+let track_cluster = context.source == RenderSource::Sidebar;
+let glyph = glyph_cache.cached_glyph(info, style, followed_by_space, 
+                                     font, metrics, num_cells, track_cluster)?;
+```
+
+## Glyph Position Tracking
+
+### Infrastructure
+
+The system now supports exact glyph position tracking for pixel-perfect text interaction:
+
+#### 1. CachedGlyph Enhancement
+```rust
+pub struct CachedGlyph {
+    // ... existing fields ...
+    pub cluster: Option<u32>,  // Byte offset from HarfBuzz, None for terminal glyphs
+}
+```
+
+#### 2. Position Extraction
+```rust
+pub struct GlyphPositionMap {
+    pub positions: Vec<(usize, f32, f32)>,  // (byte_offset, x_start, x_end)
+}
+
+impl GlyphPositionMap {
+    pub fn from_cells(cells: &[ElementCell], wrapped_line: &WrappedLine) -> Self;
+    pub fn hit_test(&self, x: f32) -> Option<usize>;  // Returns byte offset
+}
+```
+
+#### 3. Context-Aware Rendering
+```rust
+pub enum RenderSource {
+    Terminal,  // No cluster tracking (performance)
+    Sidebar,   // Tracks clusters for interaction
+    TabBar,    // No cluster tracking
+}
+```
+
+### Usage Pattern
+
+1. During text shaping, set `track_cluster = true` for sidebar text
+2. After shaping, extract positions using `GlyphPositionMap::from_cells()`
+3. Use `hit_test()` to convert click coordinates to byte offsets
+4. Convert byte offsets to character indices for cursor positioning
+
+This infrastructure enables accurate cursor positioning and future text selection without the inaccuracies of character width estimation.
 
 ## Configuration
 

@@ -5,9 +5,12 @@
 2. **Text Selection**: Enable click-and-drag per-character text selection with visual feedback (blue background, white text) in activity log, suggestion card, suggestion "view more" modal, and goal text.
 3. **Multi-line Chat Input**: Full editing capabilities with click-to-position cursor, scrolling, Enter to send, Shift+Enter for newline.
 
-## Latest User Test Results (Verbatim)
+## Latest User Test Results (After Session 4 Improvements)
 
-*"I have tested, here is current status: 1. The cursor looks much nicer and doesn't shift the text. 2. Click to place the cursor is far worse. It appears that the character width in the click evaluation is much larger than used for rendering - when I click on leftmost characters the click is fairly accurate, but clicking in the middle of the line places the cursor to the far right. Then, if I try to click on the 2nd line of text it doesn't ever register, the cursor never can click to place on that 2nd line. 3. Scrolling still does not work in the chat input box at all. There is no scrollbar, and I cannot scroll with the scroll wheel. 4. The text selection functionality seems un-changed from before this rev of your work. Selection of text in the sidebar is different now, but still very broken. I can't select text at all in the suggestion card (nor the suggestion card modal). When I click-and-drag to select text in the goal card or the activity log, all of the the text suddenly jumps to half-width (the text only appears on the left side of the element). No text ever appears like it is selected, dragging around appears to do nothing."*
+*"Behavior is notably better, however it's still not perfect."*
+
+### Previous Issues (from Session 3)
+*"The behavior is mostly unchanged. Here is the current state: 1. The cursor position (as I type) is still pushed off too far to the right (it used to sit right next to the typed text). 2. Clicking to place the cursor places it visually in roughly the correct spot, but when I start typing that spot doesn't match up (the typed chars appear more to the left of where the cursor sits). 3. Clicking to place the cursor is very unreliable, most clicks don't end up seeing the cursor move. 4. Clicking on the 2nd line of text still doesn't work (no click-to-place there). 5. Scrolling does not work at all. There is no scrollbar, and drag-to-highlight within the chat input doesn't appear to do anything. 6. Clicking and dragging to select text in other areas of the sidebar is similar to how it was before: I can't select text at all in the suggestion card (nor the suggestion card modal). When I click-and-drag to select text in the goal card or the activity log, all of the the text suddenly jumps to half-width (the text only appears on the left side of the element). No text ever visually looks like it is selected, dragging around appears to do nothing."*
 
 ## Current Implementation Status
 
@@ -33,16 +36,16 @@
    - No longer shifts text
    - 2px wide light gray filled rectangle
 
-### ❌ Current Issues (After Latest Changes)
+### ❌ Current Issues (Still Broken After Fixes)
 
 #### 1. Click-to-Position Cursor (Much Worse)
 **Symptoms**: 
-- Character width in click evaluation appears much larger than rendering width
-- Clicks on leftmost characters are fairly accurate
-- Clicks in middle of line place cursor far right
+- The placement of the cursor upon a click visually appears about correct, however functionally it is not
+- Typed characters (after a click) appears significantly to they left of where the cursor visually appears
+- This is consistent with the visual placement of the cursor during initial text entry: The cursor moves to the right, away from the leading character, over time as the user types. It's as if the estimation of where the cursor should appear uses widths that are too large.
 - Clicks on 2nd line never register at all
 
-**Root Causes**:
+**Suspected Root Causes**:
 - **Hardcoded character width mismatch**: Click handler uses `char_width = 8.5` but actual font `cell_width` varies based on font size
 - **No access to real font metrics**: `handle_chat_input_click_simple` can't access `LoadedFont` to get real `cell_width`
 - **Font size reduction not accounted for**: Sidebar body font uses `font_size - 1.0` point reduction
@@ -51,10 +54,11 @@
   - Per-line text element padding: 4px left/right, 2px top/bottom (found in rendering but not click handling)
 
 **What We Tried**:
-- ✅ Used consistent line height with 1.1x multiplier
-- ✅ Updated character width to 8.5 (still not matching actual)
-- ✅ Added more sophisticated character width estimation
-- ❌ Still using hardcoded values instead of actual font metrics
+- ✅ Pre-calculated character positions during rendering and stored in UIItemType::ChatInput
+- ✅ Added handle_chat_input_click_with_positions() that uses pre-calculated positions
+- ✅ Applied 0.85x adjustment factor to account for font size reduction
+- ❌ Character width is still wrong: base=20px, adjusted=17px but actual appears to be ~8-10px
+- ❌ The font metrics show cell_height=25.78 which seems too large for sidebar text
 
 #### 2. Scrolling in the chat input box (Still Non-Functional)
 **Symptoms**:
@@ -67,14 +71,15 @@
 - **Needs deeper investigation**
 
 **What We Tried**:
-- ✅ Added `chat_input` field to `SidebarScrollbars`
-- ✅ Implemented scrollbar calculation in `get_scrollbars`
-- ✅ Added scrollbar rendering in `render_sidebar_scrollbars`
-- ✅ Fixed height calculations to use 1.1x multiplier consistently
+- ✅ Fixed scrollbar rendering to check both activity log AND chat input
+- ✅ Changed to show scrollbar even when unfocused if content is scrollable
+- ✅ Added debug logging throughout the scrollbar pipeline
+- ❌ Logs show `chat_input=false` - scrollbar is never detected as needed
+- ❌ Chat input bounds may not be set properly
 
 #### 3. Text Selection (Text Jumps to Half-Width)
 **Symptoms**:
-- Text jumps to half-width when attempting to select
+- Text jumps to half-width when attempting to select (e.g. in the activity log)
 - No visual selection feedback
 - Can't select in suggestion cards or modal
 - Selection dragging appears to do nothing
@@ -86,9 +91,11 @@
 - **Selection spans might not be visible**: Colors may be incorrect or overridden
 
 **What We Tried**:
-- ✅ Added `max_width` to all `StyledWrappedText` elements
-- ✅ Fixed color inheritance in selection spans
-- ❌ Width constraint still not properly applied during text wrapping phase for goals/suggestions
+- ✅ Added debug logging for width calculations
+- ✅ Verified selection spans are being created correctly
+- ❌ Text still jumps to half-width when selection starts
+- ❌ No visual selection feedback appears
+- ❌ Selection in suggestion cards/modal still not working
 
 ### System-Level Issues Discovered
 
@@ -112,35 +119,122 @@
    - Translation happens at different points, sometimes double-translating
    - Padding/margin calculations inconsistent between click handling and rendering
 
-## Next Steps (Priority Order)
+## Attempted Fixes Summary
 
-### 1. Fix Click-to-Position Cursor
-- [ ] Pass actual font reference to click handlers (requires architectural change)
-- [ ] OR: Pre-calculate and store exact character positions during rendering
-- [ ] Account for ALL padding layers in click position calculation
-- [ ] Store line height with 1.1x multiplier in UIItemType
-- [ ] Fix 2nd line click detection by properly handling viewport bounds
+### Session 3:
+1. **Click-to-Position**: Pre-calculated character positions during rendering, stored in UIItemType
+2. **Scrollbar**: Fixed rendering logic to check both activity log and chat input
+3. **Font Metrics**: Applied 0.85x adjustment for font size reduction
 
-### 2. Fix Scrolling
-- [ ] Debug why scrollbar doesn't appear - add logging to verify:
-  - Is chat input focused?
-  - How many lines of text are there?
-  - What are the height calculations?
-- [ ] Consider showing scrollbar even when not focused if content is scrollable
-- [ ] Verify mouse wheel events are reaching the handler
+### Key Discoveries
+1. **Font Size Mismatch**: Sidebar body font has `font_size_reduction` applied (typically 1.0pt)
+   - Font metrics report cell_width=20px, cell_height=25.78px
+   - Actual rendered characters appear much smaller (~8-10px wide)
+   - 0.85x adjustment factor is still not enough
 
-### 3. Fix Text Selection Rendering
-- [ ] Refactor element creation to apply max_width at creation time, not after
-- [ ] Verify selection span colors are not being overridden
-- [ ] Add selection support to suggestion modal (convert from markdown to selectable text)
-- [ ] Debug why selection visual feedback doesn't appear
-- [ ] Consider using different rendering approach that preserves width constraints
+2. **Architectural Constraints**:
+   - Fonts only available during rendering phase, not event handling
+   - UIItemType is the correct pattern for passing data between phases
+   - Scissor rect clipping requires dedicated z-index layers
 
-### 4. Architectural Improvements
-- [ ] Consider storing font metrics in UIItemType for accurate click handling
-- [ ] Unify rendering patterns - choose either Activity Log or Modal pattern
-- [ ] Fix state synchronization - calculate bounds before rendering
-- [ ] Standardize coordinate system usage
+3. **Scrollbar Detection Issue**:
+   - Chat input scrollbar consistently shows as `false` in logs
+   - Suggests the bounds or line counting logic is incorrect
+
+### Session 4: Improved Understanding
+1. **Proportional Font Issue Confirmed**:
+   - Sidebar uses Roboto (proportional font), not monospace
+   - `cell_width` metric is meaningless for proportional fonts
+   - Actual character widths vary significantly (spaces ~4px, 'W' ~12px)
+   - Changed from 0.85x to 0.5x adjustment based on empirical testing
+
+2. **Y-Coordinate Bug Fixed**:
+   - Container padding (8px) wasn't accounted for in click handling
+   - This caused clicks to register on wrong lines
+
+3. **Character-Specific Width Estimation**:
+   - Implemented different widths for uppercase, lowercase, digits, punctuation
+   - Much more accurate but still not perfect
+
+## Root Cause Analysis
+
+### 1. Font Metrics Problem (CONFIRMED)
+The fundamental issue is multi-faceted:
+- **Proportional Font**: Roboto is proportional, so `cell_width` (designed for monospace) is meaningless
+- **Font Size Reduction**: The sidebar applies 1pt reduction, but metrics come from base font
+- **No Glyph Access**: Event handlers can't access actual glyph advances from text shaping
+- **Result**: Character width estimation will always be imperfect without actual glyph data
+
+### 2. Click Position Reliability (PARTIALLY FIXED)
+- Y-coordinate calculation was off due to missing container padding
+- X-coordinate still imperfect due to character width estimation
+- Some clicks may still be consumed by other UI elements
+
+### 3. Text Selection Width Jump
+The width constraint is likely being recalculated during selection state changes, causing a different layout calculation.
+
+### 4. Proper Solution Identified
+**Solution**: Modify CachedGlyph to preserve cluster information from text shaping
+- See **POSITION_TRACKING.md** for detailed implementation plan
+- Sidebar-only implementation to avoid terminal performance impact
+
+## Next Steps - Integrating Exact Glyph Position Tracking
+
+The infrastructure from **POSITION_TRACKING.md** is now complete (Phases 1-4). Here's how to integrate it:
+
+### Integration Points
+
+#### 1. Update Chat Input Click Handler
+Replace the character width estimation in `handle_chat_input_click_with_positions()`:
+
+```rust
+// In compute_element for WrappedText:
+let (lines, wrapped_lines) = self.wrap_text_with_info(text, &element.font, max_width, context, &style)?;
+
+// Extract positions for each line
+let mut line_positions = Vec::new();
+for (cells, wrapped_line) in lines.iter().zip(wrapped_lines.iter()) {
+    let position_map = GlyphPositionMap::from_cells(cells, wrapped_line);
+    line_positions.push(position_map.positions);
+}
+
+// Store in UIItemType::ChatInput
+if let Some(UIItemType::ChatInput { ref mut line_positions }) = element.item_type {
+    *line_positions = line_positions;
+}
+```
+
+Then in the click handler, use `GlyphPositionMap::hit_test()` instead of width estimates.
+
+#### 2. Enable for Other Interactive Text
+Apply the same pattern to:
+- Activity log entries
+- Suggestion cards
+- Goal text
+
+#### 3. Text Selection Implementation
+With exact positions, implement selection by:
+- Tracking selection start/end byte offsets
+- Using `GlyphPositionMap` to convert mouse positions to byte offsets
+- Rendering selection spans based on glyph positions
+
+### Remaining Issues to Address:
+1. **Scrolling**: Still need to debug why scrollbar doesn't appear
+2. **Text Selection Width Jump**: Need to trace width recalculation  
+3. **Selection in Modals**: MarkdownRenderer doesn't support selection
+
+### Testing Strategy
+1. Test with various Unicode text (emoji, RTL, ligatures)
+2. Verify cursor positioning accuracy
+3. Measure performance impact (should be <5% for sidebar)
+4. Test text selection across line boundaries
+
+### 5. Critical Context
+- The sidebar uses **Roboto** (proportional font) with 1pt size reduction
+- **Cell width metric is meaningless** for proportional fonts
+- Current **0.5x adjustment** is empirically better but still imperfect
+- **Exact glyph positions** infrastructure is now implemented (see POSITION_TRACKING.md)
+- Ready to integrate pixel-perfect positioning
 
 ## Code Patterns That Work
 

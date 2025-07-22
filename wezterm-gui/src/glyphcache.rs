@@ -168,6 +168,9 @@ pub struct CachedGlyph {
     pub bearing_y: PixelLength,
     pub texture: Option<Sprite>,
     pub scale: f64,
+    /// Preserved cluster information from HarfBuzz for sidebar text only
+    /// None for terminal glyphs to avoid memory overhead
+    pub cluster: Option<u32>,
 }
 
 impl std::fmt::Debug for CachedGlyph {
@@ -181,6 +184,7 @@ impl std::fmt::Debug for CachedGlyph {
             .field("bearing_y", &self.bearing_y)
             .field("scale", &self.scale)
             .field("texture", &self.texture)
+            .field("cluster", &self.cluster)
             .finish()
     }
 }
@@ -635,6 +639,7 @@ impl GlyphCache {
         font: &Rc<LoadedFont>,
         metrics: &RenderMetrics,
         num_cells: u8,
+        track_cluster: bool,
     ) -> anyhow::Result<Rc<CachedGlyph>> {
         let key = BorrowedGlyphKey {
             font_idx: info.font_idx,
@@ -652,7 +657,7 @@ impl GlyphCache {
         }
         metrics::histogram!("glyph_cache.glyph_cache.miss.rate").record(1.);
 
-        let glyph = match self.load_glyph(info, font, followed_by_space, num_cells) {
+        let glyph = match self.load_glyph(info, font, followed_by_space, num_cells, track_cluster) {
             Ok(g) => g,
             Err(err) => {
                 if err
@@ -684,6 +689,7 @@ impl GlyphCache {
                     bearing_x: PixelLength::zero(),
                     bearing_y: PixelLength::zero(),
                     scale: 1.0,
+                    cluster: None,
                 })
             }
         };
@@ -705,6 +711,7 @@ impl GlyphCache {
         font: &Rc<LoadedFont>,
         followed_by_space: bool,
         num_cells: u8,
+        track_cluster: bool,
     ) -> anyhow::Result<Rc<CachedGlyph>> {
         let base_metrics;
         let idx_metrics;
@@ -831,6 +838,11 @@ impl GlyphCache {
                 bearing_x: PixelLength::zero(),
                 bearing_y: descender_adjust,
                 scale,
+                cluster: if track_cluster {
+                    Some(info.cluster)
+                } else {
+                    None
+                },
             }
         } else {
             let raw_im = Image::with_rgba32(
@@ -882,6 +894,11 @@ impl GlyphCache {
                 bearing_x,
                 bearing_y,
                 scale,
+                cluster: if track_cluster {
+                    Some(info.cluster)
+                } else {
+                    None
+                },
             };
 
             if info.font_idx != 0 {

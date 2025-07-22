@@ -7,7 +7,7 @@
 use crate::quad::{QuadTrait, TripleLayerQuadAllocator, TripleLayerQuadAllocatorTrait};
 use crate::renderstate::RenderContext;
 use crate::termwindow::box_model::{
-    BoxDimension, Element, ElementColors, ElementContent, VerticalAlign,
+    BoxDimension, Element, ElementColors, ElementContent, RenderSource, VerticalAlign,
 };
 use crate::termwindow::render::blur::{BlurCacheKey, BlurRenderer};
 use crate::termwindow::TermWindow;
@@ -517,6 +517,7 @@ impl NeonRenderer for TermWindow {
             metrics: &metrics,
             gl_state: self.render_state.as_ref().unwrap(),
             zindex: base_zindex + 1, // Render icon 1 level above the base to avoid conflicts
+            source: RenderSource::Terminal,
         };
 
         // Compute the element layout

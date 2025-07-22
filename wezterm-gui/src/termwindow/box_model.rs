@@ -911,6 +911,17 @@ pub enum ElementContent {
     },
 }
 
+/// Identifies the source of rendering to enable context-specific optimizations
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RenderSource {
+    /// Terminal rendering - performance critical, no cluster tracking
+    Terminal,
+    /// Sidebar rendering - can track exact glyph positions
+    Sidebar,
+    /// Tab bar rendering - no cluster tracking needed
+    TabBar,
+}
+
 pub struct LayoutContext<'a> {
     pub width: DimensionContext,
     pub height: DimensionContext,
@@ -918,6 +929,8 @@ pub struct LayoutContext<'a> {
     pub metrics: &'a RenderMetrics,
     pub gl_state: &'a RenderState,
     pub zindex: i8,
+    /// Identifies the rendering source to enable context-specific behavior
+    pub source: RenderSource,
 }
 
 #[derive(Debug, Clone)]
@@ -1034,6 +1047,95 @@ struct WrappedLine {
     skip_leading_spaces: bool,
     /// Number of bytes to skip at start (for leading space handling)
     leading_space_bytes: usize,
+    /// Text actually sent to shaper (may differ from original due to skipped spaces)
+    shaped_text: String,
+    /// Byte offset of shaped_text within the line text
+    shaped_offset: usize,
+}
+
+impl WrappedLine {
+    /// Convert a cluster position (relative to shaped text) to document byte offset
+    pub fn cluster_to_byte_offset(&self, cluster: u32) -> usize {
+        // Cluster is relative to shaped_text, not original document
+        // Account for: line offset + skipped spaces + shaped offset + cluster
+        if self.skip_leading_spaces {
+            self.byte_offset + self.leading_space_bytes + cluster as usize
+        } else {
+            self.byte_offset + self.shaped_offset + cluster as usize
+        }
+    }
+}
+
+/// Maps text positions to screen coordinates for accurate hit testing
+#[derive(Debug, Clone)]
+pub struct GlyphPositionMap {
+    /// For each glyph: (byte_offset, x_start, x_end)
+    pub positions: Vec<(usize, f32, f32)>,
+}
+
+impl GlyphPositionMap {
+    /// Create from shaped ElementCells with cluster information
+    /// Note: clusters are relative to the shaped line, not the full document
+    pub fn from_cells(cells: &[ElementCell], wrapped_line: &WrappedLine) -> Self {
+        let mut positions = Vec::new();
+        let mut x_pos = 0.0;
+
+        for cell in cells {
+            match cell {
+                ElementCell::Glyph(cached_glyph) => {
+                    let x_start = x_pos;
+                    let x_end = x_pos + cached_glyph.x_advance.get() as f32;
+
+                    // Only process glyphs with cluster information (sidebar text)
+                    if let Some(cluster) = cached_glyph.cluster {
+                        // Cluster is relative to shaped text, convert to document offset
+                        let byte_offset = wrapped_line.cluster_to_byte_offset(cluster);
+                        positions.push((byte_offset, x_start, x_end));
+                    }
+                    // Terminal glyphs (cluster = None) are skipped
+
+                    x_pos = x_end;
+                }
+                ElementCell::Sprite(sprite) => {
+                    // Block drawing characters don't have text positions
+                    x_pos += sprite.coords.size.width as f32;
+                }
+            }
+        }
+
+        GlyphPositionMap { positions }
+    }
+
+    /// Find byte offset for a given x coordinate
+    pub fn hit_test(&self, x: f32) -> Option<usize> {
+        // Handle click before first character
+        if x < 0.0 {
+            return Some(0);
+        }
+
+        // Find the glyph containing this x position
+        for &(byte_offset, x_start, x_end) in &self.positions {
+            if x >= x_start && x < x_end {
+                // Determine if click is closer to start or end of glyph
+                let mid = (x_start + x_end) / 2.0;
+                if x < mid {
+                    return Some(byte_offset);
+                } else {
+                    // Return position after this character
+                    // (Need to handle multi-byte characters properly)
+                    return self
+                        .positions
+                        .iter()
+                        .find(|(offset, _, _)| *offset > byte_offset)
+                        .map(|(offset, _, _)| *offset)
+                        .or(Some(byte_offset + 1)); // Approximate for last char
+                }
+            }
+        }
+
+        // Click after last character
+        self.positions.last().map(|(offset, _, _)| *offset + 1)
+    }
 }
 
 #[derive(Debug)]
@@ -1117,6 +1219,7 @@ impl Element {
 impl super::TermWindow {
     /// Wraps text at word boundaries to fit within max_width, with character-level fallback
     /// Preserves newlines by processing each line independently
+    /// Wraps text and returns only the cells (for backward compatibility)
     fn wrap_text(
         &self,
         text: &str,
@@ -1125,7 +1228,22 @@ impl super::TermWindow {
         context: &LayoutContext,
         style: &config::TextStyle,
     ) -> anyhow::Result<Vec<Vec<ElementCell>>> {
+        let (lines, _) = self.wrap_text_with_info(text, font, max_width, context, style)?;
+        Ok(lines)
+    }
+
+    /// Wraps text and returns both cells and line information
+    fn wrap_text_with_info(
+        &self,
+        text: &str,
+        font: &Rc<LoadedFont>,
+        max_width: f32,
+        context: &LayoutContext,
+        style: &config::TextStyle,
+    ) -> anyhow::Result<(Vec<Vec<ElementCell>>, Vec<WrappedLine>)> {
         let mut all_lines = Vec::new();
+        let mut all_wrapped_lines = Vec::new();
+        let mut byte_offset = 0;
 
         // Split by newlines first to preserve line structure
         for line_text in text.lines() {
@@ -1190,8 +1308,15 @@ impl super::TermWindow {
                     None,
                     None,
                 )?;
-                let ind_cells =
-                    self.shape_text_to_cells(&indentation, &ind_infos, font, context, style)?;
+                let track_cluster = context.source == RenderSource::Sidebar;
+                let ind_cells = self.shape_text_to_cells(
+                    &indentation,
+                    &ind_infos,
+                    font,
+                    context,
+                    style,
+                    track_cluster,
+                )?;
                 current_line.extend(ind_cells);
                 all_lines.push(current_line);
                 continue;
@@ -1209,8 +1334,15 @@ impl super::TermWindow {
                 )?;
                 let ind_width =
                     self.calculate_text_width(&indentation, &ind_infos, font, context, style)?;
-                let ind_cells =
-                    self.shape_text_to_cells(&indentation, &ind_infos, font, context, style)?;
+                let track_cluster = context.source == RenderSource::Sidebar;
+                let ind_cells = self.shape_text_to_cells(
+                    &indentation,
+                    &ind_infos,
+                    font,
+                    context,
+                    style,
+                    track_cluster,
+                )?;
                 current_line.extend(ind_cells);
                 current_width = ind_width;
             }
@@ -1269,8 +1401,15 @@ impl super::TermWindow {
                         current_width = 0.0;
                     }
 
-                    let cells =
-                        self.shape_text_to_cells(&word, &word_infos, font, context, style)?;
+                    let track_cluster = context.source == RenderSource::Sidebar;
+                    let cells = self.shape_text_to_cells(
+                        &word,
+                        &word_infos,
+                        font,
+                        context,
+                        style,
+                        track_cluster,
+                    )?;
                     let mut char_line = Vec::new();
                     let mut char_width = 0.0;
 
@@ -1304,15 +1443,29 @@ impl super::TermWindow {
                             None,
                             None,
                         )?;
-                        let space_cells =
-                            self.shape_text_to_cells(" ", &space_infos, font, context, style)?;
+                        let track_cluster = context.source == RenderSource::Sidebar;
+                        let space_cells = self.shape_text_to_cells(
+                            " ",
+                            &space_infos,
+                            font,
+                            context,
+                            style,
+                            track_cluster,
+                        )?;
                         current_line.extend(space_cells);
                         current_width += space_width;
                     }
                 } else {
                     // Word fits on the line
-                    let cells =
-                        self.shape_text_to_cells(&word, &word_infos, font, context, style)?;
+                    let track_cluster = context.source == RenderSource::Sidebar;
+                    let cells = self.shape_text_to_cells(
+                        &word,
+                        &word_infos,
+                        font,
+                        context,
+                        style,
+                        track_cluster,
+                    )?;
                     current_line.extend(cells);
                     current_width += word_width;
 
@@ -1329,8 +1482,15 @@ impl super::TermWindow {
                             None,
                             None,
                         )?;
-                        let space_cells =
-                            self.shape_text_to_cells(" ", &space_infos, font, context, style)?;
+                        let track_cluster = context.source == RenderSource::Sidebar;
+                        let space_cells = self.shape_text_to_cells(
+                            " ",
+                            &space_infos,
+                            font,
+                            context,
+                            style,
+                            track_cluster,
+                        )?;
                         current_line.extend(space_cells);
                         current_width += space_width;
                     }
@@ -1343,7 +1503,7 @@ impl super::TermWindow {
             }
         }
 
-        Ok(all_lines)
+        Ok((all_lines, all_wrapped_lines))
     }
 
     /// Wraps styled text with per-span colors and optional fonts
@@ -1520,6 +1680,7 @@ impl super::TermWindow {
                     font,
                     context.metrics,
                     num_cells as u8,
+                    false, // Width calculation doesn't need cluster tracking
                 )?;
                 width += glyph.x_advance.get() as f32;
             }
@@ -1544,6 +1705,7 @@ impl super::TermWindow {
         font: &Rc<LoadedFont>,
         context: &LayoutContext,
         style: &config::TextStyle,
+        track_cluster: bool,
     ) -> anyhow::Result<Vec<ElementCell>> {
         let mut cells = Vec::new();
         let mut glyph_cache = context.gl_state.glyph_cache.borrow_mut();
@@ -1568,6 +1730,7 @@ impl super::TermWindow {
                     font,
                     context.metrics,
                     num_cells as u8,
+                    track_cluster,
                 )?;
                 cells.push(ElementCell::Glyph(glyph));
             }
@@ -1598,6 +1761,8 @@ impl super::TermWindow {
                     byte_end: line_byte_start,
                     skip_leading_spaces: false,
                     leading_space_bytes: 0,
+                    shaped_text: String::new(),
+                    shaped_offset: 0,
                 });
                 byte_offset += 1; // Account for newline
                 continue;
@@ -1665,11 +1830,22 @@ impl super::TermWindow {
                 }
 
                 // Create wrapped line
+                // Calculate what text will actually be shaped
+                let shaped_start = if line_count > 0 && skip_spaces > 0 {
+                    line_start_pos + skip_spaces
+                } else {
+                    line_start_pos
+                };
+                let shaped_text =
+                    text[line_byte_start + shaped_start..line_byte_start + wrap_pos].to_string();
+
                 let wrapped_line = WrappedLine {
                     byte_offset: line_byte_start + line_start_pos,
                     byte_end: line_byte_start + wrap_pos,
                     skip_leading_spaces: line_count > 0,
                     leading_space_bytes: skip_spaces,
+                    shaped_text,
+                    shaped_offset: shaped_start - line_start_pos,
                 };
 
                 wrapped_lines.push(wrapped_line);
@@ -1864,58 +2040,67 @@ impl super::TermWindow {
             )?;
 
             // Convert to cells
-            let segment_cells =
-                match self.shape_text_to_cells(segment_text, &infos, font, context, style) {
-                    Ok(cells) => cells,
-                    Err(e) => {
-                        // Check if this is an OutOfTextureSpace error that needs to propagate
-                        if e.root_cause().downcast_ref::<OutOfTextureSpace>().is_some() {
-                            return Err(e);
-                        }
-
-                        // For other errors, try fallback logic
-                        log::error!(
-                        "Failed to shape segment {:?} to cells: {}. Falling back to default font.",
-                        segment_text, e
-                    );
-                        // Fallback: try with default font
-                        if !Rc::ptr_eq(font, default_font) {
-                            let window = self.window.as_ref().unwrap().clone();
-                            let fallback_infos = default_font.shape(
-                                segment_text,
-                                move || window.notify(TermWindowNotif::InvalidateShapeCache),
-                                BlockKey::filter_out_synthetic,
-                                None,
-                                wezterm_bidi::Direction::LeftToRight,
-                                None,
-                                None,
-                            )?;
-                            match self.shape_text_to_cells(
-                                segment_text,
-                                &fallback_infos,
-                                default_font,
-                                context,
-                                style,
-                            ) {
-                                Ok(cells) => cells,
-                                Err(e2) => {
-                                    // Also check for OutOfTextureSpace in fallback
-                                    if e2
-                                        .root_cause()
-                                        .downcast_ref::<OutOfTextureSpace>()
-                                        .is_some()
-                                    {
-                                        return Err(e2);
-                                    }
-                                    log::error!("Fallback also failed: {}", e2);
-                                    vec![] // Return empty rather than fail the entire line
-                                }
-                            }
-                        } else {
-                            vec![] // Return empty rather than fail the entire line
-                        }
+            let track_cluster = context.source == RenderSource::Sidebar;
+            let segment_cells = match self.shape_text_to_cells(
+                segment_text,
+                &infos,
+                font,
+                context,
+                style,
+                track_cluster,
+            ) {
+                Ok(cells) => cells,
+                Err(e) => {
+                    // Check if this is an OutOfTextureSpace error that needs to propagate
+                    if e.root_cause().downcast_ref::<OutOfTextureSpace>().is_some() {
+                        return Err(e);
                     }
-                };
+
+                    // For other errors, try fallback logic
+                    log::error!(
+                        "Failed to shape segment {:?} to cells: {}. Falling back to default font.",
+                        segment_text,
+                        e
+                    );
+                    // Fallback: try with default font
+                    if !Rc::ptr_eq(font, default_font) {
+                        let window = self.window.as_ref().unwrap().clone();
+                        let fallback_infos = default_font.shape(
+                            segment_text,
+                            move || window.notify(TermWindowNotif::InvalidateShapeCache),
+                            BlockKey::filter_out_synthetic,
+                            None,
+                            wezterm_bidi::Direction::LeftToRight,
+                            None,
+                            None,
+                        )?;
+                        match self.shape_text_to_cells(
+                            segment_text,
+                            &fallback_infos,
+                            default_font,
+                            context,
+                            style,
+                            track_cluster,
+                        ) {
+                            Ok(cells) => cells,
+                            Err(e2) => {
+                                // Also check for OutOfTextureSpace in fallback
+                                if e2
+                                    .root_cause()
+                                    .downcast_ref::<OutOfTextureSpace>()
+                                    .is_some()
+                                {
+                                    return Err(e2);
+                                }
+                                log::error!("Fallback also failed: {}", e2);
+                                vec![] // Return empty rather than fail the entire line
+                            }
+                        }
+                    } else {
+                        vec![] // Return empty rather than fail the entire line
+                    }
+                }
+            };
 
             cells.extend(segment_cells);
         }
@@ -1943,6 +2128,7 @@ impl super::TermWindow {
                 gl_state: context.gl_state,
                 metrics: &local_metrics,
                 zindex: context.zindex,
+                source: context.source,
             };
             &local_context
         } else {
@@ -2023,6 +2209,8 @@ impl super::TermWindow {
                         let next_grapheme: Option<&str> = iter.peek().map(|s| *s);
                         let followed_by_space = next_grapheme == Some(" ");
                         let num_cells = grapheme_column_width(grapheme, None);
+                        // Track clusters only for sidebar text
+                        let track_cluster = context.source == RenderSource::Sidebar;
                         let glyph = glyph_cache.cached_glyph(
                             &info,
                             style,
@@ -2030,6 +2218,7 @@ impl super::TermWindow {
                             &element.font,
                             context.metrics,
                             num_cells as u8,
+                            track_cluster,
                         )?;
 
                         if let Some(texture) = glyph.texture.as_ref() {
@@ -2083,6 +2272,10 @@ impl super::TermWindow {
                 })
             }
             ElementContent::WrappedText(text) => {
+                // Determine if we should track clusters based on context
+                let track_cluster = context.source == RenderSource::Sidebar;
+
+                // Use wrap_text for now - position tracking will be added later
                 let lines = self.wrap_text(text, &element.font, max_width, context, &style)?;
                 let line_height = context.height.pixel_cell;
                 let num_lines = lines.len() as f32;
@@ -2170,6 +2363,7 @@ impl super::TermWindow {
                                 pixel_max: max_width,
                             },
                             zindex: context.zindex + element.zindex,
+                            source: context.source,
                         },
                         child,
                     )?;

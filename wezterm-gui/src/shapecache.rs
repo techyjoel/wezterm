@@ -169,6 +169,7 @@ mod test {
                             font,
                             render_metrics,
                             num_cells,
+                            false, // Terminal text doesn't need cluster tracking
                         )
                         .unwrap()
                 })

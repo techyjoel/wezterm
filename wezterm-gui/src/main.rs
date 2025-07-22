@@ -1035,6 +1035,7 @@ pub fn run_ls_fonts(config: config::ConfigHandle, cmd: &LsFontsCommand) -> anyho
                     &font,
                     &render_metrics,
                     info.num_cells,
+                    false, // Terminal text doesn't need cluster tracking
                 )?;
 
                 let mut texture = cached_glyph.texture.clone();

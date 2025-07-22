@@ -17,6 +17,7 @@ use crate::quad::{QuadTrait, TripleLayerQuadAllocator, TripleLayerQuadAllocatorT
 use crate::sidebar::{AiSidebar, SidebarScrollbars};
 use crate::termwindow::box_model::{
     set_width_correction_factor, Element, ElementColors, ElementContent, LayoutContext,
+    RenderSource,
 };
 use crate::termwindow::render::neon::{NeonRenderer, NeonStyle};
 use crate::termwindow::render::scrollbar_renderer::ScrollbarRenderer;
@@ -563,6 +564,7 @@ impl crate::TermWindow {
                         metrics: &self.render_metrics,
                         gl_state: self.render_state.as_ref().unwrap(),
                         zindex: 12, // Activity log content at z-index 12
+                        source: RenderSource::Sidebar,
                     },
                     &activity_log_element,
                 )?;
@@ -643,6 +645,7 @@ impl crate::TermWindow {
                     metrics: &self.render_metrics,
                     gl_state: self.render_state.as_ref().unwrap(),
                     zindex: 14,
+                    source: RenderSource::Sidebar,
                 },
                 &element,
             )?;
@@ -665,7 +668,10 @@ impl crate::TermWindow {
                         .ui_items()
                         .iter()
                         .find(|item| {
-                            matches!(item.item_type, crate::termwindow::UIItemType::ChatInput)
+                            matches!(
+                                item.item_type,
+                                crate::termwindow::UIItemType::ChatInput { .. }
+                            )
                         })
                         .map(|item| {
                             euclid::rect::<f32, euclid::UnknownUnit>(
@@ -791,6 +797,7 @@ impl crate::TermWindow {
                                 metrics: &self.render_metrics,
                                 gl_state: self.render_state.as_ref().unwrap(),
                                 zindex: 15, // Chat input text at z-index 15
+                                source: RenderSource::Sidebar,
                             },
                             &chat_input_element,
                         )?;
@@ -847,15 +854,29 @@ impl crate::TermWindow {
 
             // Render sidebar scrollbars at z-index 16
             let sidebar_scrollbars = sidebar.lock().unwrap().get_scrollbars();
-            if let Some(ref scrollbar_info) = sidebar_scrollbars.activity_log {
-                if scrollbar_info.should_show {
-                    self.render_sidebar_scrollbars(
-                        sidebar_x,
-                        visible_width,
-                        &sidebar_scrollbars,
-                        &sidebar,
-                    )?;
-                }
+
+            log::debug!(
+                "Sidebar scrollbars: activity_log={:?}, chat_input={:?}",
+                sidebar_scrollbars.activity_log.is_some(),
+                sidebar_scrollbars.chat_input.is_some()
+            );
+            // Render scrollbars if either activity log or chat input needs them
+            let should_render_scrollbars = sidebar_scrollbars
+                .activity_log
+                .as_ref()
+                .map_or(false, |s| s.should_show)
+                || sidebar_scrollbars
+                    .chat_input
+                    .as_ref()
+                    .map_or(false, |s| s.should_show);
+
+            if should_render_scrollbars {
+                self.render_sidebar_scrollbars(
+                    sidebar_x,
+                    visible_width,
+                    &sidebar_scrollbars,
+                    &sidebar,
+                )?;
             }
 
             // Update filter chip bounds with sidebar position
@@ -1011,6 +1032,12 @@ impl crate::TermWindow {
 
         // Render chat input scrollbar if needed
         if let Some(ref scrollbar_info) = scrollbars.chat_input {
+            log::debug!(
+                "Chat input scrollbar render check: should_show={}, content_height={}, viewport_height={}",
+                scrollbar_info.should_show,
+                scrollbar_info.content_height,
+                scrollbar_info.viewport_height
+            );
             if scrollbar_info.should_show {
                 // Get chat input bounds for positioning
                 let chat_input_bounds = {
@@ -1026,6 +1053,14 @@ impl crate::TermWindow {
                 };
 
                 if let Some(bounds) = chat_input_bounds {
+                    log::debug!(
+                        "Chat input bounds found: ({}, {}, {}, {})",
+                        bounds.origin.x,
+                        bounds.origin.y,
+                        bounds.size.width,
+                        bounds.size.height
+                    );
+
                     let scrollbar_width = 10.0;
                     let scrollbar_x = sidebar_x + sidebar_width - scrollbar_width - 4.0;
                     let scrollbar_y = bounds.min_y();
@@ -1033,6 +1068,14 @@ impl crate::TermWindow {
 
                     let scrollbar_bounds =
                         euclid::rect(scrollbar_x, scrollbar_y, scrollbar_width, scrollbar_height);
+
+                    log::debug!(
+                        "Chat input scrollbar will render at: ({}, {}, {}, {})",
+                        scrollbar_bounds.origin.x,
+                        scrollbar_bounds.origin.y,
+                        scrollbar_bounds.size.width,
+                        scrollbar_bounds.size.height
+                    );
 
                     // Create scrollbar renderer using pixel-based values
                     let mut scrollbar = ScrollbarRenderer::new_vertical(
@@ -1239,6 +1282,7 @@ impl crate::TermWindow {
                         metrics: &self.render_metrics,
                         gl_state: self.render_state.as_ref().unwrap(),
                         zindex: 20, // Modal elements render at z-index 20+
+                        source: RenderSource::Sidebar,
                     },
                     &element,
                 )?;

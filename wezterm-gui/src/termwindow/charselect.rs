@@ -540,6 +540,7 @@ impl CharSelector {
                 metrics: &metrics,
                 gl_state: term_window.render_state.as_ref().unwrap(),
                 zindex: 100,
+                source: RenderSource::Terminal,
             },
             &element,
         )?;

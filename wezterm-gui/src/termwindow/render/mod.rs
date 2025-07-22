@@ -771,6 +771,7 @@ impl crate::TermWindow {
                         bearing_x: PixelLength::zero(),
                         bearing_y: PixelLength::zero(),
                         scale: 1.0,
+                        cluster: None, // Terminal text doesn't need cluster tracking
                     }));
                     continue;
                 }
@@ -788,6 +789,7 @@ impl crate::TermWindow {
                 font,
                 metrics,
                 info.num_cells,
+                false, // Terminal text doesn't need cluster tracking
             )?);
         }
         Ok(glyphs)
