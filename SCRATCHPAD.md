@@ -5,20 +5,22 @@
 2. **Text Selection**: Enable click-and-drag per-character text selection with visual feedback (blue background, white text) in activity log, suggestion card, suggestion "view more" modal, and goal text.
 3. **Multi-line Chat Input**: Full editing capabilities with click-to-position cursor, scrolling, Enter to send, Shift+Enter for newline.
 
-## Latest Status (After Session 7 - Successful Fix!)
+## Latest Status (After Session 8 - Major Progress!)
 
 ### ✅ Working Features
 1. **Click-to-Position**: FIXED! Clicking anywhere in wrapped text correctly positions cursor
 2. **Cursor Display**: FIXED! Cursor now appears at correct position on all wrapped lines
 3. **Text Entry**: Characters appear at cursor position on any line
 4. **Line Wrapping**: Text properly wraps and cursor/clicks work across wrapped lines
+5. **Shift+Enter**: FIXED! Now properly inserts newlines (modifier passing was broken)
+6. **Scrolling**: FIXED! Scrollbar appears when text wraps beyond viewport
 
 ### ❌ Remaining Issues
-1. **Shift+Enter**: Text may disappear or scroll out of view when adding newlines
-2. **Scrolling**: Not functional - no scrollbar appears, mouse wheel doesn't work
-3. **Text Selection**: Not yet implemented
+1. **Text Selection**: Not yet implemented (infrastructure ready)
+2. **Scroll-to-cursor on newline**: Cursor may go out of view when adding lines
+3. **Text Selection Width Jump**: Activity log text jumps to half-width when selection starts
 
-### What Fixed the Issue (Session 7)
+### What Fixed the Issues (Sessions 7-8)
 
 1. **Completed ElementCell::GlyphWithCluster Implementation**:
    - Stores position-specific cluster data alongside glyphs
@@ -34,6 +36,17 @@
    - Maps logical cursor position to visual line position
    - Uses exact glyph positions for pixel-perfect cursor placement
    - Handles wrapped lines correctly
+
+4. **Fixed Shift+Enter (Session 8)**:
+   - Updated Sidebar trait to accept KeyModifiers parameter
+   - Added proper window-to-termwiz modifier conversion
+   - Shift+Enter now correctly inserts newlines instead of sending
+
+5. **Fixed Scrolling (Session 8)**:
+   - Added visual_line_count tracking to MultilineTextInput
+   - Scrollbar now uses visual lines (wrapped) instead of logical lines
+   - Visual line count updated when exact_glyph_positions is populated
+   - Properly resets on text changes to prevent stale data
 
 ### Root Cause Analysis
 
@@ -84,48 +97,9 @@ The fundamental issue is that **cluster information is position-specific, not gl
    - No longer shifts text
    - 2px wide light gray filled rectangle
 
-### ❌ Current Issues (Still Broken After Fixes)
+### ❌ Remaining Technical Issues
 
-#### 1. Click-to-Position Cursor (Much Worse)
-**Symptoms**: 
-- The placement of the cursor upon a click visually appears about correct, however functionally it is not
-- Typed characters (after a click) appears significantly to they left of where the cursor visually appears
-- This is consistent with the visual placement of the cursor during initial text entry: The cursor moves to the right, away from the leading character, over time as the user types. It's as if the estimation of where the cursor should appear uses widths that are too large.
-- Clicks on 2nd line never register at all
-
-**Suspected Root Causes**:
-- **Hardcoded character width mismatch**: Click handler uses `char_width = 8.5` but actual font `cell_width` varies based on font size
-- **No access to real font metrics**: `handle_chat_input_click_simple` can't access `LoadedFont` to get real `cell_width`
-- **Font size reduction not accounted for**: Sidebar body font uses `font_size - 1.0` point reduction
-- **Coordinate calculation issues**: Multiple layers of padding not properly accounted for
-  - Container padding: 8px left/right, 6px top/bottom
-  - Per-line text element padding: 4px left/right, 2px top/bottom (found in rendering but not click handling)
-
-**What We Tried**:
-- ✅ Pre-calculated character positions during rendering and stored in UIItemType::ChatInput
-- ✅ Added handle_chat_input_click_with_positions() that uses pre-calculated positions
-- ✅ Applied 0.85x adjustment factor to account for font size reduction
-- ❌ Character width is still wrong: base=20px, adjusted=17px but actual appears to be ~8-10px
-- ❌ The font metrics show cell_height=25.78 which seems too large for sidebar text
-
-#### 2. Scrolling in the chat input box (Still Non-Functional)
-**Symptoms**:
-- No scrollbar appears
-- Mouse wheel doesn't scroll
-- No visual indication of scrollability
-
-**Root Cause (Suspected)**:
-- **Possible timing issue**: Bounds might be set after they're needed for first render
-- **Needs deeper investigation**
-
-**What We Tried**:
-- ✅ Fixed scrollbar rendering to check both activity log AND chat input
-- ✅ Changed to show scrollbar even when unfocused if content is scrollable
-- ✅ Added debug logging throughout the scrollbar pipeline
-- ❌ Logs show `chat_input=false` - scrollbar is never detected as needed
-- ❌ Chat input bounds may not be set properly
-
-#### 3. Text Selection (Text Jumps to Half-Width)
+#### 1. Text Selection (Not Implemented)
 **Symptoms**:
 - Text jumps to half-width when attempting to select (e.g. in the activity log)
 - No visual selection feedback
@@ -228,19 +202,14 @@ The width constraint is likely being recalculated during selection state changes
 
 ## Next Steps
 
-### Remaining High-Priority Issues
+### Remaining Issues to Implement
 
-1. **Shift+Enter Newline Handling**:
-   - Issue: Text disappears or scrolls out of view
-   - Likely cause: Chat input only displays 2 lines, scroll offset not updated properly
-   - Solution: Fix scroll offset calculation when newlines are added
+1. **Scroll-to-Cursor on Newline**:
+   - Issue: Cursor may go out of view when adding newlines
+   - Cause: Scroll offset not adjusted to keep cursor visible
+   - Solution: Implement ensure_cursor_visible() that adjusts scroll based on cursor's visual line
 
-2. **Scrolling Functionality**:
-   - Issue: No scrollbar appears, mouse wheel doesn't work
-   - Cause: Scrollbar detection needs to account for visual lines, not just logical lines
-   - Solution: Calculate total height based on wrapped lines
-
-3. **Text Selection**:
+2. **Text Selection**:
    - Infrastructure is ready (exact positions available)
    - Need to implement selection state management
    - Add visual feedback and copy functionality
@@ -248,6 +217,19 @@ The width constraint is likely being recalculated during selection state changes
 ### Technical Approach
 
 The ElementCell::GlyphWithCluster solution is working well. The key insight was that cluster information must be stored per-instance, not in the shared glyph cache. This maintains the performance benefits of texture caching while enabling pixel-perfect text interaction.
+
+### Key Implementation Details (Session 8)
+
+1. **Visual Line Tracking**:
+   - `MultilineTextInput.visual_line_count` tracks wrapped lines
+   - Updated when `exact_glyph_positions` is populated during rendering
+   - Reset to 0 on text changes (in `reset_scroll_to_bottom()` and `set_text()`)
+   - Scrollbar calculations use visual lines when available
+
+2. **Modifier Passing**:
+   - `Sidebar` trait updated to accept `KeyModifiers` parameter
+   - Window modifiers converted to termwiz modifiers (including LEFT/RIGHT variants)
+   - Proper handling ensures Shift+Enter works as expected
 
 ### Integration Points
 

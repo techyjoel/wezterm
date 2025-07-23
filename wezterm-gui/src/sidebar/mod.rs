@@ -17,6 +17,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use termwiz::input::KeyCode;
+use wezterm_term::KeyModifiers;
 use wezterm_font::LoadedFont;
 use window::MouseEvent;
 // Widget traits will be implemented differently without termwiz widgets
@@ -262,7 +263,7 @@ pub trait Sidebar: Send + Sync {
         Ok(false)
     }
 
-    fn handle_key_event(&mut self, _key: &KeyCode) -> Result<bool> {
+    fn handle_key_event(&mut self, _key: &KeyCode, _modifiers: KeyModifiers) -> Result<bool> {
         Ok(false)
     }
 

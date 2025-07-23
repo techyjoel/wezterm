@@ -188,6 +188,42 @@ enum OnlyKeyBindings {
 }
 
 impl super::TermWindow {
+    /// Convert window modifiers to termwiz modifiers
+    fn window_modifiers_to_termwiz_modifiers(&self, mods: Modifiers) -> wezterm_term::KeyModifiers {
+        let mut result = wezterm_term::KeyModifiers::empty();
+        
+        // Map SHIFT (including left/right variants)
+        if mods.contains(Modifiers::SHIFT) || 
+           mods.contains(Modifiers::LEFT_SHIFT) || 
+           mods.contains(Modifiers::RIGHT_SHIFT) {
+            result |= wezterm_term::KeyModifiers::SHIFT;
+        }
+        
+        // Map CTRL (including left/right variants)
+        if mods.contains(Modifiers::CTRL) ||
+           mods.contains(Modifiers::LEFT_CTRL) ||
+           mods.contains(Modifiers::RIGHT_CTRL) {
+            result |= wezterm_term::KeyModifiers::CTRL;
+        }
+        
+        // Map ALT (including left/right variants)
+        if mods.contains(Modifiers::ALT) ||
+           mods.contains(Modifiers::LEFT_ALT) ||
+           mods.contains(Modifiers::RIGHT_ALT) {
+            result |= wezterm_term::KeyModifiers::ALT;
+        }
+        
+        // Map SUPER (Windows/Command key)
+        if mods.contains(Modifiers::SUPER) {
+            result |= wezterm_term::KeyModifiers::SUPER;
+        }
+        
+        // Note: LEADER and ENHANCED_KEY modifiers are not mapped as they don't have
+        // direct equivalents in wezterm_term::KeyModifiers
+        
+        result
+    }
+
     fn encode_win32_input(&self, pane: &Arc<dyn Pane>, key: &KeyEvent) -> Option<String> {
         if !self.config.allow_win32_input_mode
             || pane.get_keyboard_encoding() != KeyboardEncoding::Win32
@@ -638,7 +674,9 @@ impl super::TermWindow {
                             if let Key::Code(key_code) =
                                 self.win_key_code_to_termwiz_key_code(&window_key.key)
                             {
-                                if let Ok(handled) = sidebar.handle_key_event(&key_code) {
+                                // Convert window modifiers to termwiz modifiers
+                                let termwiz_modifiers = self.window_modifiers_to_termwiz_modifiers(window_key.modifiers);
+                                if let Ok(handled) = sidebar.handle_key_event(&key_code, termwiz_modifiers) {
                                     if handled {
                                         context.invalidate();
                                         return;
@@ -679,7 +717,9 @@ impl super::TermWindow {
                             if let Key::Code(key_code) =
                                 self.win_key_code_to_termwiz_key_code(&window_key.key)
                             {
-                                if let Ok(handled) = sidebar.handle_key_event(&key_code) {
+                                // Convert window modifiers to termwiz modifiers
+                                let termwiz_modifiers = self.window_modifiers_to_termwiz_modifiers(window_key.modifiers);
+                                if let Ok(handled) = sidebar.handle_key_event(&key_code, termwiz_modifiers) {
                                     if handled {
                                         context.invalidate();
                                         return;

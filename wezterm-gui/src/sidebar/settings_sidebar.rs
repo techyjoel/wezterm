@@ -3,6 +3,7 @@ use crate::termwindow::box_model::{Element, ElementColors, ElementContent};
 use anyhow::Result;
 use std::rc::Rc;
 use termwiz::input::KeyCode;
+use wezterm_term::KeyModifiers;
 use wezterm_font::LoadedFont;
 use window::color::LinearRgba;
 use window::MouseEvent;
@@ -60,7 +61,7 @@ impl Sidebar for SettingsSidebar {
         Ok(false)
     }
 
-    fn handle_key_event(&mut self, _key: &KeyCode) -> Result<bool> {
+    fn handle_key_event(&mut self, _key: &KeyCode, _modifiers: KeyModifiers) -> Result<bool> {
         // No key handling for placeholder
         Ok(false)
     }

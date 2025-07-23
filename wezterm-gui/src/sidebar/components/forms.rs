@@ -271,9 +271,16 @@ pub struct MultilineTextInput {
     pub scroll_pixel_offset: f32,
     /// Whether user has manually scrolled (disables auto-scroll to bottom)
     pub user_has_scrolled: bool,
-    /// Exact glyph positions for each line (populated during rendering)
-    /// Each inner vec contains (x_start, x_end, byte_offset) for each glyph
+    /// Exact glyph positions for each visual line after text wrapping.
+    /// Outer vec: one entry per visual line after wrapping
+    /// Inner vec: (x_start, x_end, byte_offset) for each glyph in that line
+    /// This is populated during the rendering phase and used for pixel-perfect hit testing.
+    /// Cleared when text content changes to prevent stale data.
     pub exact_glyph_positions: Vec<Vec<(f32, f32, usize)>>,
+    /// Number of visual lines after text wrapping (populated during rendering).
+    /// A value of 0 indicates that wrapping hasn't been calculated yet or text has changed.
+    /// Used for scrollbar calculations to handle wrapped text correctly.
+    pub visual_line_count: usize,
 }
 
 impl MultilineTextInput {
@@ -292,6 +299,7 @@ impl MultilineTextInput {
             scroll_pixel_offset: 0.0,
             user_has_scrolled: false,
             exact_glyph_positions: Vec::new(),
+            visual_line_count: 0,
         }
     }
 
@@ -320,6 +328,10 @@ impl MultilineTextInput {
         self.cursor_line = self.lines.len().saturating_sub(1);
         self.cursor_col = self.lines.last().map(|l| l.len()).unwrap_or(0);
         self.update_scroll();
+        
+        // Reset visual line tracking as text has changed
+        self.visual_line_count = 0;
+        self.exact_glyph_positions.clear();
     }
 
     /// Handle character input
@@ -1241,6 +1253,10 @@ impl MultilineTextInput {
     pub fn reset_scroll_to_bottom(&mut self) {
         self.user_has_scrolled = false;
         // scroll_pixel_offset will be recalculated in render_with_scissor
+        
+        // Reset visual line tracking as text has changed
+        self.visual_line_count = 0;
+        self.exact_glyph_positions.clear();
     }
 
     /// Handle click at a specific position with position info

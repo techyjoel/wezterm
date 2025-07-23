@@ -2154,8 +2154,16 @@ This example demonstrates:
     ) -> Element {
         let line_height = font.metrics().cell_height.get() as f32;
         // Use consistent 1.1x multiplier for line spacing
+        // TODO: Extract line spacing multiplier (1.1) to a constant - used throughout codebase
         let line_height_with_spacing = line_height * 1.1;
-        let total_height = self.chat_input.lines.len() as f32 * line_height_with_spacing;
+        
+        // Use visual line count if available, otherwise fall back to logical lines
+        let line_count = if self.chat_input.visual_line_count > 0 {
+            self.chat_input.visual_line_count
+        } else {
+            self.chat_input.lines.len()
+        };
+        let total_height = line_count as f32 * line_height_with_spacing;
 
         log::debug!(
             "render_chat_input_text: width={:.1}, viewport_height={:.1}, line_height={:.1}, line_height_with_spacing={:.1}, lines={}, focused={}",
@@ -2474,6 +2482,8 @@ This example demonstrates:
 
     /// Update chat input with exact glyph positions from rendering
     pub fn set_chat_input_glyph_positions(&mut self, positions: Vec<Vec<(f32, f32, usize)>>) {
+        // Update visual line count based on actual wrapped lines
+        self.chat_input.visual_line_count = positions.len();
         self.chat_input.exact_glyph_positions = positions;
     }
 
@@ -2873,14 +2883,23 @@ impl Sidebar for AiSidebar {
             // Calculate using actual font metrics
             // The logs show line_height is 20px, with 1.1x multiplier = 22px
             let line_height = 20.0;
+            // TODO: Extract line spacing multiplier (1.1) to a constant - used throughout codebase
             let line_height_with_spacing = line_height * 1.1;
             let viewport_height = self.chat_input.display_lines as f32 * line_height_with_spacing;
-            let total_height = self.chat_input.lines.len() as f32 * line_height_with_spacing;
+            
+            // Use visual line count if available (from text wrapping), otherwise fall back to logical lines
+            let line_count = if self.chat_input.visual_line_count > 0 {
+                self.chat_input.visual_line_count
+            } else {
+                self.chat_input.lines.len()
+            };
+            let total_height = line_count as f32 * line_height_with_spacing;
 
             log::debug!(
-                "Chat input scrollbar calc: focused={}, lines={}, display_lines={}, total_height={}, viewport_height={}, needs_scrollbar={}",
+                "Chat input scrollbar calc: focused={}, logical_lines={}, visual_lines={}, display_lines={}, total_height={}, viewport_height={}, needs_scrollbar={}",
                 self.chat_input.focused,
                 self.chat_input.lines.len(),
+                self.chat_input.visual_line_count,
                 self.chat_input.display_lines,
                 total_height,
                 viewport_height,
@@ -3083,15 +3102,15 @@ impl Sidebar for AiSidebar {
         Ok(false)
     }
 
-    fn handle_key_event(&mut self, key: &KeyCode) -> Result<bool> {
-        log::debug!("AI sidebar received key event: {:?}", key);
+    fn handle_key_event(&mut self, key: &KeyCode, modifiers: KeyModifiers) -> Result<bool> {
+        log::debug!("AI sidebar received key event: {:?} with modifiers: {:?}", key, modifiers);
 
         // Handle modal keyboard events first
         if self.modal_manager.is_active() {
             log::debug!("Modal is active, forwarding key to modal manager");
             if self
                 .modal_manager
-                .handle_key_event(*key, KeyModifiers::empty())
+                .handle_key_event(*key, modifiers)
             {
                 return Ok(true);
             }
@@ -3099,9 +3118,9 @@ impl Sidebar for AiSidebar {
 
         // Handle chat input keyboard events when it has focus
         if self.chat_input.focused {
-            log::debug!("Chat input has focus, handling key event: {:?}", key);
+            log::debug!("Chat input has focus, handling key event: {:?} with modifiers: {:?}", key, modifiers);
 
-            // Special handling for Enter key
+            // Special handling for certain keys
             match key {
                 KeyCode::Escape => {
                     // Escape unfocuses the chat input, returning focus to terminal
@@ -3110,15 +3129,23 @@ impl Sidebar for AiSidebar {
                     return Ok(true);
                 }
                 KeyCode::Enter => {
-                    // Enter without shift sends the message
-                    if !self.chat_input.get_text().trim().is_empty() {
-                        self.handle_chat_send();
+                    // Check if Shift is held
+                    if modifiers.contains(KeyModifiers::SHIFT) {
+                        // Shift+Enter should insert a newline - let MultilineTextInput handle it
+                        let result = self.chat_input.handle_key_event(key, modifiers);
+                        log::debug!("MultilineTextInput.handle_key_event (Shift+Enter) returned: {:?}", result);
+                        return result;
+                    } else {
+                        // Enter without shift sends the message
+                        if !self.chat_input.get_text().trim().is_empty() {
+                            self.handle_chat_send();
+                        }
+                        return Ok(true);
                     }
-                    return Ok(true);
                 }
                 _ => {
-                    // Let MultilineTextInput handle all other keys including Shift+Enter
-                    let result = self.chat_input.handle_key_event(key, KeyModifiers::empty());
+                    // Let MultilineTextInput handle all other keys
+                    let result = self.chat_input.handle_key_event(key, modifiers);
                     log::debug!("MultilineTextInput.handle_key_event returned: {:?}", result);
                     return result;
                 }
