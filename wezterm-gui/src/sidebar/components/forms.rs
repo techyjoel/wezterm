@@ -271,6 +271,9 @@ pub struct MultilineTextInput {
     pub scroll_pixel_offset: f32,
     /// Whether user has manually scrolled (disables auto-scroll to bottom)
     pub user_has_scrolled: bool,
+    /// Exact glyph positions for each line (populated during rendering)
+    /// Each inner vec contains (x_start, x_end, byte_offset) for each glyph
+    pub exact_glyph_positions: Vec<Vec<(f32, f32, usize)>>,
 }
 
 impl MultilineTextInput {
@@ -288,6 +291,7 @@ impl MultilineTextInput {
             scroll_offset: 0,
             scroll_pixel_offset: 0.0,
             user_has_scrolled: false,
+            exact_glyph_positions: Vec::new(),
         }
     }
 

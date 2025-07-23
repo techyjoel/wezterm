@@ -203,7 +203,7 @@ impl AsciiStyleMapper {
             // Map cells to graphemes for this line
             for (cell_idx, cell) in line_cells.iter().enumerate() {
                 match cell {
-                    ElementCell::Glyph(_glyph) => {
+                    ElementCell::Glyph(_) | ElementCell::GlyphWithCluster { .. } => {
                         if grapheme_idx < self.grapheme_to_cell.len() {
                             self.grapheme_to_cell[grapheme_idx] = Some((line_idx, cell_idx));
                             grapheme_idx += 1;
@@ -229,7 +229,7 @@ impl AsciiStyleMapper {
         for (line_idx, line) in wrapped_lines.iter().enumerate() {
             for (cell_idx, cell) in line.iter().enumerate() {
                 match cell {
-                    ElementCell::Glyph(_glyph) => {
+                    ElementCell::Glyph(_) | ElementCell::GlyphWithCluster { .. } => {
                         // Only map actual glyphs from the original text
                         // TODO: This still assumes 1 glyph = 1 grapheme
                         // A full solution would need to track which glyphs
@@ -1034,6 +1034,21 @@ pub enum ComputedElementContent {
 pub enum ElementCell {
     Sprite(Sprite),
     Glyph(Rc<CachedGlyph>),
+    // New variant that includes position-specific cluster information
+    GlyphWithCluster {
+        glyph: Rc<CachedGlyph>,
+        cluster: u32,
+    },
+}
+
+impl ElementCell {
+    /// Get the glyph from either Glyph or GlyphWithCluster variant
+    pub fn get_glyph(&self) -> Option<&Rc<CachedGlyph>> {
+        match self {
+            ElementCell::Glyph(glyph) | ElementCell::GlyphWithCluster { glyph, .. } => Some(glyph),
+            ElementCell::Sprite(_) => None,
+        }
+    }
 }
 
 /// Represents a wrapped line of text with its byte offsets
@@ -1079,26 +1094,82 @@ impl GlyphPositionMap {
     pub fn from_cells(cells: &[ElementCell], wrapped_line: &WrappedLine) -> Self {
         let mut positions = Vec::new();
         let mut x_pos = 0.0;
+        let mut glyphs_with_clusters = 0;
+        let mut total_glyphs = 0;
+
+        log::trace!(
+            "GlyphPositionMap::from_cells: wrapped_line.shaped_text='{}', byte_offset={}, shaped_offset={}",
+            wrapped_line.shaped_text,
+            wrapped_line.byte_offset,
+            wrapped_line.shaped_offset
+        );
 
         for cell in cells {
             match cell {
                 ElementCell::Glyph(cached_glyph) => {
+                    total_glyphs += 1;
                     let x_start = x_pos;
                     let x_end = x_pos + cached_glyph.x_advance.get() as f32;
 
-                    // Only process glyphs with cluster information (sidebar text)
-                    if let Some(cluster) = cached_glyph.cluster {
-                        // Cluster is relative to shaped text, convert to document offset
-                        let byte_offset = wrapped_line.cluster_to_byte_offset(cluster);
-                        positions.push((byte_offset, x_start, x_end));
-                    }
-                    // Terminal glyphs (cluster = None) are skipped
+                    // Regular glyphs without cluster info (terminal text)
+                    // are skipped for position tracking
 
+                    x_pos = x_end;
+                }
+                ElementCell::GlyphWithCluster { glyph, cluster } => {
+                    total_glyphs += 1;
+                    glyphs_with_clusters += 1;
+                    let x_start = x_pos;
+                    let x_end = x_pos + glyph.x_advance.get() as f32;
+
+                    // Cluster is relative to shaped text, convert to document offset
+                    let byte_offset = wrapped_line.cluster_to_byte_offset(*cluster);
+
+                    // Debug: log first few cluster conversions
+                    if positions.len() < 3 {
+                        log::trace!(
+                            "  Glyph {}: cluster={}, byte_offset={}, x=({}, {})",
+                            total_glyphs - 1,
+                            cluster,
+                            byte_offset,
+                            x_start,
+                            x_end
+                        );
+                    }
+
+                    positions.push((byte_offset, x_start, x_end));
                     x_pos = x_end;
                 }
                 ElementCell::Sprite(sprite) => {
                     // Block drawing characters don't have text positions
                     x_pos += sprite.coords.size.width as f32;
+                }
+            }
+        }
+
+        if total_glyphs > 0 && log::log_enabled!(log::Level::Trace) {
+            log::trace!(
+                "GlyphPositionMap: {} of {} glyphs have cluster info, extracted {} positions",
+                glyphs_with_clusters,
+                total_glyphs,
+                positions.len()
+            );
+
+            // Debug: if very few positions compared to glyphs, investigate
+            if positions.len() < glyphs_with_clusters / 2 && glyphs_with_clusters > 5 {
+                log::warn!("Very few positions extracted from glyphs with clusters: {} positions from {} glyphs", 
+                          positions.len(), glyphs_with_clusters);
+
+                // Check for duplicate byte offsets
+                let mut offset_counts = std::collections::HashMap::new();
+                for (offset, _, _) in &positions {
+                    *offset_counts.entry(*offset).or_insert(0) += 1;
+                }
+
+                for (offset, count) in offset_counts {
+                    if count > 1 {
+                        log::debug!("  Byte offset {} appears {} times", offset, count);
+                    }
                 }
             }
         }
@@ -1241,269 +1312,264 @@ impl super::TermWindow {
         context: &LayoutContext,
         style: &config::TextStyle,
     ) -> anyhow::Result<(Vec<Vec<ElementCell>>, Vec<WrappedLine>)> {
-        let mut all_lines = Vec::new();
-        let mut all_wrapped_lines = Vec::new();
-        let mut byte_offset = 0;
+        // Step 1: Calculate line breaks and create WrappedLines
+        let wrapped_lines = self.wrap_text_into_lines(text, font, max_width, context, style)?;
 
-        // Split by newlines first to preserve line structure
-        for line_text in text.lines() {
-            if line_text.is_empty() {
+        // Step 2: Shape each complete line
+        let mut all_lines = Vec::new();
+        let track_cluster = context.source == RenderSource::Sidebar;
+
+        log::debug!(
+            "wrap_text_with_info: RenderSource={:?}, track_cluster={}",
+            context.source,
+            track_cluster
+        );
+
+        for wrapped_line in &wrapped_lines {
+            if wrapped_line.shaped_text.is_empty() {
                 // Preserve empty lines
                 all_lines.push(Vec::new());
                 continue;
             }
 
-            let mut current_line = Vec::new();
-            let mut current_width = 0.0;
+            // Shape the complete line text
+            let window = self.window.as_ref().unwrap().clone();
+            let infos = font.shape(
+                &wrapped_line.shaped_text,
+                move || window.notify(TermWindowNotif::InvalidateShapeCache),
+                BlockKey::filter_out_synthetic,
+                None,
+                wezterm_bidi::Direction::LeftToRight,
+                None,
+                None,
+            )?;
 
-            // Preserve leading indentation
-            let leading_spaces = line_text.len() - line_text.trim_start().len();
-            let mut indentation = String::new();
-            if leading_spaces > 0 {
-                indentation = " ".repeat(leading_spaces);
-            }
-
-            // Split by whitespace, but handle spaces separately
-            let mut words_with_spaces = Vec::new();
-            let mut current_word = String::new();
-            let mut char_iter = line_text.chars().peekable();
-            let mut is_at_start = true;
-
-            while let Some(ch) = char_iter.next() {
-                if ch == ' ' {
-                    if is_at_start {
-                        // Leading spaces are handled separately
-                        continue;
-                    }
-                    if !current_word.is_empty() {
-                        // This word is followed by a space, so it has a trailing space
-                        words_with_spaces.push((current_word.clone(), true));
-                        current_word.clear();
-                    }
-                    // Skip consecutive spaces
-                    while char_iter.peek() == Some(&' ') {
-                        char_iter.next();
-                    }
-                } else {
-                    is_at_start = false;
-                    current_word.push(ch);
+            // Debug logging for cluster values (only in trace mode)
+            if track_cluster && log::log_enabled!(log::Level::Trace) {
+                log::trace!(
+                    "Shaping line: '{}' (byte_offset={}, shaped_offset={})",
+                    wrapped_line.shaped_text,
+                    wrapped_line.byte_offset,
+                    wrapped_line.shaped_offset
+                );
+                for (i, info) in infos.iter().take(5).enumerate() {
+                    log::trace!(
+                        "  Glyph[{}]: cluster={}, num_cells={}, x_advance={}",
+                        i,
+                        info.cluster,
+                        info.num_cells,
+                        info.x_advance.get()
+                    );
                 }
             }
 
-            // Don't forget the last word (which has no trailing space)
-            if !current_word.is_empty() {
-                words_with_spaces.push((current_word, false));
-            }
+            let cells = self.shape_text_to_cells(
+                &wrapped_line.shaped_text,
+                &infos,
+                font,
+                context,
+                style,
+                track_cluster,
+            )?;
 
-            // Add indentation to the beginning of the line if present
-            if !indentation.is_empty() && words_with_spaces.is_empty() {
-                // Line has only indentation (empty after trimming)
-                let ind_window = self.window.as_ref().unwrap().clone();
-                let ind_infos = font.shape(
-                    &indentation,
-                    move || ind_window.notify(TermWindowNotif::InvalidateShapeCache),
-                    BlockKey::filter_out_synthetic,
-                    None,
-                    wezterm_bidi::Direction::LeftToRight,
-                    None,
-                    None,
-                )?;
-                let track_cluster = context.source == RenderSource::Sidebar;
-                let ind_cells = self.shape_text_to_cells(
-                    &indentation,
-                    &ind_infos,
-                    font,
-                    context,
-                    style,
-                    track_cluster,
-                )?;
-                current_line.extend(ind_cells);
-                all_lines.push(current_line);
-                continue;
-            } else if !indentation.is_empty() {
-                // Add indentation at the start
-                let ind_window = self.window.as_ref().unwrap().clone();
-                let ind_infos = font.shape(
-                    &indentation,
-                    move || ind_window.notify(TermWindowNotif::InvalidateShapeCache),
-                    BlockKey::filter_out_synthetic,
-                    None,
-                    wezterm_bidi::Direction::LeftToRight,
-                    None,
-                    None,
-                )?;
-                let ind_width =
-                    self.calculate_text_width(&indentation, &ind_infos, font, context, style)?;
-                let track_cluster = context.source == RenderSource::Sidebar;
-                let ind_cells = self.shape_text_to_cells(
-                    &indentation,
-                    &ind_infos,
-                    font,
-                    context,
-                    style,
-                    track_cluster,
-                )?;
-                current_line.extend(ind_cells);
-                current_width = ind_width;
-            }
-
-            for (word, has_space) in words_with_spaces {
-                // Shape the word (without space) to get its width
-                let window = self.window.as_ref().unwrap().clone();
-                let word_infos = font.shape(
-                    &word,
-                    move || window.notify(TermWindowNotif::InvalidateShapeCache),
-                    BlockKey::filter_out_synthetic,
-                    None, // presentation
-                    wezterm_bidi::Direction::LeftToRight,
-                    None, // range
-                    None, // direction override
-                )?;
-
-                // Calculate word width (without space)
-                let word_width =
-                    self.calculate_text_width(&word, &word_infos, font, context, style)?;
-
-                // Calculate space width if needed
-                let space_width = if has_space {
-                    let space_window = self.window.as_ref().unwrap().clone();
-                    let space_infos = font.shape(
-                        " ",
-                        move || space_window.notify(TermWindowNotif::InvalidateShapeCache),
-                        BlockKey::filter_out_synthetic,
-                        None,
-                        wezterm_bidi::Direction::LeftToRight,
-                        None,
-                        None,
-                    )?;
-                    self.calculate_text_width(" ", &space_infos, font, context, style)?
-                } else {
-                    0.0
-                };
-
-                // Check if we need to wrap to a new line
-                // Only consider the word width, not the trailing space
-                if current_width > 0.0 && current_width + word_width > max_width {
-                    // The word itself doesn't fit, need new line
-                    if !current_line.is_empty() {
-                        all_lines.push(current_line);
-                        current_line = Vec::new();
-                        current_width = 0.0;
-                    }
-                }
-
-                // Now handle the word
-                if word_width > max_width {
-                    // Word is too wide for a single line, break at character boundaries
-                    if !current_line.is_empty() {
-                        all_lines.push(current_line);
-                        current_line = Vec::new();
-                        current_width = 0.0;
-                    }
-
-                    let track_cluster = context.source == RenderSource::Sidebar;
-                    let cells = self.shape_text_to_cells(
-                        &word,
-                        &word_infos,
-                        font,
-                        context,
-                        style,
-                        track_cluster,
-                    )?;
-                    let mut char_line = Vec::new();
-                    let mut char_width = 0.0;
-
-                    for cell in cells {
-                        let cell_width = self.get_cell_width(&cell, context)?;
-
-                        if char_width + cell_width > max_width && !char_line.is_empty() {
-                            all_lines.push(char_line);
-                            char_line = Vec::new();
-                            char_width = 0.0;
-                        }
-
-                        char_line.push(cell);
-                        char_width += cell_width;
-                    }
-
-                    if !char_line.is_empty() {
-                        current_line = char_line;
-                        current_width = char_width;
-                    }
-
-                    // Always add the space - it's OK if it overflows into padding
-                    if has_space {
-                        let space_window = self.window.as_ref().unwrap().clone();
-                        let space_infos = font.shape(
-                            " ",
-                            move || space_window.notify(TermWindowNotif::InvalidateShapeCache),
-                            BlockKey::filter_out_synthetic,
-                            None,
-                            wezterm_bidi::Direction::LeftToRight,
-                            None,
-                            None,
-                        )?;
-                        let track_cluster = context.source == RenderSource::Sidebar;
-                        let space_cells = self.shape_text_to_cells(
-                            " ",
-                            &space_infos,
-                            font,
-                            context,
-                            style,
-                            track_cluster,
-                        )?;
-                        current_line.extend(space_cells);
-                        current_width += space_width;
-                    }
-                } else {
-                    // Word fits on the line
-                    let track_cluster = context.source == RenderSource::Sidebar;
-                    let cells = self.shape_text_to_cells(
-                        &word,
-                        &word_infos,
-                        font,
-                        context,
-                        style,
-                        track_cluster,
-                    )?;
-                    current_line.extend(cells);
-                    current_width += word_width;
-
-                    // Now handle the space
-                    if has_space {
-                        // Always add the space - it's OK if it overflows into padding
-                        let space_window = self.window.as_ref().unwrap().clone();
-                        let space_infos = font.shape(
-                            " ",
-                            move || space_window.notify(TermWindowNotif::InvalidateShapeCache),
-                            BlockKey::filter_out_synthetic,
-                            None,
-                            wezterm_bidi::Direction::LeftToRight,
-                            None,
-                            None,
-                        )?;
-                        let track_cluster = context.source == RenderSource::Sidebar;
-                        let space_cells = self.shape_text_to_cells(
-                            " ",
-                            &space_infos,
-                            font,
-                            context,
-                            style,
-                            track_cluster,
-                        )?;
-                        current_line.extend(space_cells);
-                        current_width += space_width;
-                    }
-                }
-            }
-
-            // Add final line for this text line
-            if !current_line.is_empty() {
-                all_lines.push(current_line);
-            }
+            all_lines.push(cells);
         }
 
-        Ok((all_lines, all_wrapped_lines))
+        Ok((all_lines, wrapped_lines))
+    }
+
+    /// Wraps text into lines, creating proper WrappedLine structures
+    fn wrap_text_into_lines(
+        &self,
+        text: &str,
+        font: &Rc<LoadedFont>,
+        max_width: f32,
+        context: &LayoutContext,
+        style: &config::TextStyle,
+    ) -> anyhow::Result<Vec<WrappedLine>> {
+        let mut wrapped_lines = Vec::new();
+        let mut byte_offset = 0;
+
+        log::debug!(
+            "wrap_text_into_lines: text='{}', max_width={}",
+            text.replace('\n', "\\n"),
+            max_width
+        );
+
+        // Split by newlines first to preserve line structure
+        for line_text in text.lines() {
+            let line_byte_start = byte_offset;
+            let line_byte_len = line_text.len();
+
+            if line_text.is_empty() {
+                // Preserve empty lines
+                wrapped_lines.push(WrappedLine {
+                    byte_offset: line_byte_start,
+                    byte_end: line_byte_start,
+                    skip_leading_spaces: false,
+                    leading_space_bytes: 0,
+                    shaped_text: String::new(),
+                    shaped_offset: 0,
+                });
+                byte_offset += 1; // Account for newline
+                continue;
+            }
+
+            // Track position within this line
+            let mut current_pos = 0; // byte position within line
+            let mut current_width = 0.0;
+            let mut line_count = 0; // track if this is a continuation line
+            let mut current_line_start = 0; // where current wrapped line starts
+            let mut current_line_text = String::new();
+
+            // Calculate initial indentation
+            let leading_spaces = line_text.len() - line_text.trim_start().len();
+            if leading_spaces > 0 {
+                // Calculate indentation width
+                let indent_str = &line_text[..leading_spaces];
+                let window = self.window.as_ref().unwrap().clone();
+                let infos = font.shape(
+                    indent_str,
+                    move || window.notify(TermWindowNotif::InvalidateShapeCache),
+                    BlockKey::filter_out_synthetic,
+                    None,
+                    wezterm_bidi::Direction::LeftToRight,
+                    None,
+                    None,
+                )?;
+                current_width =
+                    self.calculate_text_width(indent_str, &infos, font, context, style)?;
+                current_line_text.push_str(indent_str);
+                current_pos = leading_spaces;
+            }
+
+            // Process the rest of the line
+            while current_pos < line_byte_len {
+                // For continuation lines, skip leading spaces
+                if line_count > 0 {
+                    let remaining = &line_text[current_pos..];
+                    let trimmed = remaining.trim_start();
+                    let skip_spaces = remaining.len() - trimmed.len();
+
+                    if skip_spaces > 0 {
+                        // Create wrapped line for previous content
+                        if !current_line_text.is_empty() {
+                            wrapped_lines.push(WrappedLine {
+                                byte_offset: line_byte_start + current_line_start,
+                                byte_end: line_byte_start + current_pos,
+                                skip_leading_spaces: false,
+                                leading_space_bytes: 0,
+                                shaped_text: current_line_text.clone(),
+                                shaped_offset: 0,
+                            });
+                        }
+
+                        // Start new line after skipped spaces
+                        current_pos += skip_spaces;
+                        current_line_start = current_pos;
+                        current_line_text.clear();
+                        current_width = 0.0;
+                    }
+                }
+
+                // Find next wrap point
+                let mut last_space_pos = None;
+                let mut last_space_width = current_width;
+                let mut wrap_pos = current_pos;
+                let mut line_width = current_width;
+
+                // Look for wrap point character by character
+                for (idx, ch) in line_text[current_pos..].char_indices() {
+                    let char_pos = current_pos + idx;
+
+                    // Estimate character width (this is just for wrapping decisions)
+                    let char_width = if ch == ' ' {
+                        font.metrics().cell_width.get() as f32 * 0.3
+                    } else {
+                        font.metrics().cell_width.get() as f32 * 0.5
+                    };
+
+                    // Check if adding this character would exceed width
+                    if line_width + char_width > max_width && line_width > 0.0 {
+                        // Need to wrap
+                        if let Some(space_pos) = last_space_pos {
+                            // Wrap at last space
+                            wrap_pos = space_pos;
+                        } else {
+                            // No space found, wrap at current position
+                            wrap_pos = char_pos;
+                        }
+                        break;
+                    }
+
+                    line_width += char_width;
+                    wrap_pos = char_pos + ch.len_utf8();
+
+                    if ch == ' ' {
+                        last_space_pos = Some(char_pos + ch.len_utf8());
+                        last_space_width = line_width;
+                    }
+                }
+
+                // Add text up to wrap point to current line
+                current_line_text.push_str(&line_text[current_pos..wrap_pos]);
+
+                // Create wrapped line
+                if !current_line_text.is_empty() || line_count == 0 {
+                    wrapped_lines.push(WrappedLine {
+                        byte_offset: line_byte_start + current_line_start,
+                        byte_end: line_byte_start + wrap_pos,
+                        skip_leading_spaces: line_count > 0,
+                        leading_space_bytes: if line_count > 0 {
+                            current_pos - current_line_start
+                        } else {
+                            0
+                        },
+                        shaped_text: current_line_text.clone(),
+                        shaped_offset: 0,
+                    });
+                }
+
+                // Move to next line
+                line_count += 1;
+
+                // Skip the space that caused the wrap if present
+                if wrap_pos < line_byte_len && line_text.as_bytes()[wrap_pos] == b' ' {
+                    current_pos = wrap_pos + 1;
+                } else {
+                    current_pos = wrap_pos;
+                }
+
+                current_line_start = current_pos;
+                current_line_text.clear();
+                current_width = 0.0;
+            }
+
+            // Handle any remaining text
+            if current_pos > current_line_start && current_line_start < line_byte_len {
+                let remaining_text = &line_text[current_line_start..];
+                if !remaining_text.is_empty() {
+                    wrapped_lines.push(WrappedLine {
+                        byte_offset: line_byte_start + current_line_start,
+                        byte_end: line_byte_start + line_byte_len,
+                        skip_leading_spaces: line_count > 0,
+                        leading_space_bytes: 0,
+                        shaped_text: remaining_text.to_string(),
+                        shaped_offset: 0,
+                    });
+                }
+            }
+
+            byte_offset = line_byte_start + line_byte_len + 1; // +1 for newline
+        }
+
+        // Handle case where text doesn't end with newline
+        if byte_offset == text.len() + 1 && !text.is_empty() && !text.ends_with('\n') {
+            // We over-counted by 1
+            // This is OK - the byte offsets are still correct
+        }
+
+        Ok(wrapped_lines)
     }
 
     /// Wraps styled text with per-span colors and optional fonts
@@ -1680,7 +1746,6 @@ impl super::TermWindow {
                     font,
                     context.metrics,
                     num_cells as u8,
-                    false, // Width calculation doesn't need cluster tracking
                 )?;
                 width += glyph.x_advance.get() as f32;
             }
@@ -1694,6 +1759,7 @@ impl super::TermWindow {
         match cell {
             ElementCell::Sprite(_) => Ok(context.width.pixel_cell),
             ElementCell::Glyph(glyph) => Ok(glyph.x_advance.get() as f32),
+            ElementCell::GlyphWithCluster { glyph, .. } => Ok(glyph.x_advance.get() as f32),
         }
     }
 
@@ -1730,9 +1796,24 @@ impl super::TermWindow {
                     font,
                     context.metrics,
                     num_cells as u8,
-                    track_cluster,
                 )?;
-                cells.push(ElementCell::Glyph(glyph));
+
+                if track_cluster {
+                    // For sidebar text, preserve the cluster information
+                    log::trace!(
+                        "Creating GlyphWithCluster: grapheme='{}', cluster={}, x_advance={}",
+                        grapheme,
+                        info.cluster,
+                        glyph.x_advance.get()
+                    );
+                    cells.push(ElementCell::GlyphWithCluster {
+                        glyph,
+                        cluster: info.cluster,
+                    });
+                } else {
+                    // For terminal text, use regular glyph without cluster
+                    cells.push(ElementCell::Glyph(glyph));
+                }
             }
         }
 
@@ -2218,7 +2299,6 @@ impl super::TermWindow {
                             &element.font,
                             context.metrics,
                             num_cells as u8,
-                            track_cluster,
                         )?;
 
                         if let Some(texture) = glyph.texture.as_ref() {
@@ -2275,8 +2355,9 @@ impl super::TermWindow {
                 // Determine if we should track clusters based on context
                 let track_cluster = context.source == RenderSource::Sidebar;
 
-                // Use wrap_text for now - position tracking will be added later
-                let lines = self.wrap_text(text, &element.font, max_width, context, &style)?;
+                // Use wrap_text_with_info to get both cells and line information
+                let (lines, wrapped_lines) =
+                    self.wrap_text_with_info(text, &element.font, max_width, context, &style)?;
                 let line_height = context.height.pixel_cell;
                 let num_lines = lines.len() as f32;
 
@@ -2300,7 +2381,8 @@ impl super::TermWindow {
                 let rects = element.compute_rects(context, content_rect);
                 let clip_bounds = element.compute_clip_bounds(context, &rects);
 
-                Ok(ComputedElement {
+                // Create the computed element
+                let mut computed = ComputedElement {
                     item_type: element.item_type.clone(),
                     zindex: element.zindex + context.zindex,
                     baseline,
@@ -2315,12 +2397,50 @@ impl super::TermWindow {
                     clip_bounds,
                     layer_scissor: element.layer_scissor.clone(),
                     content: ComputedElementContent::MultilineText {
-                        lines,
+                        lines: lines.clone(),
                         line_height,
                         line_styles: None,
                         line_font_styles: None,
                     },
-                })
+                };
+
+                // Extract exact glyph positions for chat input if clusters are tracked
+                if track_cluster {
+                    if let Some(UIItemType::ChatInput {
+                        ref mut line_positions,
+                    }) = computed.item_type
+                    {
+                        log::debug!("Extracting exact glyph positions for chat input text: {} wrapped lines, {} visual lines", 
+                                   wrapped_lines.len(), lines.len());
+                        // Clear any approximate positions that might have been set
+                        line_positions.clear();
+
+                        // Extract exact positions from shaped cells
+                        for (idx, (cells, wrapped_line)) in
+                            lines.iter().zip(wrapped_lines.iter()).enumerate()
+                        {
+                            let position_map = GlyphPositionMap::from_cells(cells, wrapped_line);
+                            log::debug!(
+                                "Line {}: extracted {} glyph positions from '{}' (bytes {}-{})",
+                                idx,
+                                position_map.positions.len(),
+                                wrapped_line.shaped_text,
+                                wrapped_line.byte_offset,
+                                wrapped_line.byte_end
+                            );
+                            // Convert from (byte_offset, x_start, x_end) to (x_start, x_end, byte_offset)
+                            let converted_positions: Vec<(f32, f32, usize)> = position_map
+                                .positions
+                                .iter()
+                                .map(|&(byte_offset, x_start, x_end)| (x_start, x_end, byte_offset))
+                                .collect();
+                            line_positions.push(converted_positions);
+                        }
+                        log::debug!("Total lines with positions: {}", line_positions.len());
+                    }
+                }
+
+                Ok(computed)
             }
             ElementContent::Children(kids) => {
                 let mut block_pixel_width: f32 = 0.;
@@ -2650,7 +2770,7 @@ impl super::TermWindow {
                             quad.set_hsv(None);
                             pos_x += width as f32;
                         }
-                        ElementCell::Glyph(glyph) => {
+                        ElementCell::Glyph(glyph) | ElementCell::GlyphWithCluster { glyph, .. } => {
                             if let Some(texture) = glyph.texture.as_ref() {
                                 let pos_y = element.content_rect.min_y() as f32 + top
                                     - (glyph.y_offset + glyph.bearing_y).get() as f32
@@ -2785,7 +2905,8 @@ impl super::TermWindow {
                                     ElementCell::Sprite(sprite) => {
                                         pos_x += sprite.coords.width() as f32
                                     }
-                                    ElementCell::Glyph(glyph) => {
+                                    ElementCell::Glyph(glyph)
+                                    | ElementCell::GlyphWithCluster { glyph, .. } => {
                                         pos_x += glyph.x_advance.get() as f32
                                     }
                                 }
@@ -2813,7 +2934,8 @@ impl super::TermWindow {
                                         quad.set_hsv(None);
                                         pos_x += width as f32;
                                     }
-                                    ElementCell::Glyph(glyph) => {
+                                    ElementCell::Glyph(glyph)
+                                    | ElementCell::GlyphWithCluster { glyph, .. } => {
                                         if let Some(texture) = glyph.texture.as_ref() {
                                             let pos_y = y as f32 + top
                                                 - (glyph.y_offset + glyph.bearing_y).get() as f32
@@ -2878,7 +3000,8 @@ impl super::TermWindow {
                                     quad.set_hsv(None);
                                     pos_x += width as f32;
                                 }
-                                ElementCell::Glyph(glyph) => {
+                                ElementCell::Glyph(glyph)
+                                | ElementCell::GlyphWithCluster { glyph, .. } => {
                                     if let Some(texture) = glyph.texture.as_ref() {
                                         let pos_y = y as f32 + top
                                             - (glyph.y_offset + glyph.bearing_y).get() as f32

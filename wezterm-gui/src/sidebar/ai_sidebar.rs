@@ -188,15 +188,44 @@ fn get_item_text(item: &ActivityItem) -> &str {
 /// Calculate character positions for hit testing
 fn calculate_char_positions(text: &str, font: &Rc<LoadedFont>) -> Vec<(f32, f32, usize)> {
     let mut positions = Vec::new();
-    let char_width = font.metrics().cell_width.get() as f32;
+    // The font metrics report cell_width=20px but actual rendered width is ~10px
+    // This is because:
+    // 1. Roboto is proportional, not monospace, so cell_width is misleading
+    // 2. Font size reduction of 1pt is applied (12pt -> 11pt)
+    // Based on logs showing "3.5 characters too far to the left", we need ~50% of metric width
+    let base_char_width = font.metrics().cell_width.get() as f32;
+    let char_width = base_char_width * 0.5; // Empirically determined from logs
+
+    // Diagnostic logging for font metrics
+    log::warn!("[FONT_METRICS] calculate_char_positions: font_style={:?}, base_cell_width={}, adjusted_width={}, cell_height={}, descender={}",
+        font.style(),
+        base_char_width,
+        char_width,
+        font.metrics().cell_height.get(),
+        font.metrics().descender.get()
+    );
+
     let mut x = 0.0;
     let mut byte_offset = 0;
 
     for ch in text.chars() {
-        let ch_width = if ch.is_ascii() {
-            char_width
+        // More accurate character width estimation for Roboto proportional font
+        let ch_width = if ch.is_ascii_alphabetic() {
+            if ch.is_ascii_uppercase() {
+                char_width * 1.2 // Uppercase letters are wider
+            } else {
+                char_width // Lowercase letters
+            }
+        } else if ch.is_ascii_digit() {
+            char_width * 0.9 // Numbers are slightly narrower
+        } else if ch == ' ' {
+            char_width * 0.4 // Spaces are much narrower in proportional fonts
+        } else if ch == '.' || ch == ',' || ch == ':' || ch == ';' {
+            char_width * 0.3 // Punctuation is very narrow
+        } else if ch.is_ascii_punctuation() {
+            char_width * 0.5 // Other punctuation
         } else {
-            char_width * 1.5 // Rough estimate for non-ASCII
+            char_width * 1.5 // Non-ASCII characters (emoji, etc)
         };
 
         positions.push((x, x + ch_width, byte_offset));
@@ -204,6 +233,19 @@ fn calculate_char_positions(text: &str, font: &Rc<LoadedFont>) -> Vec<(f32, f32,
         x += ch_width;
         byte_offset += ch.len_utf8();
     }
+
+    let display_text = if text.len() < 50 {
+        text.to_string()
+    } else {
+        format!("{}...", &text[..47])
+    };
+    log::warn!(
+        "[FONT_METRICS] Calculated {} positions for text '{}' (len={}), total_width={}",
+        positions.len(),
+        display_text,
+        text.len(),
+        x
+    );
 
     positions
 }
@@ -1083,6 +1125,13 @@ This example demonstrates:
             let sidebar_width = self.width as f32;
             let goal_content_width = sidebar_width - 40.0; // Account for padding
 
+            log::debug!(
+                "Goal width calculation: sidebar_width={}, content_width={}, has_selection={}",
+                sidebar_width,
+                goal_content_width,
+                selection.is_some()
+            );
+
             elem.item_type(UIItemType::GoalText {
                 char_positions: calculate_char_positions(&goal.text, &fonts.body),
             })
@@ -1232,6 +1281,11 @@ This example demonstrates:
             // Calculate available width for suggestion text
             let sidebar_width = self.width as f32;
             let suggestion_content_width = sidebar_width - 40.0; // Account for padding
+
+            log::debug!(
+                "Suggestion width calculation: sidebar_width={}, content_width={}, has_selection={}",
+                sidebar_width, suggestion_content_width, selection.is_some()
+            );
 
             content_elements.push(
                 elem.item_type(UIItemType::SuggestionText {
@@ -2120,48 +2174,56 @@ This example demonstrates:
         // Update scroll offset
         self.chat_input.scroll_pixel_offset = scroll_offset;
 
-        // Create line elements
-        let mut line_elements = Vec::new();
+        log::debug!(
+            "Chat input scroll state: offset={:.1}, max={:.1}, lines={}, viewport_lines={}",
+            scroll_offset,
+            max_scroll,
+            self.chat_input.lines.len(),
+            self.chat_input.display_lines
+        );
 
-        for (line_idx, line_text) in self.chat_input.lines.iter().enumerate() {
-            let is_cursor_line = line_idx == self.chat_input.cursor_line;
-            let is_placeholder = line_idx == 0
-                && self.chat_input.lines.len() == 1
-                && line_text.is_empty()
-                && !self.chat_input.focused;
+        // Combine all lines into a single text string with newlines
+        let mut combined_text = String::new();
+        let is_placeholder = self.chat_input.lines.len() == 1
+            && self.chat_input.lines[0].is_empty()
+            && !self.chat_input.focused;
 
-            let display_text = if is_placeholder {
-                self.chat_input.placeholder.clone()
-            } else {
-                line_text.clone()
-            };
-
-            let text_color = if is_placeholder {
-                LinearRgba::with_components(0.5, 0.5, 0.5, 1.0) // Gray for placeholder
-            } else {
-                LinearRgba::with_components(0.9, 0.9, 0.9, 1.0) // Light gray for typed text
-            };
-
-            let line_element = Element::new(font, ElementContent::WrappedText(display_text))
-                .colors(ElementColors {
-                    text: text_color.into(),
-                    bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(), // Transparent background
-                    ..Default::default()
-                })
-                .max_width(Some(Dimension::Pixels(width)))
-                .display(DisplayType::Block);
-
-            line_elements.push(line_element);
+        if is_placeholder {
+            combined_text = self.chat_input.placeholder.clone();
+        } else {
+            for (idx, line) in self.chat_input.lines.iter().enumerate() {
+                if idx > 0 {
+                    combined_text.push('\n');
+                }
+                combined_text.push_str(line);
+            }
         }
 
-        // Combine all lines into a scrollable content element
-        Element::new(font, ElementContent::Children(line_elements))
+        let text_color = if is_placeholder {
+            LinearRgba::with_components(0.5, 0.5, 0.5, 1.0) // Gray for placeholder
+        } else {
+            LinearRgba::with_components(0.9, 0.9, 0.9, 1.0) // Light gray for typed text
+        };
+
+        // Initialize with empty line_positions - these will be populated during compute_element
+        let line_positions = Vec::new();
+
+        // Create a single WrappedText element containing all lines
+        Element::new(font, ElementContent::WrappedText(combined_text))
+            .colors(ElementColors {
+                text: text_color.into(),
+                bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(), // Transparent background
+                ..Default::default()
+            })
+            .max_width(Some(Dimension::Pixels(width)))
             .display(DisplayType::Block)
             // Use negative margin to implement scrolling
             .margin(BoxDimension {
                 top: Dimension::Pixels(-scroll_offset),
                 ..Default::default()
             })
+            // Add UIItemType so positions can be extracted during compute_element
+            .item_type(UIItemType::ChatInput { line_positions })
         // DO NOT set zindex here - it's set via LayoutContext during compute_element
     }
 
@@ -2180,13 +2242,17 @@ This example demonstrates:
 
         // Colors are set during focus changes, not during render
 
+        // Initialize empty line_positions - these will be populated with exact glyph positions
+        // during compute_element when track_cluster=true for sidebar text
+        let line_positions = Vec::new();
+
         // Create a minimal container for UIItemType tracking (no visual styling)
         let input_container = Element::new(&fonts.body, ElementContent::Text(String::new()))
             .display(DisplayType::Block)
             .min_width(Some(Dimension::Pixels(input_width)))
             .max_width(Some(Dimension::Pixels(input_width)))
             .min_height(Some(Dimension::Pixels(container_height)))
-            .item_type(UIItemType::ChatInput)
+            .item_type(UIItemType::ChatInput { line_positions })
             .zindex(14); // Container for mouse event handling
 
         // Send button
@@ -2234,43 +2300,158 @@ This example demonstrates:
         if !self.chat_input.focused {
             return None;
         }
-
         let line_height = font.metrics().cell_height.get() as f32;
         let line_height_with_spacing = line_height * 1.1;
 
-        // Calculate Y position (line position minus scroll offset)
-        let y = self.chat_input.cursor_line as f32 * line_height_with_spacing
-            - self.chat_input.scroll_pixel_offset;
+        // First, calculate the document byte offset for the cursor position
+        let mut cursor_document_byte_offset = 0;
 
-        // Calculate X position by measuring text up to cursor
-        let line = &self.chat_input.lines[self.chat_input.cursor_line];
-        let text_before_cursor: String = line.chars().take(self.chat_input.cursor_col).collect();
-
-        // Use font metrics to estimate character widths
-        let char_width = font.metrics().cell_width.get() as f32;
-        let x = if text_before_cursor.is_empty() {
-            0.0
-        } else {
-            let mut x_pos = 0.0;
-            for ch in text_before_cursor.chars() {
-                // Estimate character width based on type
-                let ch_width = if ch.is_ascii_alphabetic() || ch.is_ascii_digit() {
-                    char_width // Standard width for alphanumeric
-                } else if ch == ' ' {
-                    char_width * 0.9 // Spaces are slightly narrower
-                } else if ch.is_ascii_punctuation() {
-                    char_width * 0.7 // Punctuation is narrower
-                } else {
-                    char_width * 1.5 // Non-ASCII characters (emoji, etc)
-                };
-                x_pos += ch_width;
+        // Add bytes from all lines before the cursor line
+        for (line_idx, line) in self.chat_input.lines.iter().enumerate() {
+            if line_idx < self.chat_input.cursor_line {
+                cursor_document_byte_offset += line.len() + 1; // +1 for newline
+            } else if line_idx == self.chat_input.cursor_line {
+                // Add bytes up to cursor column in current line
+                let byte_in_line = line
+                    .char_indices()
+                    .nth(self.chat_input.cursor_col)
+                    .map(|(idx, _)| idx)
+                    .unwrap_or(line.len());
+                cursor_document_byte_offset += byte_in_line;
+                break;
             }
-            x_pos
+        }
+
+        log::trace!(
+            "Cursor at logical line {}, col {} = document byte offset {}",
+            self.chat_input.cursor_line,
+            self.chat_input.cursor_col,
+            cursor_document_byte_offset
+        );
+
+        // Now find which visual line contains this byte offset
+        let mut visual_line_idx = None;
+        let mut cursor_x = 0.0;
+
+        for (vis_line_idx, visual_line_positions) in
+            self.chat_input.exact_glyph_positions.iter().enumerate()
+        {
+            if visual_line_positions.is_empty() {
+                continue;
+            }
+
+            // Check if this visual line contains our byte offset
+            let first_byte = visual_line_positions
+                .first()
+                .map(|(_, _, b)| *b)
+                .unwrap_or(0);
+            let last_byte = visual_line_positions
+                .last()
+                .map(|(_, _, b)| *b)
+                .unwrap_or(0);
+
+            log::trace!(
+                "Visual line {}: byte range {} - {}",
+                vis_line_idx,
+                first_byte,
+                last_byte
+            );
+
+            if cursor_document_byte_offset >= first_byte
+                && cursor_document_byte_offset <= last_byte + 1
+            {
+                // Found the visual line containing our cursor
+                visual_line_idx = Some(vis_line_idx);
+
+                // Find X position within this visual line
+                if cursor_document_byte_offset == first_byte {
+                    // Cursor at start of visual line
+                    cursor_x = 0.0;
+                } else {
+                    // Find position within line
+                    let mut found = false;
+                    for (x_start, x_end, byte_offset) in visual_line_positions.iter() {
+                        if *byte_offset >= cursor_document_byte_offset {
+                            // Cursor should be at the start of this glyph
+                            cursor_x = *x_start;
+                            found = true;
+                            break;
+                        }
+                        cursor_x = *x_end; // Keep updating to the end of each glyph
+                    }
+
+                    // If we didn't find a position (cursor at end of line), use the last glyph's end
+                    if !found && !visual_line_positions.is_empty() {
+                        cursor_x = visual_line_positions.last().unwrap().1;
+                    }
+                }
+
+                break;
+            }
+        }
+
+        // Calculate Y position based on visual line index
+        let y = if let Some(vis_line_idx) = visual_line_idx {
+            vis_line_idx as f32 * line_height_with_spacing - self.chat_input.scroll_pixel_offset
+        } else {
+            // Fallback: use logical line if we couldn't find visual line
+            log::warn!(
+                "Could not find visual line for cursor at byte offset {}",
+                cursor_document_byte_offset
+            );
+            self.chat_input.cursor_line as f32 * line_height_with_spacing
+                - self.chat_input.scroll_pixel_offset
         };
+
+        // Use exact positions if we found them, otherwise fallback
+        let x = if visual_line_idx.is_some() {
+            cursor_x
+        } else {
+            // Fallback to character width estimation if exact positions not available
+            let line = &self.chat_input.lines[self.chat_input.cursor_line];
+            let text_before_cursor: String =
+                line.chars().take(self.chat_input.cursor_col).collect();
+            if text_before_cursor.is_empty() {
+                0.0
+            } else {
+                // Use font metrics to estimate character widths
+                let base_char_width = font.metrics().cell_width.get() as f32;
+                let char_width = base_char_width * 0.5; // Proportional font adjustment
+                let mut x_pos = 0.0;
+                for ch in text_before_cursor.chars() {
+                    // Character width estimation
+                    let ch_width = if ch.is_ascii_alphabetic() {
+                        if ch.is_ascii_uppercase() {
+                            char_width * 1.2 // Uppercase letters are wider
+                        } else {
+                            char_width // Lowercase letters
+                        }
+                    } else if ch.is_ascii_digit() {
+                        char_width * 0.9 // Numbers are slightly narrower
+                    } else if ch == ' ' {
+                        char_width * 0.4 // Spaces are narrow
+                    } else if ch.is_ascii_punctuation() {
+                        char_width * 0.5 // Punctuation varies
+                    } else {
+                        char_width // Default for other characters
+                    };
+                    x_pos += ch_width;
+                }
+                x_pos
+            }
+        };
+
+        log::trace!(
+            "Cursor position: line={}, col={}, x={:.1}, y={:.1}, exact_positions_available={}",
+            self.chat_input.cursor_line,
+            self.chat_input.cursor_col,
+            x,
+            y,
+            visual_line_idx.is_some()
+        );
 
         Some((x, y))
     }
-
     /// Get chat input background color for filled rectangle rendering
     pub fn get_chat_input_bg_color(&self) -> LinearRgba {
         self.chat_input_bg_color
@@ -2289,6 +2470,16 @@ This example demonstrates:
     /// Get chat input border color
     pub fn get_chat_input_border_color(&self) -> LinearRgba {
         self.chat_input_border_color
+    }
+
+    /// Update chat input with exact glyph positions from rendering
+    pub fn set_chat_input_glyph_positions(&mut self, positions: Vec<Vec<(f32, f32, usize)>>) {
+        self.chat_input.exact_glyph_positions = positions;
+    }
+
+    /// Get the exact glyph positions for chat input
+    pub fn get_chat_input_glyph_positions(&self) -> &Vec<Vec<(f32, f32, usize)>> {
+        &self.chat_input.exact_glyph_positions
     }
 
     pub fn render_activity_log_content(
@@ -2676,19 +2867,32 @@ impl Sidebar for AiSidebar {
     }
 
     fn get_scrollbars(&self) -> super::SidebarScrollbars {
-        // Calculate chat input scrollbar info if focused
-        let chat_input_scrollbar = if self.chat_input.focused {
-            // Calculate using consistent line height with 1.1x multiplier
-            let line_height = 20.0 * 1.1; // Estimated line height with multiplier
-            let viewport_height = self.chat_input.display_lines as f32 * line_height;
-            let total_height = self.chat_input.lines.len() as f32 * line_height;
+        // Calculate chat input scrollbar info - show if there's scrollable content
+        // (not just when focused, to provide visual feedback)
+        let chat_input_scrollbar = {
+            // Calculate using actual font metrics
+            // The logs show line_height is 20px, with 1.1x multiplier = 22px
+            let line_height = 20.0;
+            let line_height_with_spacing = line_height * 1.1;
+            let viewport_height = self.chat_input.display_lines as f32 * line_height_with_spacing;
+            let total_height = self.chat_input.lines.len() as f32 * line_height_with_spacing;
+
+            log::debug!(
+                "Chat input scrollbar calc: focused={}, lines={}, display_lines={}, total_height={}, viewport_height={}, needs_scrollbar={}",
+                self.chat_input.focused,
+                self.chat_input.lines.len(),
+                self.chat_input.display_lines,
+                total_height,
+                viewport_height,
+                total_height > viewport_height
+            );
 
             if total_height > viewport_height {
                 // Calculate scroll position
                 let visible_range = self.chat_input.scroll_pixel_offset / total_height;
                 let thumb_size = (viewport_height / total_height).min(1.0);
 
-                Some(ScrollbarInfo {
+                let info = ScrollbarInfo {
                     should_show: true,
                     thumb_position: visible_range,
                     thumb_size,
@@ -2697,12 +2901,17 @@ impl Sidebar for AiSidebar {
                     scroll_offset: self.chat_input.scroll_pixel_offset,
                     total_items: self.chat_input.lines.len(), // For compatibility
                     viewport_items: self.chat_input.display_lines, // For compatibility
-                })
+                };
+
+                log::debug!(
+                    "Chat input scrollbar created: should_show={}, thumb_position={}, thumb_size={}",
+                    info.should_show, info.thumb_position, info.thumb_size
+                );
+
+                Some(info)
             } else {
                 None
             }
-        } else {
-            None
         };
 
         super::SidebarScrollbars {
@@ -2988,6 +3197,186 @@ impl AiSidebar {
             let char_width = 8.5; // More accurate monospace char width for ~12pt font
             self.chat_input
                 .handle_click_position(relative_x, relative_y, line_height, char_width);
+        }
+    }
+
+    /// Handle click on chat input with pre-calculated character positions
+    pub fn handle_chat_input_click_with_positions(
+        &mut self,
+        relative_x: f32,
+        relative_y: f32,
+        line_positions: &Vec<Vec<(f32, f32, usize)>>,
+    ) {
+        log::debug!(
+            "handle_chat_input_click_with_positions: relative_x={}, relative_y={}, line_positions_count={}",
+            relative_x, relative_y, line_positions.len()
+        );
+
+        // Debug: log what positions we received
+        for (line_idx, line_pos) in line_positions.iter().enumerate().take(2) {
+            log::debug!("  Line {} has {} positions", line_idx, line_pos.len());
+            for (i, &(x_start, x_end, byte_offset)) in line_pos.iter().enumerate().take(5) {
+                log::debug!(
+                    "    Pos[{}]: x=({:.1}, {:.1}), byte_offset={}",
+                    i,
+                    x_start,
+                    x_end,
+                    byte_offset
+                );
+            }
+        }
+
+        // Store the exact positions for cursor positioning
+        self.chat_input.exact_glyph_positions = line_positions.clone();
+
+        // Focus the input
+        self.focus_chat_input();
+
+        // Account for padding inside the chat input
+        // Container has 8px top padding, and we need to account for that
+        let container_padding_top = 8.0;
+        let text_padding = 4.0; // Per-line text element padding
+        let adjusted_x = relative_x - text_padding;
+        let adjusted_y = relative_y - container_padding_top - 2.0; // Container + per-line padding
+
+        log::debug!(
+            "Adjusted coordinates: x={}, y={}, text_padding={}",
+            adjusted_x,
+            adjusted_y,
+            text_padding
+        );
+
+        // Only position cursor if click is within the text area
+        if adjusted_x >= 0.0 && adjusted_y >= 0.0 {
+            // Use actual line height with spacing
+            let line_height_with_spacing = 20.0 * 1.1; // 22px as shown in logs
+
+            // Calculate which line was clicked (accounting for scroll offset)
+            let clicked_line = ((adjusted_y + self.chat_input.scroll_pixel_offset)
+                / line_height_with_spacing) as usize;
+
+            log::debug!(
+                "Line calculation: adjusted_y={}, scroll_offset={}, line_height={}, clicked_line={}",
+                adjusted_y, self.chat_input.scroll_pixel_offset, line_height_with_spacing, clicked_line
+            );
+
+            if clicked_line < line_positions.len() {
+                // Find character position in the visual line using exact glyph positions
+                let line_glyph_positions = &line_positions[clicked_line];
+
+                log::debug!(
+                    "Visual line {}: glyph_positions_count={}",
+                    clicked_line,
+                    line_glyph_positions.len()
+                );
+
+                // Debug log the glyph positions
+                if line_glyph_positions.len() > 0 {
+                    log::debug!(
+                        "First glyph position: ({}, {}), Last glyph position: ({}, {})",
+                        line_glyph_positions[0].0,
+                        line_glyph_positions[0].1,
+                        line_glyph_positions.last().unwrap().0,
+                        line_glyph_positions.last().unwrap().1
+                    );
+                }
+
+                // Find which character was clicked using exact glyph positions
+                let clicked_document_byte_offset = if line_glyph_positions.is_empty() {
+                    0
+                } else {
+                    // Find the glyph that contains the click position
+                    let mut found_offset = None;
+                    for (x_start, x_end, byte_offset) in line_glyph_positions.iter() {
+                        if adjusted_x < *x_start {
+                            // Click is before this glyph
+                            found_offset = Some(*byte_offset);
+                            break;
+                        } else if adjusted_x >= *x_start && adjusted_x <= *x_end {
+                            // Click is within this glyph - decide if it's closer to start or end
+                            let mid = (*x_start + *x_end) / 2.0;
+                            if adjusted_x < mid {
+                                found_offset = Some(*byte_offset);
+                            } else {
+                                // Find the next glyph's byte offset
+                                let next_idx = line_glyph_positions
+                                    .iter()
+                                    .position(|(s, _, _)| *s == *x_start)
+                                    .and_then(|idx| line_glyph_positions.get(idx + 1))
+                                    .map(|(_, _, next_offset)| *next_offset);
+                                found_offset = next_idx.or(Some(*byte_offset + 1));
+                            }
+                            break;
+                        }
+                    }
+
+                    // If click is past all glyphs, position at end of visual line
+                    if found_offset.is_none() {
+                        if let Some((_, _, last_offset)) = line_glyph_positions.last() {
+                            // Use the last offset + 1 for "after last character"
+                            found_offset = Some(*last_offset + 1);
+                        }
+                    }
+
+                    found_offset.unwrap_or(0)
+                };
+
+                // Now map the document byte offset to logical line and column
+                let mut current_byte = 0;
+                let mut found_logical_position = false;
+
+                for (logical_line_idx, line_text) in self.chat_input.lines.iter().enumerate() {
+                    let line_start = current_byte;
+                    let line_end = current_byte + line_text.len();
+
+                    if clicked_document_byte_offset >= line_start
+                        && clicked_document_byte_offset <= line_end
+                    {
+                        // Found the logical line containing this byte offset
+                        let line_relative_byte = clicked_document_byte_offset - line_start;
+
+                        // Convert byte offset to character index
+                        let char_index = line_text
+                            .char_indices()
+                            .take_while(|(byte_idx, _)| *byte_idx < line_relative_byte)
+                            .count();
+
+                        log::debug!(
+                            "[CLICK_DEBUG] Mapped click to logical line {}, char {}, doc_byte_offset={}",
+                            logical_line_idx,
+                            char_index,
+                            clicked_document_byte_offset
+                        );
+
+                        // Update cursor position
+                        self.chat_input.cursor_line = logical_line_idx;
+                        self.chat_input.cursor_col = char_index;
+                        found_logical_position = true;
+                        break;
+                    }
+
+                    current_byte = line_end + 1; // +1 for newline
+                }
+
+                if !found_logical_position {
+                    log::warn!(
+                        "[CLICK_DEBUG] Could not map document byte offset {} to logical line",
+                        clicked_document_byte_offset
+                    );
+                }
+            } else {
+                log::warn!(
+                    "[CLICK_DEBUG] Click outside valid lines: clicked_line={}, total_lines={}",
+                    clicked_line,
+                    self.chat_input.lines.len()
+                );
+            }
+        } else {
+            log::warn!(
+                "[CLICK_DEBUG] Click outside text area: adjusted_x={}, adjusted_y={}",
+                adjusted_x,
+                adjusted_y
+            );
         }
     }
 

@@ -129,7 +129,7 @@ impl super::TermWindow {
             | UIItemType::CodeBlockContent(_)
             | UIItemType::CodeBlockCopyButton(_)
             | UIItemType::ModalCloseButton
-            | UIItemType::ChatInput
+            | UIItemType::ChatInput { .. }
             | UIItemType::ActivityItemText { .. }
             | UIItemType::SuggestionText { .. }
             | UIItemType::GoalText { .. } => {}
@@ -153,7 +153,7 @@ impl super::TermWindow {
             | UIItemType::CodeBlockContent(_)
             | UIItemType::CodeBlockCopyButton(_)
             | UIItemType::ModalCloseButton
-            | UIItemType::ChatInput
+            | UIItemType::ChatInput { .. }
             | UIItemType::ActivityItemText { .. }
             | UIItemType::SuggestionText { .. }
             | UIItemType::GoalText { .. } => {}
@@ -601,8 +601,8 @@ impl super::TermWindow {
             UIItemType::ModalCloseButton => {
                 self.mouse_event_modal_close_button(event, context);
             }
-            UIItemType::ChatInput => {
-                self.mouse_event_chat_input(item.clone(), event, context);
+            UIItemType::ChatInput { line_positions } => {
+                self.mouse_event_chat_input(item.clone(), line_positions, event, context);
             }
             UIItemType::ActivityItemText {
                 index,
@@ -1588,6 +1588,7 @@ impl super::TermWindow {
     pub fn mouse_event_chat_input(
         &mut self,
         item: UIItem,
+        line_positions: &Vec<Vec<(f32, f32, usize)>>,
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
@@ -1617,12 +1618,18 @@ impl super::TermWindow {
                                     item.height as f32,
                                 );
 
-                                // Handle click with position
-                                // Since we can't easily access fonts here, we'll use the simpler position method
-                                ai_sidebar.handle_chat_input_click_simple(
-                                    event.coords.x as f32,
-                                    event.coords.y as f32,
-                                    &bounds,
+                                // Handle click with pre-calculated character positions
+                                let relative_x = event.coords.x as f32 - bounds.origin.x;
+                                let relative_y = event.coords.y as f32 - bounds.origin.y;
+
+                                // Use the exact glyph positions stored in the sidebar
+                                // (The line_positions from UIItemType are empty placeholders)
+                                let exact_positions =
+                                    ai_sidebar.get_chat_input_glyph_positions().clone();
+                                ai_sidebar.handle_chat_input_click_with_positions(
+                                    relative_x,
+                                    relative_y,
+                                    &exact_positions,
                                 );
                                 context.invalidate(); // Trigger repaint to show cursor position
                             }

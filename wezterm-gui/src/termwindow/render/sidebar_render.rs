@@ -816,6 +816,35 @@ impl crate::TermWindow {
                             );
                         }
 
+                        // Extract exact glyph positions from the computed element
+                        if let Some(UIItemType::ChatInput { line_positions }) =
+                            &chat_input_computed.item_type
+                        {
+                            // Update the sidebar's chat input with the exact positions
+                            ai_sidebar.set_chat_input_glyph_positions(line_positions.clone());
+                            log::debug!(
+                                "Updated chat input with {} lines of exact glyph positions",
+                                line_positions.len()
+                            );
+                            // Debug: log the first few positions
+                            for (line_idx, line_pos) in line_positions.iter().enumerate().take(2) {
+                                log::debug!("  Line {} has {} positions", line_idx, line_pos.len());
+                                for (i, &(x_start, x_end, byte_offset)) in
+                                    line_pos.iter().enumerate().take(5)
+                                {
+                                    log::debug!(
+                                        "    Pos[{}]: x=({:.1}, {:.1}), byte_offset={}",
+                                        i,
+                                        x_start,
+                                        x_end,
+                                        byte_offset
+                                    );
+                                }
+                            }
+                        } else {
+                            log::debug!("No UIItemType::ChatInput found in computed element");
+                        }
+
                         // Render the chat input text (now clipped by scissor rect)
                         self.render_element(&chat_input_computed, gl_state, None)?;
 

@@ -39,10 +39,11 @@ StyleSpan { colors: ElementColors::new(Some(fg_color)), ... }
 **Type**: Correctness requirement for proportional fonts
 
 ### Glyph Position Tracking (NEW)
-- Sidebar text now preserves HarfBuzz cluster information in CachedGlyph
-- Use `track_cluster: true` only for sidebar text (performance optimization)
+- Sidebar text uses `ElementCell::GlyphWithCluster` to store position-specific cluster data
+- Terminal text uses regular `ElementCell::Glyph` (no cluster tracking)
 - Access positions via `GlyphPositionMap::from_cells()` for hit testing
-- Terminal text sets cluster to None to avoid memory overhead
+- Cluster information is stored per-instance, not in the shared glyph cache
+- This design maintains texture caching performance while enabling pixel-perfect text interaction
 **Type**: Architectural design for pixel-perfect text interaction
 
 ## Overview

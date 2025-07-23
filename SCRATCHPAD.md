@@ -5,12 +5,60 @@
 2. **Text Selection**: Enable click-and-drag per-character text selection with visual feedback (blue background, white text) in activity log, suggestion card, suggestion "view more" modal, and goal text.
 3. **Multi-line Chat Input**: Full editing capabilities with click-to-position cursor, scrolling, Enter to send, Shift+Enter for newline.
 
-## Latest User Test Results (After Session 4 Improvements)
+## Latest Status (After Session 7 - Successful Fix!)
 
-*"Behavior is notably better, however it's still not perfect."*
+### ✅ Working Features
+1. **Click-to-Position**: FIXED! Clicking anywhere in wrapped text correctly positions cursor
+2. **Cursor Display**: FIXED! Cursor now appears at correct position on all wrapped lines
+3. **Text Entry**: Characters appear at cursor position on any line
+4. **Line Wrapping**: Text properly wraps and cursor/clicks work across wrapped lines
 
-### Previous Issues (from Session 3)
-*"The behavior is mostly unchanged. Here is the current state: 1. The cursor position (as I type) is still pushed off too far to the right (it used to sit right next to the typed text). 2. Clicking to place the cursor places it visually in roughly the correct spot, but when I start typing that spot doesn't match up (the typed chars appear more to the left of where the cursor sits). 3. Clicking to place the cursor is very unreliable, most clicks don't end up seeing the cursor move. 4. Clicking on the 2nd line of text still doesn't work (no click-to-place there). 5. Scrolling does not work at all. There is no scrollbar, and drag-to-highlight within the chat input doesn't appear to do anything. 6. Clicking and dragging to select text in other areas of the sidebar is similar to how it was before: I can't select text at all in the suggestion card (nor the suggestion card modal). When I click-and-drag to select text in the goal card or the activity log, all of the the text suddenly jumps to half-width (the text only appears on the left side of the element). No text ever visually looks like it is selected, dragging around appears to do nothing."*
+### ❌ Remaining Issues
+1. **Shift+Enter**: Text may disappear or scroll out of view when adding newlines
+2. **Scrolling**: Not functional - no scrollbar appears, mouse wheel doesn't work
+3. **Text Selection**: Not yet implemented
+
+### What Fixed the Issue (Session 7)
+
+1. **Completed ElementCell::GlyphWithCluster Implementation**:
+   - Stores position-specific cluster data alongside glyphs
+   - Solves the fundamental cache collision problem
+   - Cluster values now correct: 0, 1, 2, 3... (not 2, 28, 7, 32...)
+
+2. **Fixed Click Handler for Wrapped Lines**:
+   - Maps visual line clicks to logical line positions
+   - Properly converts document byte offsets to line/column
+   - Works across wrapped text boundaries
+
+3. **Fixed Cursor Position Calculation**:
+   - Maps logical cursor position to visual line position
+   - Uses exact glyph positions for pixel-perfect cursor placement
+   - Handles wrapped lines correctly
+
+### Root Cause Analysis
+
+The fundamental issue is that **cluster information is position-specific, not glyph-specific**:
+- HarfBuzz provides cluster values that represent byte positions in the input text
+- We've been trying to cache these position-specific values with the glyphs
+- But the same glyph (e.g., 'T') can appear at many positions with different clusters
+- The glyph cache returns the cluster from wherever that glyph was first cached
+
+### Critical Architecture Issues Discovered
+
+1. **Glyph Cache Design Conflict**:
+   - Glyph cache is designed to share visual representations (textures)
+   - But cluster information is unique to each text position
+   - These two concepts are fundamentally incompatible
+
+2. **Performance vs Accuracy Trade-off**:
+   - Original design cached glyphs for performance (share textures)
+   - But accurate positioning requires position-specific data
+   - Current approach tries to mix both, causing the bugs
+
+3. **Alternative Approaches Needed**:
+   - Option A: Track clusters separately from glyphs (current attempt)
+   - Option B: Don't use glyph cache for sidebar text
+   - Option C: Create a separate position tracking system
 
 ## Current Implementation Status
 
@@ -178,9 +226,28 @@ The width constraint is likely being recalculated during selection state changes
 - See **POSITION_TRACKING.md** for detailed implementation plan
 - Sidebar-only implementation to avoid terminal performance impact
 
-## Next Steps - Integrating Exact Glyph Position Tracking
+## Next Steps
 
-The infrastructure from **POSITION_TRACKING.md** is now complete (Phases 1-4). Here's how to integrate it:
+### Remaining High-Priority Issues
+
+1. **Shift+Enter Newline Handling**:
+   - Issue: Text disappears or scrolls out of view
+   - Likely cause: Chat input only displays 2 lines, scroll offset not updated properly
+   - Solution: Fix scroll offset calculation when newlines are added
+
+2. **Scrolling Functionality**:
+   - Issue: No scrollbar appears, mouse wheel doesn't work
+   - Cause: Scrollbar detection needs to account for visual lines, not just logical lines
+   - Solution: Calculate total height based on wrapped lines
+
+3. **Text Selection**:
+   - Infrastructure is ready (exact positions available)
+   - Need to implement selection state management
+   - Add visual feedback and copy functionality
+
+### Technical Approach
+
+The ElementCell::GlyphWithCluster solution is working well. The key insight was that cluster information must be stored per-instance, not in the shared glyph cache. This maintains the performance benefits of texture caching while enabling pixel-perfect text interaction.
 
 ### Integration Points
 

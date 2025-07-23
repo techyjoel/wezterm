@@ -670,6 +670,12 @@ impl FontConfigInner {
                 // Body text uses size reduction
                 let reduction = config.clibuddy.right_sidebar.fonts.font_size_reduction;
                 let size = sys_size - reduction;
+                log::warn!(
+                    "[FONT_SIZE] SidebarBody font: sys_size={}, reduction={}, final_size={}",
+                    sys_size,
+                    reduction,
+                    size
+                );
                 (size, None) // Will be handled below
             }
             Entity::SidebarCode => {

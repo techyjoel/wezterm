@@ -169,7 +169,11 @@ pub enum UIItemType {
     CodeBlockContent(String),    // code_block_id
     CodeBlockCopyButton(String), // code_block_id
     ModalCloseButton,            // For modal X button
-    ChatInput,                   // For chat input field
+    ChatInput {
+        // Pre-calculated character position mapping for hit testing
+        // Each line contains Vec of (x_start, x_end, byte_offset) for each character
+        line_positions: Vec<Vec<(f32, f32, usize)>>,
+    },
     ActivityItemText {
         index: usize,
         // Pre-calculated character position mapping for hit testing
