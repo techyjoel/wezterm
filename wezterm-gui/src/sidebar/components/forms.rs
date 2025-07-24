@@ -328,7 +328,7 @@ impl MultilineTextInput {
         self.cursor_line = self.lines.len().saturating_sub(1);
         self.cursor_col = self.lines.last().map(|l| l.len()).unwrap_or(0);
         self.update_scroll();
-        
+
         // Reset visual line tracking as text has changed
         self.visual_line_count = 0;
         self.exact_glyph_positions.clear();
@@ -1253,7 +1253,7 @@ impl MultilineTextInput {
     pub fn reset_scroll_to_bottom(&mut self) {
         self.user_has_scrolled = false;
         // scroll_pixel_offset will be recalculated in render_with_scissor
-        
+
         // Reset visual line tracking as text has changed
         self.visual_line_count = 0;
         self.exact_glyph_positions.clear();

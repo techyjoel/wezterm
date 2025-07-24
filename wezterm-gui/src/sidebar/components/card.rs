@@ -23,6 +23,7 @@ pub struct Card {
     hover_state: bool,
     expandable: bool,
     item_type: Option<UIItemType>,
+    pass_through_events: bool,
 }
 
 impl Card {
@@ -35,6 +36,7 @@ impl Card {
             hover_state: false,
             expandable: false,
             item_type: None,
+            pass_through_events: false,
         }
     }
 
@@ -60,6 +62,11 @@ impl Card {
 
     pub fn with_item_type(mut self, item_type: UIItemType) -> Self {
         self.item_type = Some(item_type);
+        self
+    }
+
+    pub fn pass_through_events(mut self, pass_through: bool) -> Self {
+        self.pass_through_events = pass_through;
         self
     }
 
@@ -176,9 +183,11 @@ impl Card {
             }));
         }
 
-        // Add item type if specified
-        if let Some(item_type) = &self.item_type {
-            card = card.item_type(item_type.clone());
+        // Add item type if specified and not passing through events
+        if !self.pass_through_events {
+            if let Some(item_type) = &self.item_type {
+                card = card.item_type(item_type.clone());
+            }
         }
 
         card

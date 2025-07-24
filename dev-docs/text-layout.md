@@ -50,6 +50,44 @@ StyleSpan { colors: ElementColors::new(Some(fg_color)), ... }
 
 Text rendering in WezTerm involves complex interactions between font selection, text shaping, line wrapping, and GPU rendering. This document explains the text layout pipeline and implementation patterns.
 
+## Text Selection in Sidebar
+
+### Architecture
+
+Text selection in the sidebar follows these principles:
+
+1. **Position Tracking**: Uses the glyph position infrastructure (`ElementCell::GlyphWithCluster`) to store exact character positions
+2. **Two-Phase Selection**: 
+   - `prepare_selection()` on mouse down (stores potential selection)
+   - `activate_prepared_selection()` on drag start (activates selection)
+3. **Rendering**: Selection rectangles render at the same z-index as content using sub-layer ordering:
+   - Sub-layer 0: Selection rectangles (behind text)
+   - Sub-layer 1: Text glyphs
+   - Sub-layer 2: UI elements
+
+### Implementation Pattern
+
+```rust
+// 1. Extract positions after rendering (in sidebar_render.rs)
+if let Some(positions) = self.extract_goal_text_positions(&computed, &ui_item.item_type) {
+    ai_sidebar.store_goal_positions(positions);
+}
+
+// 2. Use positions for hit testing (in mouseevent.rs)
+let byte_offset = find_byte_offset_from_x(relative_x, positions);
+
+// 3. Handle drag outside bounds (in ai_sidebar.rs handle_mouse_event)
+if self.selection_state.is_dragging {
+    // Calculate byte offset and update selection
+}
+```
+
+### Known Limitations
+
+- Selection positions must be extracted after rendering due to two-phase architecture
+- Mouse events during drag may not reach original UIItem when cursor moves outside bounds
+- Each selectable text type needs custom position storage and extraction
+
 ## Text Rendering Pipeline
 
 ### Standard Flow

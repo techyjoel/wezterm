@@ -34,7 +34,7 @@ use std::time::{Duration, Instant, SystemTime};
 use termwiz::input::KeyCode;
 use wezterm_font::{FontConfiguration, LoadedFont};
 use wezterm_term::KeyModifiers;
-use window::{MouseEvent, MouseEventKind as WMEK, MousePress, PixelUnit, RectF};
+use window::{MouseButtons, MouseEvent, MouseEventKind as WMEK, MousePress, PixelUnit, RectF};
 
 // Virtual scrolling constants
 const RENDER_MARGIN: f32 = 200.0; // Pixels to render beyond viewport
@@ -81,6 +81,13 @@ struct VisualAnchor {
 // Activity log uses 0.6 which is more conservative
 const SUGGESTION_CHAR_WIDTH_MULTIPLIER: f32 = 0.4; // Try to get close to 2 full lines (but not beyond)
 
+// Selection rendering constants
+const GOAL_CARD_PADDING: f32 = 8.0; // Padding inside goal card
+const SELECTION_CHAR_WIDTH: f32 = 8.5; // Approximate character width for selection
+const SELECTION_LINE_HEIGHT: f32 = 25.0; // Height of selection rectangle
+const SELECTION_VERTICAL_OFFSET: f32 = 4.0; // Offset to align selection with text
+const SELECTION_CURSOR_WIDTH: f32 = 2.0; // Width of cursor for zero-width selection
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentMode {
     Idle,
@@ -100,9 +107,9 @@ pub enum ActivityFilter {
 /// Tracks text selection state in the sidebar
 #[derive(Debug, Clone, Default)]
 pub struct SelectionState {
-    active_selection: Option<SelectionTarget>,
-    prepared_selection: Option<SelectionTarget>,
-    is_dragging: bool,
+    pub active_selection: Option<SelectionTarget>,
+    pub prepared_selection: Option<SelectionTarget>,
+    pub is_dragging: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -120,7 +127,12 @@ pub enum SelectionTarget {
         anchor_byte: usize,
         current_byte: usize,
     },
-    // ChatInput selection handled internally by MultilineTextInput
+    ChatInput {
+        anchor_line: usize,
+        anchor_byte: usize,
+        current_line: usize,
+        current_byte: usize,
+    },
 }
 
 impl SelectionState {
@@ -160,6 +172,71 @@ impl SelectionState {
                         goal.text.get(*start..*end).map(|s| s.to_string())
                     } else {
                         None
+                    }
+                }
+                SelectionTarget::ChatInput {
+                    anchor_line,
+                    anchor_byte,
+                    current_line,
+                    current_byte,
+                } => {
+                    // Get selected text from chat input
+                    let lines = &sidebar.chat_input.lines;
+
+                    if *anchor_line == *current_line {
+                        // Single line selection
+                        if let Some(line) = lines.get(*anchor_line) {
+                            let start = anchor_byte.min(current_byte);
+                            let end = anchor_byte.max(current_byte);
+                            line.get(*start..*end).map(|s| s.to_string())
+                        } else {
+                            None
+                        }
+                    } else {
+                        // Multi-line selection
+                        let start_line = anchor_line.min(current_line);
+                        let end_line = anchor_line.max(current_line);
+                        let mut selected = String::new();
+
+                        for (idx, line) in lines.iter().enumerate() {
+                            if idx >= *start_line && idx <= *end_line {
+                                if idx == *start_line {
+                                    // First line - from byte offset to end
+                                    let start_byte = if *anchor_line == *start_line {
+                                        *anchor_byte
+                                    } else {
+                                        *current_byte
+                                    };
+                                    if let Some(text) = line.get(start_byte..) {
+                                        selected.push_str(text);
+                                    }
+                                } else if idx == *end_line {
+                                    // Last line - from start to byte offset
+                                    let end_byte = if *anchor_line == *end_line {
+                                        *anchor_byte
+                                    } else {
+                                        *current_byte
+                                    };
+                                    if let Some(text) = line.get(..end_byte) {
+                                        selected.push_str(text);
+                                    }
+                                } else {
+                                    // Middle lines - entire line
+                                    selected.push_str(line);
+                                }
+
+                                // Add newline between lines (except after last line)
+                                if idx < *end_line {
+                                    selected.push('\n');
+                                }
+                            }
+                        }
+
+                        if selected.is_empty() {
+                            None
+                        } else {
+                            Some(selected)
+                        }
                     }
                 }
             },
@@ -432,7 +509,7 @@ pub struct AiSidebar {
     pub code_block_registry: Option<CodeBlockRegistry>,
 
     // Text selection state
-    selection_state: SelectionState,
+    pub selection_state: SelectionState,
 
     // Track bounds for hit testing
     activity_item_bounds: HashMap<usize, euclid::Rect<f32, window::PixelUnit>>,
@@ -444,11 +521,19 @@ pub struct AiSidebar {
 
     // Chat input bounds for scrollbar positioning
     chat_input_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
+    
+    // Goal text character positions for accurate selection
+    goal_char_positions: Option<Vec<(f32, f32, usize)>>,
 }
 
 impl AiSidebar {
     /// Start selection at the given byte offset for an activity item
     pub fn start_activity_item_selection(&mut self, index: usize, byte_offset: usize) {
+        log::debug!(
+            "start_activity_item_selection: index={}, byte_offset={}",
+            index,
+            byte_offset
+        );
         if index < self.activity_log.len() {
             self.selection_state.active_selection = Some(SelectionTarget::ActivityItem {
                 index,
@@ -456,6 +541,13 @@ impl AiSidebar {
                 current_byte: byte_offset,
             });
             self.selection_state.is_dragging = true;
+            log::debug!("  Selection started successfully");
+        } else {
+            log::debug!(
+                "  Index {} out of range (activity_log.len()={})",
+                index,
+                self.activity_log.len()
+            );
         }
     }
 
@@ -483,22 +575,65 @@ impl AiSidebar {
 
     /// Update selection during drag
     pub fn update_selection_drag(&mut self, byte_offset: usize) {
+        log::debug!("SELECTION DEBUG: update_selection_drag called with byte_offset={}, is_dragging={}", 
+            byte_offset, self.selection_state.is_dragging);
+        
         if !self.selection_state.is_dragging {
+            log::debug!("SELECTION DEBUG: Not dragging, ignoring update");
             return;
         }
 
         // Update the current byte offset for the active selection
         match &mut self.selection_state.active_selection {
             Some(SelectionTarget::ActivityItem { current_byte, .. }) => {
+                log::debug!("SELECTION DEBUG: Updating ActivityItem current_byte from {} to {}", current_byte, byte_offset);
                 *current_byte = byte_offset;
             }
             Some(SelectionTarget::Suggestion { current_byte, .. }) => {
+                log::debug!("SELECTION DEBUG: Updating Suggestion current_byte from {} to {}", current_byte, byte_offset);
                 *current_byte = byte_offset;
             }
             Some(SelectionTarget::Goal { current_byte, .. }) => {
+                log::debug!("SELECTION DEBUG: Updating Goal current_byte from {} to {}", current_byte, byte_offset);
                 *current_byte = byte_offset;
             }
+            Some(SelectionTarget::ChatInput {
+                current_line,
+                current_byte,
+                ..
+            }) => {
+                // For chat input, we need to update both line and byte based on the drag position
+                // This will be handled by a separate method that knows the visual position
+            }
             None => {}
+        }
+    }
+
+    /// Start selection in chat input
+    pub fn start_chat_input_selection(&mut self, line: usize, byte_offset: usize) {
+        self.selection_state.active_selection = Some(SelectionTarget::ChatInput {
+            anchor_line: line,
+            anchor_byte: byte_offset,
+            current_line: line,
+            current_byte: byte_offset,
+        });
+        self.selection_state.is_dragging = true;
+    }
+
+    /// Update chat input selection during drag
+    pub fn update_chat_input_selection(&mut self, line: usize, byte_offset: usize) {
+        if !self.selection_state.is_dragging {
+            return;
+        }
+
+        if let Some(SelectionTarget::ChatInput {
+            current_line,
+            current_byte,
+            ..
+        }) = &mut self.selection_state.active_selection
+        {
+            *current_line = line;
+            *current_byte = byte_offset;
         }
     }
 
@@ -509,6 +644,23 @@ impl AiSidebar {
 
     /// Prepare for potential selection (on mouse down)
     pub fn prepare_selection(&mut self, target: SelectionTarget) {
+        log::debug!("SELECTION DEBUG: prepare_selection called with {:?}", target);
+        
+        // Check if clicking on existing selection to deselect
+        if let Some(active) = &self.selection_state.active_selection {
+            // If clicking within the same target type, clear selection
+            if matches!((active, &target), 
+                (SelectionTarget::Goal { .. }, SelectionTarget::Goal { .. }) |
+                (SelectionTarget::ActivityItem { index: a, .. }, SelectionTarget::ActivityItem { index: b, .. }) if a == b |
+                (SelectionTarget::Suggestion { .. }, SelectionTarget::Suggestion { .. }) |
+                (SelectionTarget::ChatInput { .. }, SelectionTarget::ChatInput { .. })
+            ) {
+                log::debug!("SELECTION DEBUG: Clicking on existing selection - clearing");
+                self.selection_state.clear();
+                return;
+            }
+        }
+        
         // Store the potential selection but don't activate it yet
         self.selection_state.prepared_selection = Some(target);
         // Clear any existing selection
@@ -519,8 +671,12 @@ impl AiSidebar {
     /// Activate the prepared selection (on drag start)
     pub fn activate_prepared_selection(&mut self) {
         if let Some(prepared) = self.selection_state.prepared_selection.take() {
+            log::debug!("SELECTION DEBUG: activate_prepared_selection activating {:?}", prepared);
             self.selection_state.active_selection = Some(prepared);
             self.selection_state.is_dragging = true;
+            // prepared_selection is already cleared by take()
+        } else {
+            log::debug!("SELECTION DEBUG: activate_prepared_selection called but no prepared selection");
         }
     }
 
@@ -610,6 +766,7 @@ impl AiSidebar {
             chat_input_border_color: LinearRgba::with_components(0.3, 0.3, 0.35, 0.5),
             last_viewport_height: None,
             chat_input_bounds: None,
+            goal_char_positions: None,
         }
     }
 
@@ -1080,8 +1237,6 @@ This example demonstrates:
     fn render_current_goal(&self, fonts: &SidebarFonts) -> Option<Element> {
         let goal = self.current_goal.as_ref()?;
 
-        let mut content = vec![];
-
         // Goal text
         let goal_text = if goal.is_editing {
             // Show edit input
@@ -1108,18 +1263,8 @@ This example demonstrates:
                 _ => None,
             };
 
-            let elem = if let Some((start, end)) = selection {
-                let spans = create_selection_spans(&goal.text, start, end);
-                Element::new(
-                    &fonts.body,
-                    ElementContent::StyledWrappedText {
-                        text: goal.text.clone(),
-                        style_spans: spans,
-                    },
-                )
-            } else {
-                Element::new(&fonts.body, ElementContent::WrappedText(goal.text.clone()))
-            };
+            // Always use WrappedText to avoid layout changes
+            let elem = Element::new(&fonts.body, ElementContent::WrappedText(goal.text.clone()));
 
             // Calculate available width for goal text
             let sidebar_width = self.width as f32;
@@ -1132,8 +1277,9 @@ This example demonstrates:
                 selection.is_some()
             );
 
+            // Don't pre-calculate positions - they'll be extracted after rendering
             elem.item_type(UIItemType::GoalText {
-                char_positions: calculate_char_positions(&goal.text, &fonts.body),
+                char_positions: Vec::new(), // Will be populated after rendering
             })
             .colors(ElementColors {
                 text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
@@ -1142,7 +1288,6 @@ This example demonstrates:
             .max_width(Some(Dimension::Pixels(goal_content_width)))
             .padding(BoxDimension::new(Dimension::Pixels(8.0)))
         };
-        content.push(goal_text);
 
         // Action buttons
         let mut actions = vec![];
@@ -1180,8 +1325,9 @@ This example demonstrates:
 
         let card = Card::new()
             .with_title("Current Goal".to_string())
-            .with_content(content)
+            .with_content(vec![goal_text])
             .with_actions(actions)
+            .pass_through_events(true)  // Allow child UIItemTypes to be detected
             .render(&fonts.heading);
 
         Some(
@@ -1472,39 +1618,38 @@ This example demonstrates:
 
                 // Render message content with markdown if it's from AI
                 let content = if *is_user {
-                    // User messages - check for selection
-                    if let Some((start, end)) = selection {
-                        let spans = create_selection_spans(message, start, end);
-                        Element::new(
-                            &fonts.body,
-                            ElementContent::StyledWrappedText {
-                                text: message.clone(),
-                                style_spans: spans,
-                            },
-                        )
-                        .item_type(UIItemType::ActivityItemText {
-                            index: item_index,
-                            char_positions: calculate_char_positions(message, &fonts.body),
-                        })
-                        .max_width(Some(Dimension::Pixels(content_width)))
-                        .colors(ElementColors {
-                            text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
-                            ..Default::default()
-                        })
-                        .max_width(Some(Dimension::Pixels(content_width)))
+                    // User messages - always use StyledWrappedText for consistency
+                    let spans = if let Some((start, end)) = selection {
+                        create_selection_spans(message, start, end)
                     } else {
-                        Element::new(&fonts.body, ElementContent::WrappedText(message.clone()))
-                            .item_type(UIItemType::ActivityItemText {
-                                index: item_index,
-                                char_positions: calculate_char_positions(message, &fonts.body),
-                            })
-                            .colors(ElementColors {
+                        // No selection - create a single span with default style
+                        vec![StyleSpan {
+                            start: 0,
+                            end: message.len(),
+                            colors: ElementColors {
                                 text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
                                 ..Default::default()
-                            })
-                    }
+                            },
+                            font: None,
+                            font_style: None,
+                        }]
+                    };
+                    
+                    Element::new(
+                        &fonts.body,
+                        ElementContent::StyledWrappedText {
+                            text: message.clone(),
+                            style_spans: spans,
+                        },
+                    )
+                    .item_type(UIItemType::ActivityItemText {
+                        index: item_index,
+                        char_positions: calculate_char_positions(message, &fonts.body),
+                    })
+                    .max_width(Some(Dimension::Pixels(content_width)))
                 } else {
-                    // AI messages with selection - render as plain text with selection
+                    // AI messages - if there's a selection, render as plain text with selection
+                    // Otherwise use markdown rendering
                     if let Some((start, end)) = selection {
                         let spans = create_selection_spans(message, start, end);
                         Element::new(
@@ -2156,7 +2301,7 @@ This example demonstrates:
         // Use consistent 1.1x multiplier for line spacing
         // TODO: Extract line spacing multiplier (1.1) to a constant - used throughout codebase
         let line_height_with_spacing = line_height * 1.1;
-        
+
         // Use visual line count if available, otherwise fall back to logical lines
         let line_count = if self.chat_input.visual_line_count > 0 {
             self.chat_input.visual_line_count
@@ -2475,6 +2620,15 @@ This example demonstrates:
         self.chat_input_bounds = Some(bounds);
     }
 
+    /// Set activity item bounds for selection rendering
+    pub fn set_activity_item_bounds(
+        &mut self,
+        index: usize,
+        bounds: euclid::Rect<f32, window::PixelUnit>,
+    ) {
+        self.activity_item_bounds.insert(index, bounds);
+    }
+
     /// Get chat input border color
     pub fn get_chat_input_border_color(&self) -> LinearRgba {
         self.chat_input_border_color
@@ -2490,6 +2644,495 @@ This example demonstrates:
     /// Get the exact glyph positions for chat input
     pub fn get_chat_input_glyph_positions(&self) -> &Vec<Vec<(f32, f32, usize)>> {
         &self.chat_input.exact_glyph_positions
+    }
+
+    /// Get the active selection if any
+    pub fn get_active_selection(&self) -> Option<&SelectionTarget> {
+        self.selection_state.active_selection.as_ref()
+    }
+
+    /// Calculate selection rectangles for the given selection target
+    pub fn calculate_selection_rectangles(
+        &self,
+        selection: &SelectionTarget,
+    ) -> Vec<euclid::Rect<f32, window::PixelUnit>> {
+        log::debug!("SELECTION DEBUG: calculate_selection_rectangles called with: {:?}", selection);
+        log::debug!("SELECTION DEBUG: Available bounds: activity_items={}, chat_input_has_bounds={}", 
+            self.activity_item_bounds.len(), 
+            self.chat_input_bounds.is_some());
+        
+        let mut rects = Vec::new();
+
+        match selection {
+            SelectionTarget::ActivityItem {
+                index,
+                anchor_byte,
+                current_byte,
+            } => {
+                log::debug!("SELECTION DEBUG: Activity item selection - index={}, bounds available={}", 
+                    index, self.activity_item_bounds.contains_key(index));
+                
+                // Get the activity item bounds
+                if let Some(bounds) = self.activity_item_bounds.get(index) {
+                    log::debug!("SELECTION DEBUG: Activity item bounds: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+                        bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+                    if let Some(item) = self.activity_log.get(*index) {
+                        let start_byte = anchor_byte.min(current_byte);
+                        let end_byte = anchor_byte.max(current_byte);
+
+                        // TEMPORARY: Show selection even for zero-width (for debugging)
+                        if start_byte == end_byte {
+                            log::debug!("SELECTION DEBUG: Zero-width selection at byte {}", start_byte);
+                        }
+                        
+                        // Always show selection rectangle for debugging (was: if start_byte != end_byte)
+                        if true {
+                            // For activity items, we need better selection rectangle calculation
+                            let line_height = 20.0; // Approximate line height
+                            
+                            // Get the message text to estimate selection position
+                            let text = match item {
+                                ActivityItem::Chat { message, .. } => message,
+                                ActivityItem::Command { command, .. } => command,
+                                ActivityItem::Suggestion { content, .. } => content,
+                                ActivityItem::Goal { text, .. } => text,
+                            };
+                            
+                            // Calculate more accurate selection rectangles
+                            // Account for padding inside the activity item
+                            let padding = if matches!(item, ActivityItem::Chat { .. }) {
+                                CHAT_ITEM_PADDING
+                            } else {
+                                8.0 // Default card padding
+                            };
+                            
+                            // For now, use character-based approximation
+                            // TODO: Use exact glyph positions when available
+                            let char_width = 8.5; // Approximate character width
+                            
+                            // Calculate approximate x positions for selection
+                            let start_char = text.chars().take(*start_byte).count();
+                            let end_char = text.chars().take(*end_byte).count();
+                            
+                            let start_x = bounds.origin.x + padding + (start_char as f32 * char_width);
+                            let mut end_x = bounds.origin.x + padding + (end_char as f32 * char_width);
+                            
+                            // Ensure we don't exceed the bounds
+                            let max_x = bounds.origin.x + bounds.size.width - padding;
+                            end_x = end_x.min(max_x);
+                            
+                            // For zero-width selections, show a cursor-width rectangle
+                            let width = if start_byte == end_byte {
+                                2.0  // Cursor width
+                            } else {
+                                end_x - start_x
+                            };
+                            
+                            let rect = euclid::rect(
+                                start_x,
+                                bounds.origin.y + padding,
+                                width,
+                                line_height,
+                            );
+                            
+                            log::debug!("SELECTION DEBUG: Creating rectangle at x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+                                rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+                            
+                            rects.push(rect);
+
+                            log::debug!(
+                                "Created selection rectangle for activity item {}: x={}, y={}, w={}, h={}, start_char={}, end_char={}",
+                                index,
+                                start_x,
+                                bounds.origin.y + padding,
+                                end_x - start_x,
+                                line_height,
+                                start_char,
+                                end_char
+                            );
+                        }
+                    }
+                } else {
+                    log::debug!("No bounds found for activity item {}", index);
+                }
+            }
+            SelectionTarget::Suggestion {
+                anchor_byte,
+                current_byte,
+            } => {
+                if let Some(bounds) = &self.suggestion_bounds {
+                    let start = anchor_byte.min(current_byte);
+                    let end = anchor_byte.max(current_byte);
+                    if start != end {
+                        if let Some(suggestion) = self.get_current_suggestion() {
+                            // Calculate more accurate selection rectangles
+                            let padding = 8.0; // Suggestion card padding
+                            let char_width = 8.5; // Approximate character width
+                            let line_height = 20.0;
+                            
+                            // Calculate character positions
+                            let start_char = suggestion.content.chars().take(*start).count();
+                            let end_char = suggestion.content.chars().take(*end).count();
+                            
+                            let start_x = bounds.origin.x + padding + (start_char as f32 * char_width);
+                            let end_x = bounds.origin.x + padding + (end_char as f32 * char_width);
+                            
+                            // Ensure we don't exceed bounds
+                            let max_x = bounds.origin.x + bounds.size.width - padding;
+                            let end_x = end_x.min(max_x);
+                            
+                            rects.push(euclid::rect(
+                                start_x,
+                                bounds.origin.y + padding,
+                                end_x - start_x,
+                                line_height,
+                            ));
+                        }
+                    }
+                }
+            }
+            SelectionTarget::Goal {
+                anchor_byte,
+                current_byte,
+            } => {
+                log::debug!("SELECTION DEBUG: Goal selection - bounds available={}", 
+                    self.goal_bounds.is_some());
+                
+                if let Some(bounds) = &self.goal_bounds {
+                    log::debug!("SELECTION DEBUG: Goal bounds: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+                        bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+                    
+                    let start = anchor_byte.min(current_byte);
+                    let end = anchor_byte.max(current_byte);
+                    
+                    // TEMPORARY: Show selection even for zero-width (for debugging)
+                    if start == end {
+                        log::debug!("SELECTION DEBUG: Zero-width goal selection at byte {}", start);
+                    }
+                    
+                    // Always show selection rectangle for debugging (was: if start != end)
+                    if true {
+                        if let Some(goal) = &self.current_goal {
+                            // Calculate selection rectangles using constants
+                            
+                            // Calculate character positions
+                            let start_char = goal.text.chars().take(*start).count();
+                            let end_char = goal.text.chars().take(*end).count();
+                            
+                            let start_x = bounds.origin.x + GOAL_CARD_PADDING + (start_char as f32 * SELECTION_CHAR_WIDTH);
+                            let mut end_x = bounds.origin.x + GOAL_CARD_PADDING + (end_char as f32 * SELECTION_CHAR_WIDTH);
+                            
+                            // Ensure we don't exceed bounds
+                            let max_x = bounds.origin.x + bounds.size.width - GOAL_CARD_PADDING;
+                            end_x = end_x.min(max_x);
+                            
+                            // For zero-width selections, show a cursor-width rectangle
+                            let width = if start == end {
+                                SELECTION_CURSOR_WIDTH
+                            } else {
+                                end_x - start_x
+                            };
+                            
+                            let rect = euclid::rect(
+                                start_x,
+                                bounds.origin.y + GOAL_CARD_PADDING + SELECTION_VERTICAL_OFFSET,
+                                width,
+                                SELECTION_LINE_HEIGHT,
+                            );
+                            
+                            log::debug!("SELECTION DEBUG: Creating goal rectangle at x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+                                rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+                            
+                            rects.push(rect);
+                        }
+                    }
+                } else {
+                    log::warn!("SELECTION DEBUG: No goal bounds available!");
+                }
+            }
+            SelectionTarget::ChatInput {
+                anchor_line,
+                anchor_byte,
+                current_line,
+                current_byte,
+            } => {
+                log::debug!("SELECTION DEBUG: ChatInput selection - bounds available={}, exact_positions count={}", 
+                    self.chat_input_bounds.is_some(), 
+                    self.chat_input.exact_glyph_positions.len());
+                
+                if let Some(bounds) = &self.chat_input_bounds {
+                    log::debug!("SELECTION DEBUG: ChatInput bounds: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+                        bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+                    if !self.chat_input.exact_glyph_positions.is_empty() {
+                        // Calculate selection rectangles for each line
+                        let start_line = anchor_line.min(current_line);
+                        let end_line = anchor_line.max(current_line);
+
+                        let line_height = 20.0; // TODO: Get from font metrics
+                        let line_height_with_spacing = line_height * 1.1;
+
+                        // Account for padding and border
+                        let text_padding = 8.0;
+                        let border_thickness = 1.0;
+                        let vertical_padding = 6.0;
+                        let text_offset_x = border_thickness + text_padding;
+                        let text_offset_y = border_thickness + vertical_padding;
+
+                        log::debug!(
+                            "ChatInput selection: bounds={:?}, start_line={}, end_line={}",
+                            bounds,
+                            start_line,
+                            end_line
+                        );
+
+                        for line_idx in *start_line..=*end_line {
+                            if line_idx < self.chat_input.exact_glyph_positions.len()
+                                && line_idx < self.chat_input.lines.len()
+                            {
+                                let line_positions =
+                                    &self.chat_input.exact_glyph_positions[line_idx];
+                                let line_text = &self.chat_input.lines[line_idx];
+
+                                log::debug!(
+                                    "Line {}: positions count={}, text len={}",
+                                    line_idx,
+                                    line_positions.len(),
+                                    line_text.len()
+                                );
+
+                                // Calculate x range for this line
+                                let (x_start, x_end) =
+                                    if line_idx == *start_line && line_idx == *end_line {
+                                        // Selection within single line
+                                        let start_byte = if *anchor_line == *start_line {
+                                            *anchor_byte
+                                        } else {
+                                            *current_byte
+                                        };
+                                        let end_byte = if *anchor_line == *start_line {
+                                            *current_byte
+                                        } else {
+                                            *anchor_byte
+                                        };
+                                        let min_byte = start_byte.min(end_byte);
+                                        let max_byte = start_byte.max(end_byte);
+
+                                        log::debug!(
+                                            "Single line selection: min_byte={}, max_byte={}",
+                                            min_byte,
+                                            max_byte
+                                        );
+
+                                        // For chat input, byte offsets are character indices
+                                        let x_start = self
+                                            .find_x_for_byte_offset(&line_positions, min_byte)
+                                            .unwrap_or(0.0);
+                                        let x_end = self
+                                            .find_x_for_byte_offset(&line_positions, max_byte)
+                                            .unwrap_or_else(|| {
+                                                // If we can't find the position, use the last glyph's end position
+                                                line_positions
+                                                    .last()
+                                                    .map(|(_, end, _)| *end)
+                                                    .unwrap_or(100.0)
+                                            });
+                                        (x_start, x_end)
+                                    } else if line_idx == *start_line {
+                                        // First line of multi-line selection
+                                        let start_byte = if *anchor_line == *start_line {
+                                            *anchor_byte
+                                        } else {
+                                            *current_byte
+                                        };
+                                        let x_start = self
+                                            .find_x_for_byte_offset(&line_positions, start_byte)
+                                            .unwrap_or(0.0);
+                                        let x_end = line_positions
+                                            .last()
+                                            .map(|(_, end, _)| *end)
+                                            .unwrap_or(100.0);
+                                        (x_start, x_end)
+                                    } else if line_idx == *end_line {
+                                        // Last line of multi-line selection
+                                        let end_byte = if *anchor_line == *end_line {
+                                            *anchor_byte
+                                        } else {
+                                            *current_byte
+                                        };
+                                        let x_end = self
+                                            .find_x_for_byte_offset(&line_positions, end_byte)
+                                            .unwrap_or_else(|| {
+                                                line_positions
+                                                    .last()
+                                                    .map(|(_, end, _)| *end)
+                                                    .unwrap_or(100.0)
+                                            });
+                                        (0.0, x_end)
+                                    } else {
+                                        // Middle line - select entire line
+                                        let x_end = line_positions
+                                            .last()
+                                            .map(|(_, end, _)| *end)
+                                            .unwrap_or(100.0);
+                                        (0.0, x_end)
+                                    };
+
+                                log::debug!(
+                                    "Line {} selection x_start={}, x_end={}",
+                                    line_idx,
+                                    x_start,
+                                    x_end
+                                );
+
+                                // Adjust for scroll offset
+                                let y_offset = line_idx as f32 * line_height_with_spacing
+                                    - self.chat_input.scroll_pixel_offset;
+
+                                // Only add rectangle if it's visible
+                                if y_offset + line_height > 0.0 && y_offset < bounds.size.height {
+                                    let rect = euclid::rect(
+                                        bounds.origin.x + text_offset_x + x_start,
+                                        bounds.origin.y + text_offset_y + y_offset,
+                                        x_end - x_start,
+                                        line_height,
+                                    );
+                                    log::debug!("Adding selection rect: {:?}", rect);
+                                    rects.push(rect);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        rects
+    }
+
+    /// Find x-coordinate for a byte offset in glyph positions
+    fn find_x_for_byte_offset(
+        &self,
+        positions: &[(f32, f32, usize)],
+        byte_offset: usize,
+    ) -> Option<f32> {
+        log::debug!(
+            "find_x_for_byte_offset: looking for byte_offset={}",
+            byte_offset
+        );
+
+        // Handle start of line
+        if byte_offset == 0 && !positions.is_empty() {
+            // Return the start position of the first glyph
+            return Some(positions[0].0);
+        }
+
+        // For chat input, byte_offset is actually a character index
+        // The positions are stored as (x_start, x_end, char_index)
+        // Find the position that matches this character index
+        for (i, (x_start, x_end, char_idx)) in positions.iter().enumerate() {
+            log::debug!(
+                "  Position[{}]: x=({:.1}, {:.1}), char_idx={}",
+                i,
+                x_start,
+                x_end,
+                char_idx
+            );
+
+            if *char_idx == byte_offset {
+                // Exact match - return start of this character
+                return Some(*x_start);
+            } else if byte_offset > 0 && i > 0 && *char_idx > byte_offset {
+                // We've passed the target position - it's between previous and current
+                let prev = &positions[i - 1];
+                // Return end of previous character
+                return Some(prev.1);
+            }
+        }
+
+        // If byte offset is past all glyphs, return end of last glyph
+        if let Some(last) = positions.last() {
+            if byte_offset >= last.2 {
+                return Some(last.1); // End of last character
+            }
+        }
+
+        log::debug!(
+            "  No matching position found for byte_offset={}",
+            byte_offset
+        );
+        None
+    }
+
+    /// Set the bounds for the suggestion card
+    pub fn set_suggestion_bounds(&mut self, bounds: euclid::Rect<f32, window::PixelUnit>) {
+        self.suggestion_bounds = Some(bounds);
+    }
+
+    /// Set the bounds for the goal card
+    pub fn set_goal_bounds(&mut self, bounds: euclid::Rect<f32, window::PixelUnit>) {
+        self.goal_bounds = Some(bounds);
+    }
+    
+    /// Get the bounds for the goal card
+    pub fn get_goal_bounds(&self) -> Option<&euclid::Rect<f32, window::PixelUnit>> {
+        self.goal_bounds.as_ref()
+    }
+    
+    /// Store extracted character positions for goal text
+    pub fn store_goal_positions(&mut self, positions: Vec<(f32, f32, usize)>) {
+        self.goal_char_positions = Some(positions);
+    }
+    
+    /// Get the stored goal character positions
+    pub fn get_goal_positions(&self) -> Option<&Vec<(f32, f32, usize)>> {
+        self.goal_char_positions.as_ref()
+    }
+    
+    /// Find byte offset from x coordinate using stored character positions
+    fn find_byte_offset_from_positions(&self, x: f32, positions: &[(f32, f32, usize)]) -> usize {
+        // Handle click before first character
+        if x <= 0.0 || positions.is_empty() {
+            log::debug!("SELECTION DEBUG: find_byte_offset x={} returning 0 (before first char)", x);
+            return 0;
+        }
+        
+        // Log position range for debugging
+        if let (Some(first), Some(last)) = (positions.first(), positions.last()) {
+            log::debug!("SELECTION DEBUG: find_byte_offset x={}, positions range: x={}..{}, bytes={}..{}", 
+                x, first.0, last.1, first.2, last.2);
+        }
+        
+        // Find the character containing this x position
+        for (idx, &(x_start, x_end, byte_offset)) in positions.iter().enumerate() {
+            if x >= x_start && x < x_end {
+                // Determine if click is closer to start or end of character
+                let mid = (x_start + x_end) / 2.0;
+                if x < mid {
+                    log::debug!("SELECTION DEBUG: x={} in char {} ({}..{}), closer to start, returning byte={}", 
+                        x, idx, x_start, x_end, byte_offset);
+                    return byte_offset;
+                } else {
+                    // Return position after this character
+                    // Find the next character's byte offset
+                    if idx + 1 < positions.len() {
+                        let next_byte = positions[idx + 1].2;
+                        log::debug!("SELECTION DEBUG: x={} in char {} ({}..{}), closer to end, returning next byte={}", 
+                            x, idx, x_start, x_end, next_byte);
+                        return next_byte;
+                    } else {
+                        // This is the last character - return end of text
+                        log::debug!("SELECTION DEBUG: x={} in last char {} ({}..{}), returning end byte={}", 
+                            x, idx, x_start, x_end, byte_offset + 1);
+                        return byte_offset + 1;
+                    }
+                }
+            }
+        }
+        
+        // Click after last character - return end of text
+        let result = positions.last().map(|(_, _, offset)| offset + 1).unwrap_or(0);
+        log::debug!("SELECTION DEBUG: x={} after all chars, returning end byte={}", x, result);
+        result
     }
 
     pub fn render_activity_log_content(
@@ -2886,7 +3529,7 @@ impl Sidebar for AiSidebar {
             // TODO: Extract line spacing multiplier (1.1) to a constant - used throughout codebase
             let line_height_with_spacing = line_height * 1.1;
             let viewport_height = self.chat_input.display_lines as f32 * line_height_with_spacing;
-            
+
             // Use visual line count if available (from text wrapping), otherwise fall back to logical lines
             let line_count = if self.chat_input.visual_line_count > 0 {
                 self.chat_input.visual_line_count
@@ -2990,6 +3633,52 @@ impl Sidebar for AiSidebar {
         // Code block horizontal scrolling has been removed - using line wrapping instead
 
         // Show more button is now handled via UIItemType
+        
+        // Handle text selection drag during Move events
+        if let WMEK::Move = &event.kind {
+            // Check if we're currently dragging a selection
+            if self.selection_state.is_dragging && event.mouse_buttons == MouseButtons::LEFT {
+                log::debug!("SELECTION DEBUG: Handling drag Move event in sidebar");
+                
+                // Determine which selection target we're dragging
+                if let Some(selection) = &self.selection_state.active_selection {
+                    match selection {
+                        SelectionTarget::Goal { anchor_byte, .. } => {
+                            // Handle goal text drag directly in sidebar since mouse may be outside UIItem bounds
+                            if let Some(bounds) = self.goal_bounds {
+                                let relative_x = event.coords.x as f32 - bounds.origin.x - GOAL_CARD_PADDING;
+                                
+                                log::debug!("SELECTION DEBUG: Goal drag at relative_x={}", relative_x);
+                                
+                                // Use stored real positions to find byte offset
+                                if let Some(positions) = &self.goal_char_positions {
+                                    let current_byte = self.find_byte_offset_from_positions(relative_x, positions);
+                                    log::debug!("SELECTION DEBUG: Calculated byte_offset={} from relative_x={}", current_byte, relative_x);
+                                    
+                                    self.update_selection_drag(current_byte);
+                                    return Ok(true); // Event handled
+                                } else {
+                                    log::debug!("SELECTION DEBUG: No character positions available for goal text");
+                                }
+                            } else {
+                                log::debug!("SELECTION DEBUG: No goal bounds available");
+                            }
+                        }
+                        SelectionTarget::ActivityItem { index, .. } => {
+                            // TODO: Handle activity item drag
+                            log::debug!("SELECTION DEBUG: Activity item {} drag - not yet implemented", index);
+                        }
+                        SelectionTarget::Suggestion { .. } => {
+                            // TODO: Handle suggestion drag
+                            log::debug!("SELECTION DEBUG: Suggestion drag - not yet implemented");
+                        }
+                        SelectionTarget::ChatInput { .. } => {
+                            // Chat input has its own handling
+                        }
+                    }
+                }
+            }
+        }
 
         // Log current bounds for debugging
         if let WMEK::Press(MousePress::Left) = &event.kind {
@@ -3039,6 +3728,11 @@ impl Sidebar for AiSidebar {
                     old_offset, self.activity_log_scroll_offset, max_scroll, amount, scroll_amount, actually_scrolled
                 );
 
+                // Clear activity item bounds when scrolling - they'll be repopulated on next render
+                if actually_scrolled {
+                    self.activity_item_bounds.clear();
+                }
+
                 // Return true to consume the event since we're over the activity log
                 return Ok(true);
             } else {
@@ -3085,6 +3779,9 @@ impl Sidebar for AiSidebar {
                         // Clear visual anchor when user interacts with scrollbar
                         self.visual_anchor = None;
 
+                        // Clear activity item bounds when scrolling - they'll be repopulated on next render
+                        self.activity_item_bounds.clear();
+
                         log::debug!(
                             "Scrollbar updated scroll offset to: {} (max: {})",
                             self.activity_log_scroll_offset,
@@ -3103,22 +3800,27 @@ impl Sidebar for AiSidebar {
     }
 
     fn handle_key_event(&mut self, key: &KeyCode, modifiers: KeyModifiers) -> Result<bool> {
-        log::debug!("AI sidebar received key event: {:?} with modifiers: {:?}", key, modifiers);
+        log::debug!(
+            "AI sidebar received key event: {:?} with modifiers: {:?}",
+            key,
+            modifiers
+        );
 
         // Handle modal keyboard events first
         if self.modal_manager.is_active() {
             log::debug!("Modal is active, forwarding key to modal manager");
-            if self
-                .modal_manager
-                .handle_key_event(*key, modifiers)
-            {
+            if self.modal_manager.handle_key_event(*key, modifiers) {
                 return Ok(true);
             }
         }
 
         // Handle chat input keyboard events when it has focus
         if self.chat_input.focused {
-            log::debug!("Chat input has focus, handling key event: {:?} with modifiers: {:?}", key, modifiers);
+            log::debug!(
+                "Chat input has focus, handling key event: {:?} with modifiers: {:?}",
+                key,
+                modifiers
+            );
 
             // Special handling for certain keys
             match key {
@@ -3133,7 +3835,10 @@ impl Sidebar for AiSidebar {
                     if modifiers.contains(KeyModifiers::SHIFT) {
                         // Shift+Enter should insert a newline - let MultilineTextInput handle it
                         let result = self.chat_input.handle_key_event(key, modifiers);
-                        log::debug!("MultilineTextInput.handle_key_event (Shift+Enter) returned: {:?}", result);
+                        log::debug!(
+                            "MultilineTextInput.handle_key_event (Shift+Enter) returned: {:?}",
+                            result
+                        );
                         return result;
                     } else {
                         // Enter without shift sends the message
@@ -3233,10 +3938,12 @@ impl AiSidebar {
         relative_x: f32,
         relative_y: f32,
         line_positions: &Vec<Vec<(f32, f32, usize)>>,
+        is_drag: bool,
+        shift_held: bool,
     ) {
         log::debug!(
-            "handle_chat_input_click_with_positions: relative_x={}, relative_y={}, line_positions_count={}",
-            relative_x, relative_y, line_positions.len()
+            "handle_chat_input_click_with_positions: relative_x={}, relative_y={}, line_positions_count={}, is_drag={}, shift_held={}",
+            relative_x, relative_y, line_positions.len(), is_drag, shift_held
         );
 
         // Debug: log what positions we received
@@ -3351,6 +4058,8 @@ impl AiSidebar {
                 // Now map the document byte offset to logical line and column
                 let mut current_byte = 0;
                 let mut found_logical_position = false;
+                let mut logical_line = 0;
+                let mut logical_col = 0;
 
                 for (logical_line_idx, line_text) in self.chat_input.lines.iter().enumerate() {
                     let line_start = current_byte;
@@ -3375,9 +4084,8 @@ impl AiSidebar {
                             clicked_document_byte_offset
                         );
 
-                        // Update cursor position
-                        self.chat_input.cursor_line = logical_line_idx;
-                        self.chat_input.cursor_col = char_index;
+                        logical_line = logical_line_idx;
+                        logical_col = char_index;
                         found_logical_position = true;
                         break;
                     }
@@ -3385,7 +4093,41 @@ impl AiSidebar {
                     current_byte = line_end + 1; // +1 for newline
                 }
 
-                if !found_logical_position {
+                if found_logical_position {
+                    // Handle selection logic
+                    if is_drag {
+                        // Update selection during drag
+                        self.update_chat_input_selection(logical_line, logical_col);
+                    } else if shift_held {
+                        // Extend selection with shift+click
+                        if let Some(SelectionTarget::ChatInput { .. }) =
+                            &self.selection_state.active_selection
+                        {
+                            // Update current position to extend selection
+                            self.update_chat_input_selection(logical_line, logical_col);
+                        } else {
+                            // Start new selection from cursor to clicked position
+                            let cursor_line = self.chat_input.cursor_line;
+                            let cursor_col = self.chat_input.cursor_col;
+                            self.start_chat_input_selection(cursor_line, cursor_col);
+                            self.update_chat_input_selection(logical_line, logical_col);
+                        }
+                    } else {
+                        // Regular click - clear selection and move cursor
+                        self.selection_state.clear();
+                        self.chat_input.cursor_line = logical_line;
+                        self.chat_input.cursor_col = logical_col;
+
+                        // Start potential selection (for drag)
+                        self.selection_state.prepared_selection =
+                            Some(SelectionTarget::ChatInput {
+                                anchor_line: logical_line,
+                                anchor_byte: logical_col,
+                                current_line: logical_line,
+                                current_byte: logical_col,
+                            });
+                    }
+                } else {
                     log::warn!(
                         "[CLICK_DEBUG] Could not map document byte offset {} to logical line",
                         clicked_document_byte_offset

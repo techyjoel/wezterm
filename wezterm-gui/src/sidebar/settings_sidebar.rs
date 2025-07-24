@@ -3,8 +3,8 @@ use crate::termwindow::box_model::{Element, ElementColors, ElementContent};
 use anyhow::Result;
 use std::rc::Rc;
 use termwiz::input::KeyCode;
-use wezterm_term::KeyModifiers;
 use wezterm_font::LoadedFont;
+use wezterm_term::KeyModifiers;
 use window::color::LinearRgba;
 use window::MouseEvent;
 

@@ -990,13 +990,23 @@ impl ComputedElement {
 
     fn ui_item_impl(&self, items: &mut Vec<UIItem>) {
         if let Some(item_type) = &self.item_type {
-            items.push(UIItem {
+            let ui_item = UIItem {
                 x: self.bounds.min_x().max(0.) as usize,
                 y: self.bounds.min_y().max(0.) as usize,
                 width: self.bounds.width().max(0.) as usize,
                 height: self.bounds.height().max(0.) as usize,
                 item_type: item_type.clone(),
-            });
+            };
+            
+            // Debug logging for Goal text UIItems
+            if matches!(&ui_item.item_type, UIItemType::GoalText { .. }) {
+                log::debug!(
+                    "UIITEM DEBUG: Adding GoalText UIItem - bounds: x={}, y={}, w={}, h={}, total_items_before={}",
+                    ui_item.x, ui_item.y, ui_item.width, ui_item.height, items.len()
+                );
+            }
+            
+            items.push(ui_item);
         }
 
         match &self.content {

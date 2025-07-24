@@ -103,6 +103,32 @@ impl super::TermWindow {
     fn resolve_ui_item(&self, event: &MouseEvent) -> Option<UIItem> {
         let x = event.coords.x;
         let y = event.coords.y;
+        
+        // Debug logging for goal area clicks
+        let sidebar_manager = self.sidebar_manager.borrow();
+        let sidebar_width = sidebar_manager.get_window_expansion() as f32;
+        drop(sidebar_manager);
+        let window_width = self.dimensions.pixel_width as f32;
+        let sidebar_x = window_width - sidebar_width;
+        
+        // Check if click is in sidebar area where goal might be
+        if x >= sidebar_x as isize && y >= 100 && y <= 400 {
+            log::debug!(
+                "UIITEM DEBUG: Mouse click in potential goal area - x={}, y={}, checking {} UIItems",
+                x, y, self.ui_items.len()
+            );
+            
+            // Log all UIItems that could match this position
+            for (idx, item) in self.ui_items.iter().enumerate().rev() {
+                if item.hit_test(x, y) {
+                    log::debug!(
+                        "UIITEM DEBUG: UIItem {} matches click - type={:?}, bounds=({},{},{},{})",
+                        idx, item.item_type, item.x, item.y, item.width, item.height
+                    );
+                }
+            }
+        }
+        
         self.ui_items
             .iter()
             .rev()
@@ -555,6 +581,15 @@ impl super::TermWindow {
         context: &dyn WindowOps,
     ) {
         self.last_ui_item.replace(item.clone());
+        
+        // Debug logging for goal text
+        if matches!(&item.item_type, UIItemType::GoalText { .. }) {
+            log::debug!(
+                "GOAL EVENT DEBUG: mouse_event_ui_item called with GoalText - event kind={:?}, bounds=({},{},{},{})",
+                event.kind, item.x, item.y, item.width, item.height
+            );
+        }
+        
         match &item.item_type {
             UIItemType::TabBar(tab_item) => {
                 self.mouse_event_tab_bar(tab_item.clone(), event, context);
@@ -1622,16 +1657,85 @@ impl super::TermWindow {
                                 let relative_x = event.coords.x as f32 - bounds.origin.x;
                                 let relative_y = event.coords.y as f32 - bounds.origin.y;
 
-                                // Use the exact glyph positions stored in the sidebar
-                                // (The line_positions from UIItemType are empty placeholders)
-                                let exact_positions =
-                                    ai_sidebar.get_chat_input_glyph_positions().clone();
+                                // Use the exact glyph positions from UIItemType
+                                // These were calculated during rendering with exact cluster data
                                 ai_sidebar.handle_chat_input_click_with_positions(
                                     relative_x,
                                     relative_y,
-                                    &exact_positions,
+                                    line_positions,
+                                    false, // Not a drag
+                                    event.modifiers.contains(window::Modifiers::SHIFT),
                                 );
                                 context.invalidate(); // Trigger repaint to show cursor position
+                            }
+                        }
+                    }
+                }
+            }
+            WMEK::Move => {
+                // Handle drag selection if left button is held
+                if event.mouse_buttons.contains(MouseButtons::LEFT) {
+                    log::debug!(
+                        "Chat input drag at ({}, {})",
+                        event.coords.x,
+                        event.coords.y
+                    );
+
+                    if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
+                        if let Some(sidebar) = mgr.get_right_sidebar() {
+                            if let Ok(mut sidebar) = sidebar.lock() {
+                                if let Some(ai_sidebar) = sidebar
+                                    .as_any_mut()
+                                    .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
+                                ) {
+                                    // First check if we have a prepared selection to activate
+                                    if !ai_sidebar.is_selecting() {
+                                        if let Some(prepared) =
+                                            ai_sidebar.selection_state.prepared_selection.clone()
+                                        {
+                                            ai_sidebar.selection_state.active_selection =
+                                                Some(prepared);
+                                            ai_sidebar.selection_state.is_dragging = true;
+                                        }
+                                    }
+
+                                    // Get the bounds of the chat input
+                                    let bounds = euclid::rect::<f32, euclid::UnknownUnit>(
+                                        item.x as f32,
+                                        item.y as f32,
+                                        item.width as f32,
+                                        item.height as f32,
+                                    );
+
+                                    let relative_x = event.coords.x as f32 - bounds.origin.x;
+                                    let relative_y = event.coords.y as f32 - bounds.origin.y;
+
+                                    // Use the exact glyph positions from UIItemType
+                                    ai_sidebar.handle_chat_input_click_with_positions(
+                                        relative_x,
+                                        relative_y,
+                                        line_positions,
+                                        true,  // Is a drag
+                                        false, // Shift not relevant during drag
+                                    );
+                                    context.invalidate();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            WMEK::Release(MousePress::Left) => {
+                // End drag selection
+                if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
+                    if let Some(sidebar) = mgr.get_right_sidebar() {
+                        if let Ok(mut sidebar) = sidebar.lock() {
+                            if let Some(ai_sidebar) = sidebar
+                                .as_any_mut()
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
+                            ) {
+                                ai_sidebar.selection_state.is_dragging = false;
+                                ai_sidebar.selection_state.prepared_selection = None;
                             }
                         }
                     }
@@ -1773,7 +1877,21 @@ impl super::TermWindow {
                                         ai_sidebar.activate_prepared_selection();
                                     }
                                     let x = event.coords.x as f32;
-                                    let byte_offset = find_byte_offset_from_x(x, char_positions);
+                                    
+                                    // Transform to relative coordinates using goal bounds
+                                    let relative_x = if let Some(bounds) = ai_sidebar.get_goal_bounds() {
+                                        let rel_x = x - bounds.origin.x - 8.0; // Subtract padding (matches GOAL_CARD_PADDING in ai_sidebar.rs)
+                                        log::debug!("GOAL EVENT DEBUG (drag): Relative x={} (absolute {} - bounds.x {} - padding 8)", 
+                                            rel_x, x, bounds.origin.x);
+                                        rel_x
+                                    } else {
+                                        log::debug!("GOAL EVENT DEBUG (drag): No goal bounds, using absolute x={}", x);
+                                        x
+                                    };
+                                    
+                                    let byte_offset = find_byte_offset_from_x(relative_x, char_positions);
+                                    log::debug!("GOAL EVENT DEBUG (drag): Goal drag - byte_offset={} using relative_x={}", 
+                                        byte_offset, relative_x);
                                     ai_sidebar.update_selection_drag(byte_offset);
                                 }
                             }
@@ -1809,15 +1927,86 @@ impl super::TermWindow {
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
+        log::debug!("GOAL EVENT DEBUG: mouse_event_goal_text called - event kind={:?}", event.kind);
         context.set_cursor(Some(MouseCursor::Text));
 
         match event.kind {
             WMEK::Press(MousePress::Left) => {
                 let x = event.coords.x as f32;
-                log::debug!("Goal text clicked at x={}", x);
+                log::debug!("GOAL EVENT DEBUG: Goal text clicked at absolute x={}", x);
+                log::debug!("GOAL EVENT DEBUG: Goal char_positions count: {}", char_positions.len());
+                
+                // Get goal bounds to transform coordinates
+                let relative_x = if let Ok(mgr) = self.sidebar_manager.try_borrow() {
+                    if let Some(sidebar) = mgr.get_right_sidebar() {
+                        if let Ok(sidebar) = sidebar.lock() {
+                            if let Some(ai_sidebar) = sidebar
+                                .as_any()
+                                .downcast_ref::<crate::sidebar::ai_sidebar::AiSidebar>()
+                            {
+                                if let Some(bounds) = ai_sidebar.get_goal_bounds() {
+                                    let rel_x = x - bounds.origin.x - 8.0; // Subtract padding
+                                    log::debug!("GOAL EVENT DEBUG: Goal bounds: origin=({}, {}), size=({}, {})",
+                                        bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+                                    log::debug!("GOAL EVENT DEBUG: Relative x={} (absolute {} - bounds.x {} - padding 8)", 
+                                        rel_x, x, bounds.origin.x);
+                                    rel_x
+                                } else {
+                                    log::debug!("GOAL EVENT DEBUG: No goal bounds available!");
+                                    x
+                                }
+                            } else {
+                                x
+                            }
+                        } else {
+                            x
+                        }
+                    } else {
+                        x
+                    }
+                } else {
+                    x
+                };
+                
+                // Debug: Log the first few and last few char positions to understand coordinate space
+                if !char_positions.is_empty() {
+                    log::debug!("GOAL EVENT DEBUG: First char position: {:?}", char_positions.first());
+                    log::debug!("GOAL EVENT DEBUG: Last char position: {:?}", char_positions.last());
+                    if char_positions.len() > 2 {
+                        log::debug!("GOAL EVENT DEBUG: Second char position: {:?}", char_positions.get(1));
+                    }
+                }
 
-                // Find the byte offset from the character positions
-                let byte_offset = find_byte_offset_from_x(x, char_positions);
+                // Get real positions from sidebar instead of using pre-calculated ones
+                let byte_offset = if let Ok(mgr) = self.sidebar_manager.try_borrow() {
+                    if let Some(sidebar) = mgr.get_right_sidebar() {
+                        if let Ok(sidebar) = sidebar.lock() {
+                            if let Some(ai_sidebar) = sidebar
+                                .as_any()
+                                .downcast_ref::<crate::sidebar::ai_sidebar::AiSidebar>()
+                            {
+                                // Use real positions if available, fall back to pre-calculated
+                                if let Some(real_positions) = ai_sidebar.get_goal_positions() {
+                                    log::debug!("GOAL EVENT DEBUG: Using {} real character positions", real_positions.len());
+                                    find_byte_offset_from_x(relative_x, real_positions)
+                                } else {
+                                    log::debug!("GOAL EVENT DEBUG: No real positions, using {} pre-calculated positions", char_positions.len());
+                                    find_byte_offset_from_x(relative_x, char_positions)
+                                }
+                            } else {
+                                find_byte_offset_from_x(relative_x, char_positions)
+                            }
+                        } else {
+                            find_byte_offset_from_x(relative_x, char_positions)
+                        }
+                    } else {
+                        find_byte_offset_from_x(relative_x, char_positions)
+                    }
+                } else {
+                    find_byte_offset_from_x(relative_x, char_positions)
+                };
+                log::debug!("GOAL EVENT DEBUG: Goal text clicked - calculated byte_offset: {} using relative_x={}", 
+                    byte_offset, relative_x);
 
                 // Start text selection for goal
                 if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
@@ -1851,7 +2040,21 @@ impl super::TermWindow {
                                         ai_sidebar.activate_prepared_selection();
                                     }
                                     let x = event.coords.x as f32;
-                                    let byte_offset = find_byte_offset_from_x(x, char_positions);
+                                    
+                                    // Transform to relative coordinates using goal bounds
+                                    let relative_x = if let Some(bounds) = ai_sidebar.get_goal_bounds() {
+                                        let rel_x = x - bounds.origin.x - 8.0; // Subtract padding (matches GOAL_CARD_PADDING in ai_sidebar.rs)
+                                        log::debug!("GOAL EVENT DEBUG (drag): Relative x={} (absolute {} - bounds.x {} - padding 8)", 
+                                            rel_x, x, bounds.origin.x);
+                                        rel_x
+                                    } else {
+                                        log::debug!("GOAL EVENT DEBUG (drag): No goal bounds, using absolute x={}", x);
+                                        x
+                                    };
+                                    
+                                    let byte_offset = find_byte_offset_from_x(relative_x, char_positions);
+                                    log::debug!("GOAL EVENT DEBUG (drag): Goal drag - byte_offset={} using relative_x={}", 
+                                        byte_offset, relative_x);
                                     ai_sidebar.update_selection_drag(byte_offset);
                                 }
                             }

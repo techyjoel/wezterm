@@ -16,8 +16,8 @@
 use crate::quad::{QuadTrait, TripleLayerQuadAllocator, TripleLayerQuadAllocatorTrait};
 use crate::sidebar::{AiSidebar, SidebarScrollbars};
 use crate::termwindow::box_model::{
-    set_width_correction_factor, Element, ElementColors, ElementContent, LayoutContext,
-    RenderSource,
+    set_width_correction_factor, ComputedElement, ComputedElementContent, Element, ElementCell,
+    ElementColors, ElementContent, LayoutContext, RenderSource,
 };
 use crate::termwindow::render::neon::{NeonRenderer, NeonStyle};
 use crate::termwindow::render::scrollbar_renderer::ScrollbarRenderer;
@@ -613,6 +613,28 @@ impl crate::TermWindow {
                     let viewport_height = activity_bounds.size.height;
                     ai_sidebar
                         .update_activity_log_height_cache(&activity_log_computed, viewport_height);
+
+                    // CRITICAL: Update activity item bounds for selection rendering
+                    // Extract bounds from the computed UI items
+                    for ui_item in activity_log_computed.ui_items() {
+                        if let UIItemType::ActivityItemText { index, .. } = &ui_item.item_type {
+                            let item_bounds = euclid::rect(
+                                ui_item.x as f32,
+                                ui_item.y as f32,
+                                ui_item.width as f32,
+                                ui_item.height as f32,
+                            );
+                            ai_sidebar.set_activity_item_bounds(*index, item_bounds);
+                            log::debug!(
+                                "Set activity item {} bounds: x={}, y={}, w={}, h={}",
+                                index,
+                                item_bounds.origin.x,
+                                item_bounds.origin.y,
+                                item_bounds.size.width,
+                                item_bounds.size.height
+                            );
+                        }
+                    }
                 }
             }
 
@@ -659,6 +681,64 @@ impl crate::TermWindow {
 
             // Extract UI items for mouse handling
             self.ui_items.extend(computed.ui_items());
+
+            // Capture bounds for suggestion and goal cards for selection rendering
+            if let Ok(mut sidebar_guard) = sidebar.lock() {
+                if let Some(ai_sidebar) = sidebar_guard.as_any_mut().downcast_mut::<AiSidebar>() {
+                    for ui_item in computed.ui_items() {
+                        match &ui_item.item_type {
+                            crate::termwindow::UIItemType::SuggestionText { .. } => {
+                                let bounds = euclid::rect(
+                                    ui_item.x as f32,
+                                    ui_item.y as f32,
+                                    ui_item.width as f32,
+                                    ui_item.height as f32,
+                                );
+                                ai_sidebar.set_suggestion_bounds(bounds);
+                                log::debug!(
+                                    "Set suggestion bounds: x={}, y={}, w={}, h={}",
+                                    bounds.origin.x,
+                                    bounds.origin.y,
+                                    bounds.size.width,
+                                    bounds.size.height
+                                );
+                            }
+                            crate::termwindow::UIItemType::GoalText { .. } => {
+                                let bounds = euclid::rect(
+                                    ui_item.x as f32,
+                                    ui_item.y as f32,
+                                    ui_item.width as f32,
+                                    ui_item.height as f32,
+                                );
+                                ai_sidebar.set_goal_bounds(bounds);
+                                log::debug!(
+                                    "GOAL BOUNDS DEBUG: Set goal bounds: x={}, y={}, w={}, h={} from UIItem at ({},{},{},{})",
+                                    bounds.origin.x,
+                                    bounds.origin.y,
+                                    bounds.size.width,
+                                    bounds.size.height,
+                                    ui_item.x,
+                                    ui_item.y,
+                                    ui_item.width,
+                                    ui_item.height
+                                );
+                                
+                                // Extract goal text positions from the computed element
+                                if let Some(positions) = self.extract_goal_text_positions(&computed, &ui_item.item_type) {
+                                    log::debug!(
+                                        "GOAL POSITIONS DEBUG: Extracted {} character positions for goal text",
+                                        positions.len()
+                                    );
+                                    ai_sidebar.store_goal_positions(positions);
+                                } else {
+                                    log::debug!("GOAL POSITIONS DEBUG: Failed to extract positions for goal text");
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
 
             // Render chat input background and content using activity log pattern
             if let Ok(mut sidebar_guard) = sidebar.lock() {
@@ -816,14 +896,12 @@ impl crate::TermWindow {
                             );
                         }
 
-                        // Extract exact glyph positions from the computed element
+                        // Debug: Log exact glyph positions from the computed element
                         if let Some(UIItemType::ChatInput { line_positions }) =
                             &chat_input_computed.item_type
                         {
-                            // Update the sidebar's chat input with the exact positions
-                            ai_sidebar.set_chat_input_glyph_positions(line_positions.clone());
                             log::debug!(
-                                "Updated chat input with {} lines of exact glyph positions",
+                                "Chat input has {} lines of exact glyph positions",
                                 line_positions.len()
                             );
                             // Debug: log the first few positions
@@ -881,6 +959,9 @@ impl crate::TermWindow {
                 }
             }
 
+            // Render selection overlays at z-index 13 (above text but below UI elements)
+            self.render_sidebar_selection_overlays(&sidebar, sidebar_x)?;
+
             // Render sidebar scrollbars at z-index 16
             let sidebar_scrollbars = sidebar.lock().unwrap().get_scrollbars();
 
@@ -922,6 +1003,76 @@ impl crate::TermWindow {
             self.render_sidebar_modals(&sidebar, sidebar_x, visible_width)?;
         }
 
+        Ok(())
+    }
+
+    /// Render selection overlays for all selectable text in the sidebar
+    fn render_sidebar_selection_overlays(
+        &mut self,
+        sidebar: &Arc<std::sync::Mutex<dyn crate::sidebar::Sidebar>>,
+        sidebar_x: f32,
+    ) -> Result<()> {
+        let mut sidebar_locked = sidebar.lock().unwrap();
+        if let Some(ai_sidebar) = sidebar_locked
+            .as_any_mut()
+            .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+        {
+            let gl_state = self.render_state.as_ref().unwrap();
+            // Use z-index 14 (same as content) with sub-layer 0 for selection rectangles
+            // Sub-layer 0 renders behind text (which uses sub-layer 1), following terminal selection pattern
+            let layer = gl_state.layer_for_zindex(14)?;
+            let mut layers = layer.quad_allocator();
+            
+            // Get selection state
+            if let Some(selection) = ai_sidebar.get_active_selection() {
+                log::debug!("SELECTION DEBUG: Active selection found: {:?}", selection);
+                
+                // Get selection rectangles from the sidebar
+                let selection_rects = ai_sidebar.calculate_selection_rectangles(selection);
+                log::debug!("SELECTION DEBUG: calculate_selection_rectangles returned {} rectangles", selection_rects.len());
+                
+                // Bright blue selection color - same as before
+                let selection_color = LinearRgba::with_components(0.0, 0.5, 1.0, 1.0);
+                
+                // Render each selection rectangle
+                for (i, rect) in selection_rects.iter().enumerate() {
+                    log::debug!(
+                        "SELECTION DEBUG: Rectangle {}: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+                        i,
+                        rect.origin.x,
+                        rect.origin.y,
+                        rect.size.width,
+                        rect.size.height
+                    );
+                    
+                    // Sanity check rectangle dimensions
+                    if rect.size.width <= 0.0 || rect.size.height <= 0.0 {
+                        log::warn!("SELECTION DEBUG: Rectangle {} has invalid dimensions!", i);
+                        continue;
+                    }
+                    
+                    // Check if rectangle is within reasonable bounds
+                    if rect.origin.x < 0.0 || rect.origin.x > 2000.0 ||
+                       rect.origin.y < 0.0 || rect.origin.y > 2000.0 {
+                        log::warn!("SELECTION DEBUG: Rectangle {} has suspicious coordinates!", i);
+                    }
+                    
+                    self.filled_rectangle(
+                        &mut layers,
+                        0, // sub_layer 0 for backgrounds
+                        *rect,
+                        selection_color,
+                    )?;
+                }
+                
+                // If no rectangles were returned, log why
+                if selection_rects.is_empty() {
+                    log::warn!("SELECTION DEBUG: No selection rectangles returned! Check calculate_selection_rectangles");
+                }
+            } else {
+                log::debug!("SELECTION DEBUG: No active selection");
+            }
+        }
         Ok(())
     }
 
@@ -1370,5 +1521,95 @@ impl crate::TermWindow {
                 .resolve_font(&code_style.make_bold().make_italic())
                 .ok(),
         )
+    }
+    
+    /// Extract goal text positions from a computed element tree
+    fn extract_goal_text_positions(
+        &self,
+        computed: &ComputedElement,
+        ui_item_type: &UIItemType,
+    ) -> Option<Vec<(f32, f32, usize)>> {
+        // Check if this element has the matching UIItemType
+        if let Some(item_type) = &computed.item_type {
+            if matches!(item_type, UIItemType::GoalText { .. }) {
+                // Extract positions from the content
+                if let ComputedElementContent::MultilineText { lines, .. } = &computed.content {
+                    let mut all_positions = Vec::new();
+                    let mut last_cluster_seen = 0u32;
+                    let mut line_byte_offset = 0usize;
+                    
+                    // Process each line of text
+                    for (line_idx, cells) in lines.iter().enumerate() {
+                        let mut x_pos = 0.0;
+                        let mut line_has_clusters = false;
+                        
+                        // First pass: check if this line has any clusters to detect line boundaries
+                        for cell in cells {
+                            if let ElementCell::GlyphWithCluster { cluster, .. } = cell {
+                                line_has_clusters = true;
+                                // If cluster resets to a lower value, we've started a new line
+                                if *cluster < last_cluster_seen {
+                                    // Add the previous line's max cluster + 1 to account for newline
+                                    line_byte_offset += (last_cluster_seen + 1) as usize;
+                                }
+                                last_cluster_seen = *cluster;
+                            }
+                        }
+                        
+                        // Second pass: extract positions with proper byte offsets
+                        x_pos = 0.0;
+                        for cell in cells {
+                            match cell {
+                                ElementCell::Glyph(glyph) => {
+                                    // Regular glyph without cluster info - just advance position
+                                    x_pos += glyph.x_advance.get() as f32;
+                                }
+                                ElementCell::GlyphWithCluster { glyph, cluster } => {
+                                    let x_start = x_pos;
+                                    let x_end = x_pos + glyph.x_advance.get() as f32;
+                                    
+                                    // Calculate the absolute byte offset by adding line offset
+                                    let byte_offset = line_byte_offset + *cluster as usize;
+                                    all_positions.push((x_start, x_end, byte_offset));
+                                    
+                                    x_pos = x_end;
+                                }
+                                _ => {} // Other cell types don't have position info
+                            }
+                        }
+                    }
+                    
+                    if !all_positions.is_empty() {
+                        log::debug!(
+                            "GOAL POSITIONS DEBUG: Extracted {} positions with cluster data",
+                            all_positions.len()
+                        );
+                        // Log first few and last positions for debugging
+                        if let Some(first) = all_positions.first() {
+                            log::debug!("GOAL POSITIONS DEBUG: First position: x_start={}, x_end={}, byte={}", 
+                                first.0, first.1, first.2);
+                        }
+                        if let Some(last) = all_positions.last() {
+                            log::debug!("GOAL POSITIONS DEBUG: Last position: x_start={}, x_end={}, byte={}", 
+                                last.0, last.1, last.2);
+                        }
+                        return Some(all_positions);
+                    } else {
+                        log::debug!("GOAL POSITIONS DEBUG: No cluster data found in glyphs");
+                    }
+                }
+            }
+        }
+        
+        // Recursively search children
+        if let ComputedElementContent::Children(children) = &computed.content {
+            for child in children {
+                if let Some(positions) = self.extract_goal_text_positions(child, ui_item_type) {
+                    return Some(positions);
+                }
+            }
+        }
+        
+        None
     }
 }

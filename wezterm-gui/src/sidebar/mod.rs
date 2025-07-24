@@ -17,8 +17,8 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use termwiz::input::KeyCode;
-use wezterm_term::KeyModifiers;
 use wezterm_font::LoadedFont;
+use wezterm_term::KeyModifiers;
 use window::MouseEvent;
 // Widget traits will be implemented differently without termwiz widgets
 
