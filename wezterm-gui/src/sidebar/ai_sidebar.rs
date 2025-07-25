@@ -274,13 +274,13 @@ fn calculate_char_positions(text: &str, font: &Rc<LoadedFont>) -> Vec<(f32, f32,
     let char_width = base_char_width * 0.5; // Empirically determined from logs
 
     // Diagnostic logging for font metrics
-    log::warn!("[FONT_METRICS] calculate_char_positions: font_style={:?}, base_cell_width={}, adjusted_width={}, cell_height={}, descender={}",
-        font.style(),
-        base_char_width,
-        char_width,
-        font.metrics().cell_height.get(),
-        font.metrics().descender.get()
-    );
+    // log::warn!("[FONT_METRICS] calculate_char_positions: font_style={:?}, base_cell_width={}, adjusted_width={}, cell_height={}, descender={}",
+    //     font.style(),
+    //     base_char_width,
+    //     char_width,
+    //     font.metrics().cell_height.get(),
+    //     font.metrics().descender.get()
+    // );
 
     let mut x = 0.0;
     let mut byte_offset = 0;
@@ -521,7 +521,7 @@ pub struct AiSidebar {
 
     // Chat input bounds for scrollbar positioning
     chat_input_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
-    
+
     // Goal text character positions for accurate selection
     goal_char_positions: Option<Vec<(f32, f32, usize)>>,
 }
@@ -575,26 +575,19 @@ impl AiSidebar {
 
     /// Update selection during drag
     pub fn update_selection_drag(&mut self, byte_offset: usize) {
-        log::debug!("SELECTION DEBUG: update_selection_drag called with byte_offset={}, is_dragging={}", 
-            byte_offset, self.selection_state.is_dragging);
-        
         if !self.selection_state.is_dragging {
-            log::debug!("SELECTION DEBUG: Not dragging, ignoring update");
             return;
         }
 
         // Update the current byte offset for the active selection
         match &mut self.selection_state.active_selection {
             Some(SelectionTarget::ActivityItem { current_byte, .. }) => {
-                log::debug!("SELECTION DEBUG: Updating ActivityItem current_byte from {} to {}", current_byte, byte_offset);
                 *current_byte = byte_offset;
             }
             Some(SelectionTarget::Suggestion { current_byte, .. }) => {
-                log::debug!("SELECTION DEBUG: Updating Suggestion current_byte from {} to {}", current_byte, byte_offset);
                 *current_byte = byte_offset;
             }
             Some(SelectionTarget::Goal { current_byte, .. }) => {
-                log::debug!("SELECTION DEBUG: Updating Goal current_byte from {} to {}", current_byte, byte_offset);
                 *current_byte = byte_offset;
             }
             Some(SelectionTarget::ChatInput {
@@ -644,23 +637,26 @@ impl AiSidebar {
 
     /// Prepare for potential selection (on mouse down)
     pub fn prepare_selection(&mut self, target: SelectionTarget) {
-        log::debug!("SELECTION DEBUG: prepare_selection called with {:?}", target);
-        
         // Check if clicking on existing selection to deselect
         if let Some(active) = &self.selection_state.active_selection {
             // If clicking within the same target type, clear selection
-            if matches!((active, &target), 
-                (SelectionTarget::Goal { .. }, SelectionTarget::Goal { .. }) |
-                (SelectionTarget::ActivityItem { index: a, .. }, SelectionTarget::ActivityItem { index: b, .. }) if a == b |
-                (SelectionTarget::Suggestion { .. }, SelectionTarget::Suggestion { .. }) |
-                (SelectionTarget::ChatInput { .. }, SelectionTarget::ChatInput { .. })
-            ) {
-                log::debug!("SELECTION DEBUG: Clicking on existing selection - clearing");
+            let should_clear = match (active, &target) {
+                (SelectionTarget::Goal { .. }, SelectionTarget::Goal { .. }) => true,
+                (
+                    SelectionTarget::ActivityItem { index: a, .. },
+                    SelectionTarget::ActivityItem { index: b, .. },
+                ) => a == b,
+                (SelectionTarget::Suggestion { .. }, SelectionTarget::Suggestion { .. }) => true,
+                (SelectionTarget::ChatInput { .. }, SelectionTarget::ChatInput { .. }) => true,
+                _ => false,
+            };
+
+            if should_clear {
                 self.selection_state.clear();
                 return;
             }
         }
-        
+
         // Store the potential selection but don't activate it yet
         self.selection_state.prepared_selection = Some(target);
         // Clear any existing selection
@@ -671,12 +667,10 @@ impl AiSidebar {
     /// Activate the prepared selection (on drag start)
     pub fn activate_prepared_selection(&mut self) {
         if let Some(prepared) = self.selection_state.prepared_selection.take() {
-            log::debug!("SELECTION DEBUG: activate_prepared_selection activating {:?}", prepared);
             self.selection_state.active_selection = Some(prepared);
             self.selection_state.is_dragging = true;
             // prepared_selection is already cleared by take()
         } else {
-            log::debug!("SELECTION DEBUG: activate_prepared_selection called but no prepared selection");
         }
     }
 
@@ -773,8 +767,14 @@ impl AiSidebar {
     // Mock data for development
     pub fn populate_mock_data(&mut self) {
         // Set a current goal
+        let goal_text = "Fix the build errors in the project".to_string();
+        log::debug!(
+            "GOAL TEXT DEBUG: Setting mock goal text: '{}', len={}",
+            goal_text,
+            goal_text.len()
+        );
         self.current_goal = Some(CurrentGoal {
-            text: "Fix the build errors in the project".to_string(),
+            text: goal_text,
             is_ai_inferred: true,
             is_confirmed: false,
             is_editing: false,
@@ -1264,6 +1264,11 @@ This example demonstrates:
             };
 
             // Always use WrappedText to avoid layout changes
+            log::debug!(
+                "GOAL TEXT DEBUG: Rendering goal text: '{}', len={}",
+                goal.text,
+                goal.text.len()
+            );
             let elem = Element::new(&fonts.body, ElementContent::WrappedText(goal.text.clone()));
 
             // Calculate available width for goal text
@@ -1327,7 +1332,7 @@ This example demonstrates:
             .with_title("Current Goal".to_string())
             .with_content(vec![goal_text])
             .with_actions(actions)
-            .pass_through_events(true)  // Allow child UIItemTypes to be detected
+            .pass_through_events(true) // Allow child UIItemTypes to be detected
             .render(&fonts.heading);
 
         Some(
@@ -1634,7 +1639,7 @@ This example demonstrates:
                             font_style: None,
                         }]
                     };
-                    
+
                     Element::new(
                         &fonts.body,
                         ElementContent::StyledWrappedText {
@@ -2656,11 +2661,6 @@ This example demonstrates:
         &self,
         selection: &SelectionTarget,
     ) -> Vec<euclid::Rect<f32, window::PixelUnit>> {
-        log::debug!("SELECTION DEBUG: calculate_selection_rectangles called with: {:?}", selection);
-        log::debug!("SELECTION DEBUG: Available bounds: activity_items={}, chat_input_has_bounds={}", 
-            self.activity_item_bounds.len(), 
-            self.chat_input_bounds.is_some());
-        
         let mut rects = Vec::new();
 
         match selection {
@@ -2669,27 +2669,20 @@ This example demonstrates:
                 anchor_byte,
                 current_byte,
             } => {
-                log::debug!("SELECTION DEBUG: Activity item selection - index={}, bounds available={}", 
-                    index, self.activity_item_bounds.contains_key(index));
-                
                 // Get the activity item bounds
                 if let Some(bounds) = self.activity_item_bounds.get(index) {
-                    log::debug!("SELECTION DEBUG: Activity item bounds: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
-                        bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
                     if let Some(item) = self.activity_log.get(*index) {
                         let start_byte = anchor_byte.min(current_byte);
                         let end_byte = anchor_byte.max(current_byte);
 
                         // TEMPORARY: Show selection even for zero-width (for debugging)
-                        if start_byte == end_byte {
-                            log::debug!("SELECTION DEBUG: Zero-width selection at byte {}", start_byte);
-                        }
-                        
+                        if start_byte == end_byte {}
+
                         // Always show selection rectangle for debugging (was: if start_byte != end_byte)
                         if true {
                             // For activity items, we need better selection rectangle calculation
                             let line_height = 20.0; // Approximate line height
-                            
+
                             // Get the message text to estimate selection position
                             let text = match item {
                                 ActivityItem::Chat { message, .. } => message,
@@ -2697,7 +2690,7 @@ This example demonstrates:
                                 ActivityItem::Suggestion { content, .. } => content,
                                 ActivityItem::Goal { text, .. } => text,
                             };
-                            
+
                             // Calculate more accurate selection rectangles
                             // Account for padding inside the activity item
                             let padding = if matches!(item, ActivityItem::Chat { .. }) {
@@ -2705,39 +2698,41 @@ This example demonstrates:
                             } else {
                                 8.0 // Default card padding
                             };
-                            
+
                             // For now, use character-based approximation
                             // TODO: Use exact glyph positions when available
                             let char_width = 8.5; // Approximate character width
-                            
+
                             // Calculate approximate x positions for selection
                             let start_char = text.chars().take(*start_byte).count();
                             let end_char = text.chars().take(*end_byte).count();
-                            
-                            let start_x = bounds.origin.x + padding + (start_char as f32 * char_width);
-                            let mut end_x = bounds.origin.x + padding + (end_char as f32 * char_width);
-                            
+
+                            let start_x =
+                                bounds.origin.x + padding + (start_char as f32 * char_width);
+                            let mut end_x =
+                                bounds.origin.x + padding + (end_char as f32 * char_width);
+
                             // Ensure we don't exceed the bounds
                             let max_x = bounds.origin.x + bounds.size.width - padding;
                             end_x = end_x.min(max_x);
-                            
+
                             // For zero-width selections, show a cursor-width rectangle
                             let width = if start_byte == end_byte {
-                                2.0  // Cursor width
+                                2.0 // Cursor width
                             } else {
                                 end_x - start_x
                             };
-                            
+
                             let rect = euclid::rect(
                                 start_x,
                                 bounds.origin.y + padding,
                                 width,
                                 line_height,
                             );
-                            
-                            log::debug!("SELECTION DEBUG: Creating rectangle at x={:.1}, y={:.1}, w={:.1}, h={:.1}",
-                                rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
-                            
+
+                            // log::debug!("SELECTION DEBUG: Creating rectangle at x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+                            //     rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+
                             rects.push(rect);
 
                             log::debug!(
@@ -2769,18 +2764,19 @@ This example demonstrates:
                             let padding = 8.0; // Suggestion card padding
                             let char_width = 8.5; // Approximate character width
                             let line_height = 20.0;
-                            
+
                             // Calculate character positions
                             let start_char = suggestion.content.chars().take(*start).count();
                             let end_char = suggestion.content.chars().take(*end).count();
-                            
-                            let start_x = bounds.origin.x + padding + (start_char as f32 * char_width);
+
+                            let start_x =
+                                bounds.origin.x + padding + (start_char as f32 * char_width);
                             let end_x = bounds.origin.x + padding + (end_char as f32 * char_width);
-                            
+
                             // Ensure we don't exceed bounds
                             let max_x = bounds.origin.x + bounds.size.width - padding;
                             let end_x = end_x.min(max_x);
-                            
+
                             rects.push(euclid::rect(
                                 start_x,
                                 bounds.origin.y + padding,
@@ -2795,59 +2791,95 @@ This example demonstrates:
                 anchor_byte,
                 current_byte,
             } => {
-                log::debug!("SELECTION DEBUG: Goal selection - bounds available={}", 
-                    self.goal_bounds.is_some());
-                
+                // log::debug!("SELECTION DEBUG: Goal selection - bounds available={}",
+                //     self.goal_bounds.is_some());
+
                 if let Some(bounds) = &self.goal_bounds {
-                    log::debug!("SELECTION DEBUG: Goal bounds: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
-                        bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
-                    
+                    // log::debug!("SELECTION DEBUG: Goal bounds: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+                    //     bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+
                     let start = anchor_byte.min(current_byte);
                     let end = anchor_byte.max(current_byte);
-                    
+
                     // TEMPORARY: Show selection even for zero-width (for debugging)
                     if start == end {
-                        log::debug!("SELECTION DEBUG: Zero-width goal selection at byte {}", start);
+                        // log::debug!("SELECTION DEBUG: Zero-width goal selection at byte {}", start);
                     }
-                    
+
                     // Always show selection rectangle for debugging (was: if start != end)
                     if true {
                         if let Some(goal) = &self.current_goal {
-                            // Calculate selection rectangles using constants
-                            
-                            // Calculate character positions
-                            let start_char = goal.text.chars().take(*start).count();
-                            let end_char = goal.text.chars().take(*end).count();
-                            
-                            let start_x = bounds.origin.x + GOAL_CARD_PADDING + (start_char as f32 * SELECTION_CHAR_WIDTH);
-                            let mut end_x = bounds.origin.x + GOAL_CARD_PADDING + (end_char as f32 * SELECTION_CHAR_WIDTH);
-                            
+                            // Use actual glyph positions if available
+                            let (start_x, end_x) = if let Some(positions) =
+                                &self.goal_char_positions
+                            {
+                                // Find x positions for the byte offsets
+                                let mut start_x_pos = bounds.origin.x + GOAL_CARD_PADDING;
+                                let mut end_x_pos = start_x_pos;
+
+                                // Find start position
+                                for &(x_start, _, byte_offset) in positions {
+                                    if byte_offset == *start {
+                                        start_x_pos = bounds.origin.x + GOAL_CARD_PADDING + x_start;
+                                        break;
+                                    }
+                                }
+
+                                // Find end position
+                                if start == end {
+                                    end_x_pos = start_x_pos;
+                                } else {
+                                    // Look for the position just before the end byte
+                                    for &(x_start, x_end, byte_offset) in positions {
+                                        if byte_offset < *end {
+                                            // This character is included in the selection
+                                            end_x_pos = bounds.origin.x + GOAL_CARD_PADDING + x_end;
+                                        }
+                                    }
+                                }
+
+                                (start_x_pos, end_x_pos)
+                            } else {
+                                // Fallback to character-based calculation
+                                let start_char = goal.text.chars().take(*start).count();
+                                let end_char = goal.text.chars().take(*end).count();
+
+                                let start_x = bounds.origin.x
+                                    + GOAL_CARD_PADDING
+                                    + (start_char as f32 * SELECTION_CHAR_WIDTH);
+                                let end_x = bounds.origin.x
+                                    + GOAL_CARD_PADDING
+                                    + (end_char as f32 * SELECTION_CHAR_WIDTH);
+
+                                (start_x, end_x)
+                            };
+
                             // Ensure we don't exceed bounds
                             let max_x = bounds.origin.x + bounds.size.width - GOAL_CARD_PADDING;
-                            end_x = end_x.min(max_x);
-                            
+                            let end_x = end_x.min(max_x);
+
                             // For zero-width selections, show a cursor-width rectangle
                             let width = if start == end {
                                 SELECTION_CURSOR_WIDTH
                             } else {
                                 end_x - start_x
                             };
-                            
+
                             let rect = euclid::rect(
                                 start_x,
                                 bounds.origin.y + GOAL_CARD_PADDING + SELECTION_VERTICAL_OFFSET,
                                 width,
                                 SELECTION_LINE_HEIGHT,
                             );
-                            
-                            log::debug!("SELECTION DEBUG: Creating goal rectangle at x={:.1}, y={:.1}, w={:.1}, h={:.1}",
-                                rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
-                            
+
+                            // log::debug!("SELECTION DEBUG: Creating goal rectangle at x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+                            //     rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+
                             rects.push(rect);
                         }
                     }
                 } else {
-                    log::warn!("SELECTION DEBUG: No goal bounds available!");
+                    // log::warn!("SELECTION DEBUG: No goal bounds available!");
                 }
             }
             SelectionTarget::ChatInput {
@@ -2856,13 +2888,13 @@ This example demonstrates:
                 current_line,
                 current_byte,
             } => {
-                log::debug!("SELECTION DEBUG: ChatInput selection - bounds available={}, exact_positions count={}", 
-                    self.chat_input_bounds.is_some(), 
-                    self.chat_input.exact_glyph_positions.len());
-                
+                // log::debug!("SELECTION DEBUG: ChatInput selection - bounds available={}, exact_positions count={}",
+                //     self.chat_input_bounds.is_some(),
+                //     self.chat_input.exact_glyph_positions.len());
+
                 if let Some(bounds) = &self.chat_input_bounds {
-                    log::debug!("SELECTION DEBUG: ChatInput bounds: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
-                        bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+                    // log::debug!("SELECTION DEBUG: ChatInput bounds: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+                    //     bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
                     if !self.chat_input.exact_glyph_positions.is_empty() {
                         // Calculate selection rectangles for each line
                         let start_line = anchor_line.min(current_line);
@@ -3072,67 +3104,86 @@ This example demonstrates:
     pub fn set_goal_bounds(&mut self, bounds: euclid::Rect<f32, window::PixelUnit>) {
         self.goal_bounds = Some(bounds);
     }
-    
+
     /// Get the bounds for the goal card
     pub fn get_goal_bounds(&self) -> Option<&euclid::Rect<f32, window::PixelUnit>> {
         self.goal_bounds.as_ref()
     }
-    
+
     /// Store extracted character positions for goal text
     pub fn store_goal_positions(&mut self, positions: Vec<(f32, f32, usize)>) {
         self.goal_char_positions = Some(positions);
     }
-    
+
     /// Get the stored goal character positions
     pub fn get_goal_positions(&self) -> Option<&Vec<(f32, f32, usize)>> {
         self.goal_char_positions.as_ref()
     }
-    
+
     /// Find byte offset from x coordinate using stored character positions
     fn find_byte_offset_from_positions(&self, x: f32, positions: &[(f32, f32, usize)]) -> usize {
         // Handle click before first character
         if x <= 0.0 || positions.is_empty() {
-            log::debug!("SELECTION DEBUG: find_byte_offset x={} returning 0 (before first char)", x);
+            // log::debug!("SELECTION DEBUG: find_byte_offset x={} returning 0 (before first char)", x);
             return 0;
         }
-        
+
         // Log position range for debugging
         if let (Some(first), Some(last)) = (positions.first(), positions.last()) {
-            log::debug!("SELECTION DEBUG: find_byte_offset x={}, positions range: x={}..{}, bytes={}..{}", 
-                x, first.0, last.1, first.2, last.2);
+            // log::debug!("SELECTION DEBUG: find_byte_offset x={}, positions range: x={}..{}, bytes={}..{}",
+            //     x, first.0, last.1, first.2, last.2);
         }
-        
+
         // Find the character containing this x position
         for (idx, &(x_start, x_end, byte_offset)) in positions.iter().enumerate() {
             if x >= x_start && x < x_end {
                 // Determine if click is closer to start or end of character
                 let mid = (x_start + x_end) / 2.0;
                 if x < mid {
-                    log::debug!("SELECTION DEBUG: x={} in char {} ({}..{}), closer to start, returning byte={}", 
-                        x, idx, x_start, x_end, byte_offset);
+                    // log::debug!("SELECTION DEBUG: x={} in char {} ({}..{}), closer to start, returning byte={}",
+                    //     x, idx, x_start, x_end, byte_offset);
                     return byte_offset;
                 } else {
                     // Return position after this character
                     // Find the next character's byte offset
                     if idx + 1 < positions.len() {
                         let next_byte = positions[idx + 1].2;
-                        log::debug!("SELECTION DEBUG: x={} in char {} ({}..{}), closer to end, returning next byte={}", 
-                            x, idx, x_start, x_end, next_byte);
+                        // log::debug!("SELECTION DEBUG: x={} in char {} ({}..{}), closer to end, returning next byte={}",
+                        //     x, idx, x_start, x_end, next_byte);
                         return next_byte;
                     } else {
-                        // This is the last character - return end of text
-                        log::debug!("SELECTION DEBUG: x={} in last char {} ({}..{}), returning end byte={}", 
-                            x, idx, x_start, x_end, byte_offset + 1);
+                        // This is the last character - need to calculate proper end position
+                        // We need the actual text to determine the correct byte offset after this character
+                        if let Some(goal) = &self.current_goal {
+                            let text = &goal.text;
+                            // Find how many bytes this character takes
+                            let char_start = text
+                                .char_indices()
+                                .find(|(offset, _)| *offset == byte_offset)
+                                .map(|(_, ch)| ch);
+
+                            if let Some(ch) = char_start {
+                                return byte_offset + ch.len_utf8();
+                            }
+                        }
+                        // Fallback: assume single byte
                         return byte_offset + 1;
                     }
                 }
             }
         }
-        
+
         // Click after last character - return end of text
-        let result = positions.last().map(|(_, _, offset)| offset + 1).unwrap_or(0);
-        log::debug!("SELECTION DEBUG: x={} after all chars, returning end byte={}", x, result);
-        result
+        if let Some((_, _, last_byte_offset)) = positions.last() {
+            // Need to find the actual end of the text
+            if let Some(goal) = &self.current_goal {
+                let text = &goal.text;
+                return text.len(); // Return the actual byte length of the text
+            }
+            // Fallback
+            return last_byte_offset + 1;
+        }
+        0
     }
 
     pub fn render_activity_log_content(
@@ -3633,44 +3684,46 @@ impl Sidebar for AiSidebar {
         // Code block horizontal scrolling has been removed - using line wrapping instead
 
         // Show more button is now handled via UIItemType
-        
+
         // Handle text selection drag during Move events
         if let WMEK::Move = &event.kind {
             // Check if we're currently dragging a selection
             if self.selection_state.is_dragging && event.mouse_buttons == MouseButtons::LEFT {
-                log::debug!("SELECTION DEBUG: Handling drag Move event in sidebar");
-                
+                // log::debug!("SELECTION DEBUG: Handling drag Move event in sidebar");
+
                 // Determine which selection target we're dragging
                 if let Some(selection) = &self.selection_state.active_selection {
                     match selection {
                         SelectionTarget::Goal { anchor_byte, .. } => {
                             // Handle goal text drag directly in sidebar since mouse may be outside UIItem bounds
                             if let Some(bounds) = self.goal_bounds {
-                                let relative_x = event.coords.x as f32 - bounds.origin.x - GOAL_CARD_PADDING;
-                                
-                                log::debug!("SELECTION DEBUG: Goal drag at relative_x={}", relative_x);
-                                
+                                let relative_x =
+                                    event.coords.x as f32 - bounds.origin.x - GOAL_CARD_PADDING;
+
+                                // log::debug!("SELECTION DEBUG: Goal drag at relative_x={}", relative_x);
+
                                 // Use stored real positions to find byte offset
                                 if let Some(positions) = &self.goal_char_positions {
-                                    let current_byte = self.find_byte_offset_from_positions(relative_x, positions);
-                                    log::debug!("SELECTION DEBUG: Calculated byte_offset={} from relative_x={}", current_byte, relative_x);
-                                    
+                                    let current_byte =
+                                        self.find_byte_offset_from_positions(relative_x, positions);
+                                    // log::debug!("SELECTION DEBUG: Calculated byte_offset={} from relative_x={}", current_byte, relative_x);
+
                                     self.update_selection_drag(current_byte);
                                     return Ok(true); // Event handled
                                 } else {
-                                    log::debug!("SELECTION DEBUG: No character positions available for goal text");
+                                    // log::debug!("SELECTION DEBUG: No character positions available for goal text");
                                 }
                             } else {
-                                log::debug!("SELECTION DEBUG: No goal bounds available");
+                                // log::debug!("SELECTION DEBUG: No goal bounds available");
                             }
                         }
                         SelectionTarget::ActivityItem { index, .. } => {
                             // TODO: Handle activity item drag
-                            log::debug!("SELECTION DEBUG: Activity item {} drag - not yet implemented", index);
+                            // log::debug!("SELECTION DEBUG: Activity item {} drag - not yet implemented", index);
                         }
                         SelectionTarget::Suggestion { .. } => {
                             // TODO: Handle suggestion drag
-                            log::debug!("SELECTION DEBUG: Suggestion drag - not yet implemented");
+                            // log::debug!("SELECTION DEBUG: Suggestion drag - not yet implemented");
                         }
                         SelectionTarget::ChatInput { .. } => {
                             // Chat input has its own handling

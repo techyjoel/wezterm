@@ -997,7 +997,7 @@ impl ComputedElement {
                 height: self.bounds.height().max(0.) as usize,
                 item_type: item_type.clone(),
             };
-            
+
             // Debug logging for Goal text UIItems
             if matches!(&ui_item.item_type, UIItemType::GoalText { .. }) {
                 log::debug!(
@@ -1005,7 +1005,7 @@ impl ComputedElement {
                     ui_item.x, ui_item.y, ui_item.width, ui_item.height, items.len()
                 );
             }
-            
+
             items.push(ui_item);
         }
 
@@ -1343,6 +1343,11 @@ impl super::TermWindow {
             }
 
             // Shape the complete line text
+            log::debug!(
+                "Shaping line text: '{}', len={}",
+                wrapped_line.shaped_text,
+                wrapped_line.shaped_text.len()
+            );
             let window = self.window.as_ref().unwrap().clone();
             let infos = font.shape(
                 &wrapped_line.shaped_text,
@@ -1353,6 +1358,24 @@ impl super::TermWindow {
                 None,
                 None,
             )?;
+
+            log::debug!(
+                "Shape result: {} glyphs for {} chars",
+                infos.len(),
+                wrapped_line.shaped_text.chars().count()
+            );
+
+            // Log the last few cluster values
+            if infos.len() >= 3 {
+                for i in (infos.len() - 3)..infos.len() {
+                    log::debug!(
+                        "  Glyph {}: cluster={}, glyph_pos={}",
+                        i,
+                        infos[i].cluster,
+                        infos[i].glyph_pos
+                    );
+                }
+            }
 
             // Debug logging for cluster values (only in trace mode)
             if track_cluster && log::log_enabled!(log::Level::Trace) {
@@ -1401,8 +1424,9 @@ impl super::TermWindow {
         let mut byte_offset = 0;
 
         log::debug!(
-            "wrap_text_into_lines: text='{}', max_width={}",
+            "wrap_text_into_lines: text='{}', text.len()={}, max_width={}",
             text.replace('\n', "\\n"),
+            text.len(),
             max_width
         );
 
@@ -1783,11 +1807,27 @@ impl super::TermWindow {
         style: &config::TextStyle,
         track_cluster: bool,
     ) -> anyhow::Result<Vec<ElementCell>> {
+        log::debug!(
+            "shape_text_to_cells: text='{}', text.len()={}, infos.len()={}, track_cluster={}",
+            text,
+            text.len(),
+            infos.len(),
+            track_cluster
+        );
         let mut cells = Vec::new();
         let mut glyph_cache = context.gl_state.glyph_cache.borrow_mut();
 
-        for info in infos {
+        for (idx, info) in infos.iter().enumerate() {
             // Check if it's a unicode block glyph
+            if info.cluster as usize >= text.len() {
+                log::warn!(
+                    "shape_text_to_cells: Glyph {} has cluster {} but text.len()={}. Skipping.",
+                    idx,
+                    info.cluster,
+                    text.len()
+                );
+                continue;
+            }
             let cell_start = &text[info.cluster as usize..];
             let mut iter = Graphemes::new(cell_start).peekable();
             if let Some(grapheme) = iter.next() {

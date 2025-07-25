@@ -60,7 +60,7 @@ Text selection in the sidebar follows these principles:
 2. **Two-Phase Selection**: 
    - `prepare_selection()` on mouse down (stores potential selection)
    - `activate_prepared_selection()` on drag start (activates selection)
-3. **Rendering**: Selection rectangles render at the same z-index as content using sub-layer ordering:
+3. **Rendering**: Selection rectangles ideally render at the same z-index as content using sub-layer ordering:
    - Sub-layer 0: Selection rectangles (behind text)
    - Sub-layer 1: Text glyphs
    - Sub-layer 2: UI elements

@@ -722,16 +722,17 @@ impl crate::TermWindow {
                                     ui_item.width,
                                     ui_item.height
                                 );
-                                
+
                                 // Extract goal text positions from the computed element
-                                if let Some(positions) = self.extract_goal_text_positions(&computed, &ui_item.item_type) {
+                                if let Some(positions) =
+                                    self.extract_goal_text_positions(&computed, &ui_item.item_type)
+                                {
                                     log::debug!(
                                         "GOAL POSITIONS DEBUG: Extracted {} character positions for goal text",
                                         positions.len()
                                     );
                                     ai_sidebar.store_goal_positions(positions);
                                 } else {
-                                    log::debug!("GOAL POSITIONS DEBUG: Failed to extract positions for goal text");
                                 }
                             }
                             _ => {}
@@ -1022,18 +1023,15 @@ impl crate::TermWindow {
             // Sub-layer 0 renders behind text (which uses sub-layer 1), following terminal selection pattern
             let layer = gl_state.layer_for_zindex(14)?;
             let mut layers = layer.quad_allocator();
-            
+
             // Get selection state
             if let Some(selection) = ai_sidebar.get_active_selection() {
-                log::debug!("SELECTION DEBUG: Active selection found: {:?}", selection);
-                
                 // Get selection rectangles from the sidebar
                 let selection_rects = ai_sidebar.calculate_selection_rectangles(selection);
-                log::debug!("SELECTION DEBUG: calculate_selection_rectangles returned {} rectangles", selection_rects.len());
-                
+
                 // Bright blue selection color - same as before
                 let selection_color = LinearRgba::with_components(0.0, 0.5, 1.0, 1.0);
-                
+
                 // Render each selection rectangle
                 for (i, rect) in selection_rects.iter().enumerate() {
                     log::debug!(
@@ -1044,19 +1042,19 @@ impl crate::TermWindow {
                         rect.size.width,
                         rect.size.height
                     );
-                    
+
                     // Sanity check rectangle dimensions
                     if rect.size.width <= 0.0 || rect.size.height <= 0.0 {
-                        log::warn!("SELECTION DEBUG: Rectangle {} has invalid dimensions!", i);
                         continue;
                     }
-                    
+
                     // Check if rectangle is within reasonable bounds
-                    if rect.origin.x < 0.0 || rect.origin.x > 2000.0 ||
-                       rect.origin.y < 0.0 || rect.origin.y > 2000.0 {
-                        log::warn!("SELECTION DEBUG: Rectangle {} has suspicious coordinates!", i);
-                    }
-                    
+                    if rect.origin.x < 0.0
+                        || rect.origin.x > 2000.0
+                        || rect.origin.y < 0.0
+                        || rect.origin.y > 2000.0
+                    {}
+
                     self.filled_rectangle(
                         &mut layers,
                         0, // sub_layer 0 for backgrounds
@@ -1064,13 +1062,10 @@ impl crate::TermWindow {
                         selection_color,
                     )?;
                 }
-                
+
                 // If no rectangles were returned, log why
-                if selection_rects.is_empty() {
-                    log::warn!("SELECTION DEBUG: No selection rectangles returned! Check calculate_selection_rectangles");
-                }
+                if selection_rects.is_empty() {}
             } else {
-                log::debug!("SELECTION DEBUG: No active selection");
             }
         }
         Ok(())
@@ -1522,7 +1517,7 @@ impl crate::TermWindow {
                 .ok(),
         )
     }
-    
+
     /// Extract goal text positions from a computed element tree
     fn extract_goal_text_positions(
         &self,
@@ -1537,12 +1532,16 @@ impl crate::TermWindow {
                     let mut all_positions = Vec::new();
                     let mut last_cluster_seen = 0u32;
                     let mut line_byte_offset = 0usize;
-                    
+
                     // Process each line of text
+                    log::debug!(
+                        "GOAL POSITIONS DEBUG: Processing {} lines of text",
+                        lines.len()
+                    );
                     for (line_idx, cells) in lines.iter().enumerate() {
                         let mut x_pos = 0.0;
                         let mut line_has_clusters = false;
-                        
+
                         // First pass: check if this line has any clusters to detect line boundaries
                         for cell in cells {
                             if let ElementCell::GlyphWithCluster { cluster, .. } = cell {
@@ -1555,52 +1554,92 @@ impl crate::TermWindow {
                                 last_cluster_seen = *cluster;
                             }
                         }
-                        
+
+                        if line_idx == 0 && line_has_clusters {
+                            log::debug!(
+                                "GOAL POSITIONS DEBUG: Line {} has {} cells, last_cluster_seen={}",
+                                line_idx,
+                                cells.len(),
+                                last_cluster_seen
+                            );
+                        }
+
                         // Second pass: extract positions with proper byte offsets
                         x_pos = 0.0;
                         for cell in cells {
                             match cell {
                                 ElementCell::Glyph(glyph) => {
                                     // Regular glyph without cluster info - just advance position
+                                    if line_idx == 0 {
+                                        log::warn!("GOAL POSITIONS DEBUG: Found regular Glyph (no cluster) at x_pos={}", x_pos);
+                                    }
                                     x_pos += glyph.x_advance.get() as f32;
                                 }
                                 ElementCell::GlyphWithCluster { glyph, cluster } => {
                                     let x_start = x_pos;
                                     let x_end = x_pos + glyph.x_advance.get() as f32;
-                                    
+
                                     // Calculate the absolute byte offset by adding line offset
                                     let byte_offset = line_byte_offset + *cluster as usize;
                                     all_positions.push((x_start, x_end, byte_offset));
-                                    
+
+                                    // Debug log for last few glyphs
+                                    if line_idx == 0 && all_positions.len() >= 33 {
+                                        log::debug!("GOAL POSITIONS DEBUG: Glyph {}: cluster={}, byte_offset={}, x_start={}, x_end={}", 
+                                            all_positions.len() - 1, cluster, byte_offset, x_start, x_end);
+                                    }
+
                                     x_pos = x_end;
                                 }
                                 _ => {} // Other cell types don't have position info
                             }
                         }
                     }
-                    
+
                     if !all_positions.is_empty() {
                         log::debug!(
                             "GOAL POSITIONS DEBUG: Extracted {} positions with cluster data",
                             all_positions.len()
                         );
                         // Log first few and last positions for debugging
-                        if let Some(first) = all_positions.first() {
-                            log::debug!("GOAL POSITIONS DEBUG: First position: x_start={}, x_end={}, byte={}", 
-                                first.0, first.1, first.2);
-                        }
+                        if let Some(first) = all_positions.first() {}
                         if let Some(last) = all_positions.last() {
                             log::debug!("GOAL POSITIONS DEBUG: Last position: x_start={}, x_end={}, byte={}", 
                                 last.0, last.1, last.2);
                         }
+                        // Log last few positions to debug the missing last 2 chars
+                        let len = all_positions.len();
+                        if len >= 3 {
+                            log::debug!("GOAL POSITIONS DEBUG: Last 3 positions:");
+                            for i in (len - 3)..len {
+                                let pos = &all_positions[i];
+                                log::debug!(
+                                    "  Position {}: x_start={}, x_end={}, byte={}",
+                                    i,
+                                    pos.0,
+                                    pos.1,
+                                    pos.2
+                                );
+                            }
+                        }
+
+                        // Log total cells to understand if we're missing some
+                        let glyph_count = lines
+                            .iter()
+                            .flat_map(|line| line.iter())
+                            .filter(|c| matches!(c, ElementCell::GlyphWithCluster { .. }))
+                            .count();
+                        log::debug!(
+                            "GOAL POSITIONS DEBUG: Total GlyphWithCluster cells: {}",
+                            glyph_count
+                        );
                         return Some(all_positions);
                     } else {
-                        log::debug!("GOAL POSITIONS DEBUG: No cluster data found in glyphs");
                     }
                 }
             }
         }
-        
+
         // Recursively search children
         if let ComputedElementContent::Children(children) = &computed.content {
             for child in children {
@@ -1609,7 +1648,7 @@ impl crate::TermWindow {
                 }
             }
         }
-        
+
         None
     }
 }
