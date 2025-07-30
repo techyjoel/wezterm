@@ -746,7 +746,7 @@ impl super::TermWindow {
     ) {
         // Set cursor to arrow for sidebar
         context.set_cursor(Some(MouseCursor::Arrow));
-        
+
         // Handle clicks on empty sidebar space to clear selection
         if let WMEK::Press(MousePress::Left) = event.kind {
             // Check if this is the right sidebar where selections happen
@@ -756,8 +756,8 @@ impl super::TermWindow {
                     if let Ok(mut sidebar) = sidebar.lock() {
                         if let Some(ai_sidebar) = sidebar
                             .as_any_mut()
-                            .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
-                        {
+                            .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
+                        ) {
                             // Clear any active selection when clicking on empty space
                             if ai_sidebar.clear_selection() {
                                 context.invalidate();
@@ -1678,7 +1678,9 @@ impl super::TermWindow {
                                 .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
                             ) {
                                 // Clear any existing non-chat-input selection when clicking in chat input
-                                if let Some(selection) = &ai_sidebar.selection_state.active_selection {
+                                if let Some(selection) =
+                                    &ai_sidebar.selection_state.active_selection
+                                {
                                     match selection {
                                         SelectionTarget::ChatInput { .. } => {
                                             // Don't clear chat input selections - let the handler manage them
@@ -1689,7 +1691,7 @@ impl super::TermWindow {
                                         }
                                     }
                                 }
-                                
+
                                 // Get the bounds of the chat input from the UI item
                                 let bounds = euclid::rect::<f32, euclid::UnknownUnit>(
                                     item.x as f32,
@@ -1702,12 +1704,14 @@ impl super::TermWindow {
                                 let relative_x = event.coords.x as f32 - bounds.origin.x;
                                 let relative_y = event.coords.y as f32 - bounds.origin.y;
 
-                                // Use the exact glyph positions from UIItemType
-                                // These were calculated during rendering with exact cluster data
+                                // Get the exact glyph positions from the sidebar
+                                // (UIItemType line_positions are empty placeholders)
+                                let glyph_positions =
+                                    ai_sidebar.get_chat_input_glyph_positions().clone();
                                 ai_sidebar.handle_chat_input_click_with_positions(
                                     relative_x,
                                     relative_y,
-                                    line_positions,
+                                    &glyph_positions,
                                     false, // Not a drag
                                     event.modifiers.contains(window::Modifiers::SHIFT),
                                 );
@@ -1755,11 +1759,13 @@ impl super::TermWindow {
                                     let relative_x = event.coords.x as f32 - bounds.origin.x;
                                     let relative_y = event.coords.y as f32 - bounds.origin.y;
 
-                                    // Use the exact glyph positions from UIItemType
+                                    // Get the exact glyph positions from the sidebar
+                                    let glyph_positions =
+                                        ai_sidebar.get_chat_input_glyph_positions().clone();
                                     ai_sidebar.handle_chat_input_click_with_positions(
                                         relative_x,
                                         relative_y,
-                                        line_positions,
+                                        &glyph_positions,
                                         true,  // Is a drag
                                         false, // Shift not relevant during drag
                                     );
@@ -1845,8 +1851,9 @@ impl super::TermWindow {
                         anchor_byte: byte_offset,
                         current_byte: byte_offset,
                     })
-                }).unwrap_or(false);
-                
+                })
+                .unwrap_or(false);
+
                 if needs_invalidate {
                     context.invalidate();
                 }
@@ -1921,7 +1928,7 @@ impl super::TermWindow {
                 } else {
                     false
                 };
-                
+
                 if needs_invalidate {
                     context.invalidate();
                 }
@@ -2120,7 +2127,7 @@ impl super::TermWindow {
                 } else {
                     false
                 };
-                
+
                 // Always invalidate on goal text click to ensure UI updates
                 // This is needed because prepare_selection might clear an existing selection
                 context.invalidate();

@@ -897,42 +897,20 @@ impl crate::TermWindow {
                             );
                         }
 
-                        // Debug: Log exact glyph positions from the computed element
-                        if let Some(UIItemType::ChatInput { line_positions }) =
-                            &chat_input_computed.item_type
-                        {
-                            log::debug!(
-                                "Chat input has {} lines of exact glyph positions",
-                                line_positions.len()
-                            );
-                            // Debug: log the first few positions
-                            for (line_idx, line_pos) in line_positions.iter().enumerate().take(2) {
-                                log::debug!("  Line {} has {} positions", line_idx, line_pos.len());
-                                for (i, &(x_start, x_end, byte_offset)) in
-                                    line_pos.iter().enumerate().take(5)
-                                {
-                                    log::debug!(
-                                        "    Pos[{}]: x=({:.1}, {:.1}), byte_offset={}",
-                                        i,
-                                        x_start,
-                                        x_end,
-                                        byte_offset
-                                    );
-                                }
-                            }
-                        } else {
-                            log::debug!("No UIItemType::ChatInput found in computed element");
-                        }
+                        // Extract positions from the computed text element
+                        // Note: The text element no longer has UIItemType to avoid click interference
 
                         // Extract positions from the chat input before rendering
-                        if let Some(positions) = self.extract_chat_input_positions(&chat_input_computed) {
+                        if let Some(positions) =
+                            self.extract_chat_input_positions(&chat_input_computed)
+                        {
                             log::debug!(
                                 "Extracted {} lines of positions for chat input",
                                 positions.len()
                             );
                             ai_sidebar.set_chat_input_glyph_positions(positions);
                         }
-                        
+
                         // Render the chat input text (now clipped by scissor rect)
                         self.render_element(&chat_input_computed, gl_state, None)?;
 
@@ -1660,56 +1638,84 @@ impl crate::TermWindow {
 
         None
     }
-    
+
     /// Extract chat input positions from a computed element tree
     fn extract_chat_input_positions(
         &self,
         computed: &ComputedElement,
     ) -> Option<Vec<Vec<(f32, f32, usize)>>> {
-        // Check if this element is the chat input
-        if let Some(UIItemType::ChatInput { .. }) = &computed.item_type {
-            // Extract positions from the content
-            if let ComputedElementContent::MultilineText { lines, .. } = &computed.content {
-                let mut line_positions = Vec::new();
-                
-                // Process each line of text
-                for (line_idx, cells) in lines.iter().enumerate() {
-                    let mut x_pos = 0.0;
-                    let mut positions = Vec::new();
-                    
-                    for cell in cells {
-                        match cell {
-                            ElementCell::GlyphWithCluster { glyph, cluster } => {
-                                let x_start = x_pos;
-                                let x_end = x_pos + glyph.x_advance.get() as f32;
-                                positions.push((x_start, x_end, *cluster as usize));
-                                x_pos = x_end;
-                            }
-                            ElementCell::Glyph(glyph) => {
-                                // Skip glyphs without cluster info
-                                x_pos += glyph.x_advance.get() as f32;
-                            }
-                            ElementCell::Sprite(_sprite) => {
-                                // Sprites are block drawing characters, use cell width
-                                // For chat input, we might not have sprites, but handle just in case
-                                x_pos += 8.0; // Approximate cell width, ideally get from context
-                            }
+        // Extract positions from MultilineText content
+        // We no longer check for UIItemType since the text element doesn't have it
+        if let ComputedElementContent::MultilineText {
+            lines, line_info, ..
+        } = &computed.content
+        {
+            let mut line_positions = Vec::new();
+
+            // Process each line of text
+            for (line_idx, cells) in lines.iter().enumerate() {
+                let mut x_pos = 0.0;
+                let mut positions = Vec::new();
+
+                for cell in cells {
+                    match cell {
+                        ElementCell::GlyphWithCluster { glyph, cluster } => {
+                            let x_start = x_pos;
+                            let x_end = x_pos + glyph.x_advance.get() as f32;
+
+                            // Convert relative cluster to absolute byte offset
+                            let absolute_byte_offset = if let Some(ref line_info_vec) = line_info {
+                                if let Some(wrapped_line) = line_info_vec.get(line_idx) {
+                                    // Use WrappedLine to convert cluster to absolute position
+                                    wrapped_line.cluster_to_byte_offset(*cluster)
+                                } else {
+                                    log::warn!("No WrappedLine info for line {}", line_idx);
+                                    *cluster as usize
+                                }
+                            } else {
+                                log::warn!("No line_info available for chat input");
+                                *cluster as usize
+                            };
+
+                            positions.push((x_start, x_end, absolute_byte_offset));
+                            x_pos = x_end;
+                        }
+                        ElementCell::Glyph(glyph) => {
+                            // Skip glyphs without cluster info
+                            x_pos += glyph.x_advance.get() as f32;
+                        }
+                        ElementCell::Sprite(_sprite) => {
+                            // Sprites are block drawing characters, use cell width
+                            // For chat input, we might not have sprites, but handle just in case
+                            x_pos += 8.0; // Approximate cell width, ideally get from context
                         }
                     }
-                    
-                    line_positions.push(positions);
                 }
-                
-                log::debug!(
-                    "Chat input position extraction: {} lines, first line has {} positions",
-                    line_positions.len(),
-                    line_positions.first().map(|l| l.len()).unwrap_or(0)
-                );
-                
-                return Some(line_positions);
+
+                line_positions.push(positions);
             }
+
+            log::debug!(
+                "Chat input position extraction: {} lines, positions per line: {:?}",
+                line_positions.len(),
+                line_positions.iter().map(|l| l.len()).collect::<Vec<_>>()
+            );
+
+            // Log byte offsets for all lines to debug wrapping
+            for (idx, line) in line_positions.iter().enumerate() {
+                if !line.is_empty() {
+                    log::debug!(
+                        "Line {} byte offsets: first={}, last={}",
+                        idx,
+                        line.first().map(|(_, _, b)| *b).unwrap_or(0),
+                        line.last().map(|(_, _, b)| *b).unwrap_or(0)
+                    );
+                }
+            }
+
+            return Some(line_positions);
         }
-        
+
         // Recursively search children
         if let ComputedElementContent::Children(children) = &computed.content {
             for child in children {
@@ -1718,7 +1724,7 @@ impl crate::TermWindow {
                 }
             }
         }
-        
+
         None
     }
 }

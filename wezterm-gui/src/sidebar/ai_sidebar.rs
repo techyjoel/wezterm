@@ -664,7 +664,7 @@ impl AiSidebar {
         let had_selection = self.selection_state.active_selection.is_some();
         self.selection_state.active_selection = None;
         self.selection_state.is_dragging = false;
-        
+
         // Return true if we cleared an existing selection
         had_selection
     }
@@ -687,7 +687,7 @@ impl AiSidebar {
     /// Clear all selection state
     /// Returns true if there was a selection to clear
     pub fn clear_selection(&mut self) -> bool {
-        let had_selection = self.selection_state.active_selection.is_some() 
+        let had_selection = self.selection_state.active_selection.is_some()
             || self.selection_state.prepared_selection.is_some();
         self.selection_state.clear();
         had_selection
@@ -2377,9 +2377,6 @@ This example demonstrates:
             LinearRgba::with_components(0.9, 0.9, 0.9, 1.0) // Light gray for typed text
         };
 
-        // Initialize with empty line_positions - these will be populated during compute_element
-        let line_positions = Vec::new();
-
         // Create a single WrappedText element containing all lines
         Element::new(font, ElementContent::WrappedText(combined_text))
             .colors(ElementColors {
@@ -2394,8 +2391,7 @@ This example demonstrates:
                 top: Dimension::Pixels(-scroll_offset),
                 ..Default::default()
             })
-            // Add UIItemType so positions can be extracted during compute_element
-            .item_type(UIItemType::ChatInput { line_positions })
+        // DO NOT add UIItemType here - clicks should be handled by the container at z-index 14
         // DO NOT set zindex here - it's set via LayoutContext during compute_element
     }
 
@@ -2418,12 +2414,18 @@ This example demonstrates:
         // during compute_element when track_cluster=true for sidebar text
         let line_positions = Vec::new();
 
-        // Create a minimal container for UIItemType tracking (no visual styling)
-        let input_container = Element::new(&fonts.body, ElementContent::Text(String::new()))
+        // Create a container with proper bounds for mouse event handling
+        // Use an empty Children element instead of empty text to ensure proper dimensions
+        let input_container = Element::new(&fonts.body, ElementContent::Children(vec![]))
             .display(DisplayType::Block)
             .min_width(Some(Dimension::Pixels(input_width)))
             .max_width(Some(Dimension::Pixels(input_width)))
             .min_height(Some(Dimension::Pixels(container_height)))
+            .colors(ElementColors {
+                // Transparent background to ensure the element has bounds
+                bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(),
+                ..Default::default()
+            })
             .item_type(UIItemType::ChatInput { line_positions })
             .zindex(14); // Container for mouse event handling
 
@@ -2494,11 +2496,13 @@ This example demonstrates:
             }
         }
 
-        log::trace!(
-            "Cursor at logical line {}, col {} = document byte offset {}",
+        log::debug!(
+            "Cursor at logical line {}, col {} = document byte offset {}, glyph_positions available: {}, visual_lines={}",
             self.chat_input.cursor_line,
             self.chat_input.cursor_col,
-            cursor_document_byte_offset
+            cursor_document_byte_offset,
+            !self.chat_input.exact_glyph_positions.is_empty(),
+            self.chat_input.exact_glyph_positions.len()
         );
 
         // Now find which visual line contains this byte offset
@@ -2522,11 +2526,14 @@ This example demonstrates:
                 .map(|(_, _, b)| *b)
                 .unwrap_or(0);
 
-            log::trace!(
-                "Visual line {}: byte range {} - {}",
+            log::debug!(
+                "Visual line {}: byte range {} - {}, cursor looking for {}, contains={}",
                 vis_line_idx,
                 first_byte,
-                last_byte
+                last_byte,
+                cursor_document_byte_offset,
+                cursor_document_byte_offset >= first_byte
+                    && cursor_document_byte_offset <= last_byte + 1
             );
 
             if cursor_document_byte_offset >= first_byte
@@ -2543,7 +2550,7 @@ This example demonstrates:
                     // Find position within line
                     let mut found = false;
                     let mut prev_end = 0.0;
-                    
+
                     for (x_start, x_end, byte_offset) in visual_line_positions.iter() {
                         if *byte_offset == cursor_document_byte_offset {
                             // Cursor is exactly at this glyph's position - put it at the start
@@ -2575,8 +2582,10 @@ This example demonstrates:
         } else {
             // Fallback: use logical line if we couldn't find visual line
             log::warn!(
-                "Could not find visual line for cursor at byte offset {}",
-                cursor_document_byte_offset
+                "Could not find visual line for cursor at byte offset {}, positions_count={}, visual_lines={}",
+                cursor_document_byte_offset,
+                self.chat_input.exact_glyph_positions.len(),
+                self.chat_input.visual_line_count
             );
             self.chat_input.cursor_line as f32 * line_height_with_spacing
                 - self.chat_input.scroll_pixel_offset
@@ -2620,13 +2629,14 @@ This example demonstrates:
             }
         };
 
-        log::trace!(
-            "Cursor position: line={}, col={}, x={:.1}, y={:.1}, exact_positions_available={}",
+        log::debug!(
+            "Cursor position: line={}, col={}, x={:.1}, y={:.1}, visual_line={:?}, exact_positions_available={}",
             self.chat_input.cursor_line,
             self.chat_input.cursor_col,
             x,
             y,
-            visual_line_idx.is_some()
+            visual_line_idx,
+            !self.chat_input.exact_glyph_positions.is_empty()
         );
 
         Some((x, y))

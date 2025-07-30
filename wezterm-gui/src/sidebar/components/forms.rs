@@ -342,10 +342,15 @@ impl MultilineTextInput {
 
         if c == '\n' {
             self.insert_newline();
+            // Clear positions only for structural changes that affect line count
+            self.visual_line_count = 0;
+            self.exact_glyph_positions.clear();
         } else {
             let line = &mut self.lines[self.cursor_line];
             line.insert(self.cursor_col, c);
             self.cursor_col += 1;
+            // Don't clear positions for regular character input - they'll be updated next frame
+            // This allows the cursor to use accurate positions immediately after typing
         }
         self.reset_scroll_to_bottom();
     }
@@ -379,13 +384,17 @@ impl MultilineTextInput {
             let line = &mut self.lines[self.cursor_line];
             line.remove(self.cursor_col - 1);
             self.cursor_col -= 1;
+            // Don't clear positions for single character deletion
         } else if self.cursor_line > 0 {
-            // Merge with previous line
+            // Merge with previous line - this is a structural change
             let current_line = self.lines.remove(self.cursor_line);
             self.cursor_line -= 1;
             self.cursor_col = self.lines[self.cursor_line].len();
             self.lines[self.cursor_line].push_str(&current_line);
             self.update_scroll();
+            // Clear positions for line merge
+            self.visual_line_count = 0;
+            self.exact_glyph_positions.clear();
         }
         self.reset_scroll_to_bottom();
     }
@@ -400,10 +409,14 @@ impl MultilineTextInput {
         if self.cursor_col < line.len() {
             let line = &mut self.lines[self.cursor_line];
             line.remove(self.cursor_col);
+            // Don't clear positions for single character deletion
         } else if self.cursor_line < self.lines.len() - 1 {
-            // Merge with next line
+            // Merge with next line - this is a structural change
             let next_line = self.lines.remove(self.cursor_line + 1);
             self.lines[self.cursor_line].push_str(&next_line);
+            // Clear positions for line merge
+            self.visual_line_count = 0;
+            self.exact_glyph_positions.clear();
         }
         self.reset_scroll_to_bottom();
     }
@@ -477,6 +490,9 @@ impl MultilineTextInput {
         self.cursor_col = 0;
         self.scroll_offset = 0;
         self.selection_start = None;
+        // Clear positions when clearing all text
+        self.visual_line_count = 0;
+        self.exact_glyph_positions.clear();
     }
 
     /// Render the multi-line text input
