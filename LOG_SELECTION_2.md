@@ -4,6 +4,16 @@
 
 This document outlines a new (hopefully correct) implementation approach for text selection in WezTerm's AI sidebar activity log, learning from previous attempts and building on sound UI principles.
 
+## Goals
+
+Users should be able to interact in the sidebar activity log similar to how they would in Slack. They should be able to scroll up and down to see a historical log of chat messages, commands that have been run, changes to the goal, and suggestions that have been made. They should also be able to select and copy text out of the log. The current focus is to get selection and copying working right.
+* Be able to select single and multi-line text in all items within the log (selecting within a single item)
+* Be able to select across any format of text (plain text, markdown bold/italic, code blocks, etc)
+* Be able to click-and-drag or click, shift, click to select long sections of text (even beyond the viewport height, using scrolling)
+* Cmd-C (or the windows/Linux equivelant in Wezterm) should copy the selection
+* Re-selecting should replace the current selection (just like how the goal card selection works)
+* single-clicking anywhere in the sidebar should de-select (just like how the goal card selection works)
+
 ## Core Principles
 
 ### 1. Virtual Scrolling Architecture

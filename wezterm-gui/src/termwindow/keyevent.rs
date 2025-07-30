@@ -656,7 +656,9 @@ impl super::TermWindow {
             if copy_mod {
                 log::trace!("key_event_impl: Ctrl-Shift-C detected on Windows/Linux");
                 // Dispatch copy command, which will handle focus-aware copying
-                self.perform_assignment(&KeyAssignment::CopyTo(wezterm_term::ClipboardCopyDestination::Clipboard));
+                self.perform_assignment(&KeyAssignment::CopyTo(
+                    wezterm_term::ClipboardCopyDestination::Clipboard,
+                ));
                 context.invalidate();
                 return;
             }
