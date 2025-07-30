@@ -511,6 +511,11 @@ pub struct AiSidebar {
     // Text selection state
     pub selection_state: SelectionState,
 
+    // Position tracking for text selection
+    position_cache: crate::sidebar::position_cache::TextPositionCache,
+    item_positions: HashMap<usize, crate::sidebar::position_cache::ItemPositionData>,
+    coordinate_transform: crate::sidebar::position_cache::CoordinateTransform,
+
     // Track bounds for hit testing
     activity_item_bounds: HashMap<usize, euclid::Rect<f32, window::PixelUnit>>,
     suggestion_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
@@ -767,6 +772,14 @@ impl AiSidebar {
             modal_manager: ModalManager::new(),
             code_block_registry: Some(Arc::new(Mutex::new(HashMap::new()))),
             selection_state: SelectionState::default(),
+            position_cache: crate::sidebar::position_cache::TextPositionCache::new(100),
+            item_positions: HashMap::new(),
+            coordinate_transform: crate::sidebar::position_cache::CoordinateTransform {
+                sidebar_x: 0.0,
+                sidebar_y: 0.0,
+                sidebar_width: 0.0,
+                sidebar_height: 0.0,
+            },
             activity_item_bounds: HashMap::new(),
             suggestion_bounds: None,
             goal_bounds: None,
@@ -2663,6 +2676,206 @@ This example demonstrates:
         bounds: euclid::Rect<f32, window::PixelUnit>,
     ) {
         self.activity_item_bounds.insert(index, bounds);
+    }
+
+    /// Store position data for an activity item
+    pub fn store_item_positions(
+        &mut self,
+        index: usize,
+        position_data: crate::sidebar::position_cache::ItemPositionData,
+    ) {
+        self.item_positions.insert(index, position_data);
+    }
+
+    /// Update coordinate transform for the sidebar
+    pub fn update_coordinate_transform(&mut self, x: f32, y: f32, width: f32, height: f32) {
+        self.coordinate_transform = crate::sidebar::position_cache::CoordinateTransform {
+            sidebar_x: x,
+            sidebar_y: y,
+            sidebar_width: width,
+            sidebar_height: height,
+        };
+    }
+
+    /// Perform hierarchical hit testing on activity log items
+    pub fn hit_test_activity_log(
+        &self,
+        window_point: euclid::Point2D<f32, window::PixelUnit>,
+    ) -> Option<crate::sidebar::position_cache::HitResult> {
+        use crate::sidebar::position_cache::{WindowCoord, ViewportCoord, ItemCoord};
+        
+        // 1. Window → Viewport transformation
+        let viewport_point = self.coordinate_transform.window_to_viewport(WindowCoord(window_point));
+        
+        // 2. Find which item was hit
+        for (index, item_data) in &self.item_positions {
+            if let Some(item_viewport_y) = item_data.viewport_y {
+                // Check if point is within item bounds vertically
+                let item_height = item_data.position_tree.bounds.size.height;
+                if viewport_point.0.y >= item_viewport_y 
+                    && viewport_point.0.y < item_viewport_y + item_height {
+                    // 3. Viewport → Item transformation
+                    let item_point = self.coordinate_transform.viewport_to_item(viewport_point, item_viewport_y);
+                    
+                    // 4. Hit test within item (item-relative coordinates)
+                    if let Some(position) = self.hit_test_item(&item_data.position_tree, item_point) {
+                        return Some(crate::sidebar::position_cache::HitResult {
+                            item_index: *index,
+                            position_in_item: position,
+                        });
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Hit test within a position tree
+    fn hit_test_item(
+        &self,
+        position_tree: &crate::sidebar::position_cache::PositionTree,
+        point: crate::sidebar::position_cache::ItemCoord,
+    ) -> Option<crate::sidebar::position_cache::ItemPosition> {
+        use crate::sidebar::position_cache::{ElementType, ItemPosition, TextAffinity};
+        
+        // Check if point is within this element's bounds
+        if !position_tree.bounds.contains(point.0) {
+            return None;
+        }
+        
+        // Transform to element-relative coordinates
+        let element_point = self.coordinate_transform.item_to_element(point, &position_tree.bounds);
+        
+        // Handle different element types
+        match &position_tree.element_type {
+            ElementType::CodeBlock { padding, .. } => {
+                // Adjust for code block padding
+                let adjusted = element_point.0 - euclid::Vector2D::new(*padding, *padding);
+                self.hit_test_text_positions(
+                    &position_tree.text_positions,
+                    euclid::Point2D::new(adjusted.x, adjusted.y),
+                    &position_tree.element_type,
+                )
+            }
+            ElementType::ListItem { indent, marker_width, .. } => {
+                // Account for list indentation and marker
+                let adjusted = element_point.0 - euclid::Vector2D::new(indent + marker_width, 0.0);
+                // First check children (list item content)
+                for child in &position_tree.children {
+                    if let Some(hit) = self.hit_test_item(child, point) {
+                        return Some(hit);
+                    }
+                }
+                // Then check own text
+                self.hit_test_text_positions(
+                    &position_tree.text_positions,
+                    euclid::Point2D::new(adjusted.x, adjusted.y),
+                    &position_tree.element_type,
+                )
+            }
+            ElementType::InlineCode { padding, .. } => {
+                // Handle inline code padding
+                let adjusted = element_point.0 - euclid::Vector2D::new(*padding, 0.0);
+                self.hit_test_text_positions(
+                    &position_tree.text_positions,
+                    euclid::Point2D::new(adjusted.x, adjusted.y),
+                    &position_tree.element_type,
+                )
+            }
+            _ => {
+                // For other elements, check children first
+                for child in &position_tree.children {
+                    if let Some(hit) = self.hit_test_item(child, point) {
+                        return Some(hit);
+                    }
+                }
+                // Then check own text positions
+                self.hit_test_text_positions(&position_tree.text_positions, element_point.0, &position_tree.element_type)
+            }
+        }
+    }
+
+    /// Hit test within text positions
+    fn hit_test_text_positions(
+        &self,
+        positions: &[crate::sidebar::position_cache::TextPosition],
+        point: euclid::Point2D<f32, window::PixelUnit>,
+        element_type: &crate::sidebar::position_cache::ElementType,
+    ) -> Option<crate::sidebar::position_cache::ItemPosition> {
+        use crate::sidebar::position_cache::{ItemPosition, TextAffinity};
+        
+        // Find the line containing the y coordinate
+        let line_positions: Vec<_> = positions.iter()
+            .filter(|p| {
+                // Check if point is within line height
+                // Use a reasonable default that matches our text rendering
+                let line_height = match element_type {
+                    ElementType::Paragraph { line_height, .. } => *line_height,
+                    ElementType::Heading { font_size, .. } => font_size * 1.2,
+                    ElementType::CodeBlock { line_height, .. } => *line_height,
+                    _ => 20.0, // Default line height
+                };
+                point.y >= p.y && point.y < p.y + line_height
+            })
+            .collect();
+        
+        if line_positions.is_empty() {
+            return None;
+        }
+        
+        // Find the closest position on the line
+        let mut best_position = None;
+        let mut best_distance = f32::MAX;
+        
+        for pos in &line_positions {
+            if point.x >= pos.x_start && point.x < pos.x_end {
+                // Point is within this glyph
+                let mid = (pos.x_start + pos.x_end) / 2.0;
+                if point.x < mid {
+                    return Some(ItemPosition {
+                        byte_offset: pos.byte_offset,
+                        affinity: TextAffinity::Leading,
+                    });
+                } else {
+                    // Find the next position if available
+                    let next_offset = line_positions.iter()
+                        .find(|p| p.byte_offset > pos.byte_offset)
+                        .map(|p| p.byte_offset)
+                        .unwrap_or(pos.byte_offset + 1); // Approximate
+                    return Some(ItemPosition {
+                        byte_offset: next_offset,
+                        affinity: TextAffinity::Leading,
+                    });
+                }
+            }
+            
+            // Track closest position for edge cases
+            let dist_to_start = (point.x - pos.x_start).abs();
+            let dist_to_end = (point.x - pos.x_end).abs();
+            
+            if dist_to_start < best_distance {
+                best_distance = dist_to_start;
+                best_position = Some(ItemPosition {
+                    byte_offset: pos.byte_offset,
+                    affinity: TextAffinity::Leading,
+                });
+            }
+            
+            if dist_to_end < best_distance {
+                best_distance = dist_to_end;
+                // Use next byte offset if available
+                let next_offset = line_positions.iter()
+                    .find(|p| p.byte_offset > pos.byte_offset)
+                    .map(|p| p.byte_offset)
+                    .unwrap_or(pos.byte_offset + 1);
+                best_position = Some(ItemPosition {
+                    byte_offset: next_offset,
+                    affinity: TextAffinity::Leading,
+                });
+            }
+        }
+        
+        best_position
     }
 
     /// Get chat input border color

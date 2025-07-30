@@ -614,6 +614,14 @@ impl crate::TermWindow {
                     ai_sidebar
                         .update_activity_log_height_cache(&activity_log_computed, viewport_height);
 
+                    // Update coordinate transform for the sidebar
+                    ai_sidebar.update_coordinate_transform(
+                        sidebar_x,
+                        0.0,
+                        visible_width,
+                        self.dimensions.pixel_height as f32,
+                    );
+
                     // CRITICAL: Update activity item bounds for selection rendering
                     // Extract bounds from the computed UI items
                     for ui_item in activity_log_computed.ui_items() {
@@ -633,6 +641,21 @@ impl crate::TermWindow {
                                 item_bounds.size.width,
                                 item_bounds.size.height
                             );
+                            
+                            // Extract position data for this activity item
+                            if let Some(position_tree) = crate::termwindow::render::activity_log_positions::extract_activity_item_positions(
+                                &activity_log_computed,
+                                &ui_item.item_type,
+                                &fonts,
+                            ) {
+                                let viewport_y = ui_item.y as f32 - activity_bounds.origin.y;
+                                crate::termwindow::render::activity_log_positions::store_activity_item_positions(
+                                    ai_sidebar,
+                                    *index,
+                                    position_tree,
+                                    viewport_y,
+                                );
+                            }
                         }
                     }
                 }

@@ -1832,16 +1832,30 @@ impl super::TermWindow {
                 // Set focus to sidebar for copy operations
                 self.focus_area = FocusArea::Sidebar;
 
-                let x = event.coords.x as f32;
-                log::debug!("Activity item {} text clicked at x={}", index, x);
-                log::debug!(
-                    "Character positions: first few = {:?}",
-                    char_positions.iter().take(5).collect::<Vec<_>>()
-                );
+                let window_point = euclid::Point2D::new(event.coords.x as f32, event.coords.y as f32);
+                log::debug!("Activity item {} text clicked at ({}, {})", index, window_point.x, window_point.y);
 
-                // Find the byte offset from the character positions
-                let byte_offset = find_byte_offset_from_x(x, char_positions);
-                log::debug!("Calculated byte_offset = {}", byte_offset);
+                // Use hierarchical hit testing to find exact text position
+                let hit_result = with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
+                    ai_sidebar.hit_test_activity_log(window_point)
+                }).flatten();
+
+                let byte_offset = if let Some(hit) = hit_result {
+                    if hit.item_index == index {
+                        log::debug!("Hit test found byte_offset = {} for item {}", hit.position_in_item.byte_offset, index);
+                        hit.position_in_item.byte_offset
+                    } else {
+                        log::warn!("Hit test returned different item index: {} vs expected {}", hit.item_index, index);
+                        // Fall back to character positions
+                        find_byte_offset_from_x(event.coords.x as f32, char_positions)
+                    }
+                } else {
+                    log::debug!("Hit test returned None, falling back to char positions");
+                    // Fall back to character positions if hit test fails
+                    find_byte_offset_from_x(event.coords.x as f32, char_positions)
+                };
+
+                log::debug!("Final byte_offset = {}", byte_offset);
 
                 // Store the potential selection start but don't activate selection yet
                 // Selection will only start when dragging begins
@@ -1861,8 +1875,20 @@ impl super::TermWindow {
             WMEK::Move => {
                 // Only start selection if mouse button is pressed (dragging)
                 if event.mouse_buttons.contains(MouseButtons::LEFT) {
-                    let x = event.coords.x as f32;
-                    let byte_offset = find_byte_offset_from_x(x, char_positions);
+                    let window_point = euclid::Point2D::new(event.coords.x as f32, event.coords.y as f32);
+                    
+                    // Use hierarchical hit testing for drag position
+                    let hit_result = with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
+                        ai_sidebar.hit_test_activity_log(window_point)
+                    }).flatten();
+                    
+                    let byte_offset = if let Some(hit) = hit_result {
+                        // For drag, we allow crossing item boundaries
+                        hit.position_in_item.byte_offset
+                    } else {
+                        // Fall back to character positions if hit test fails
+                        find_byte_offset_from_x(event.coords.x as f32, char_positions)
+                    };
 
                     with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
                         // Activate selection if not already active

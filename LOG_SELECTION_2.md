@@ -667,3 +667,100 @@ if cfg!(debug_assertions) && std::env::var("WEZTERM_DEBUG_SELECTION").is_ok() {
 2. **Don't modify cluster values** - Use them as-is with proper context
 3. **Don't mix coordinate spaces** - Transform explicitly at boundaries
 4. **Don't use character counts** - Use byte offsets for Unicode safety
+
+## Implementation Status
+
+### Phase 1: Position Infrastructure ✅ COMPLETED
+
+**What was built:**
+- `position_cache.rs` created with all core data structures
+- `TextPositionCache` with simplified LRU eviction (O(n) access pattern updates)
+  - **Note**: Uses Vec for access tracking instead of proper LRU data structure
+  - Acceptable for 100 entry limit but could be optimized
+- `PositionTree` hierarchical structure matching the plan
+- All coordinate types (`WindowCoord`, `ViewportCoord`, `ItemCoord`, `ElementCoord`)
+- `CoordinateTransform` with transformation methods
+- Element types for markdown (paragraphs, headings, code blocks, lists, inline elements)
+
+**Deviations from plan:**
+- Removed `Rc<LoadedFont>` references from element types to avoid thread safety issues
+- Used `Arc` instead of `Rc` for position trees to satisfy `Send + Sync` requirements
+
+### Phase 2: Position Extraction 🔶 PARTIALLY COMPLETE
+
+**What was built:**
+- `activity_log_positions.rs` created with basic extraction framework
+- `extract_activity_item_positions()` function that walks computed elements
+- Integration point added in `sidebar_render.rs` to call extraction
+- Basic structure for `PositionTreeBuilder`
+
+**Critical gaps:**
+1. **Markdown detection stub**: `determine_element_type()` only detects code blocks by font name
+   - TODO: Implement full detection using rendering context and element properties
+   - Need to identify headings by font size, lists by indentation patterns, etc.
+2. **Line height mismatch**: Hardcoded line heights don't match actual rendering
+   - TODO: Extract actual line heights from computed elements during rendering
+   - Need to pass through metrics from the rendering pipeline
+3. **No actual glyph position extraction**: The plan calls for using `GlyphWithCluster` data
+   - Currently only processes x-advance but doesn't build proper position maps
+   - TODO: Complete integration with glyph cluster tracking from POSITION_TRACKING.md
+
+**Plan to complete Phase 2:**
+1. Add rendering context to track element types during markdown rendering
+2. Extract actual line heights from `ComputedElement` metrics
+3. Build complete position maps from `ElementCell::GlyphWithCluster` data
+4. Handle nested markdown structures (lists with code blocks, etc.)
+
+### Phase 3: Mouse Event Architecture 🔶 PARTIALLY COMPLETE
+
+**What was built:**
+- Hierarchical hit testing in `hit_test_activity_log()` 
+- Coordinate transformations through all 5 spaces
+- Hit testing for different element types with padding/indentation
+- Integration with mouse event handlers (with fallback to char positions)
+
+**Critical gaps:**
+1. **No mouse capture**: `SelectionCapture` not added to TermWindow
+   - TODO: Implement proper mouse capture for drag-outside-bounds
+   - Need to add to TermWindow and route events appropriately
+2. **Line height approximation**: Still using hardcoded heights in hit testing
+   - Uses `font_size * 1.2` for headings which may not match rendering
+   - TODO: Share line height constants with rendering pipeline
+
+**Plan to complete Phase 3:**
+1. Add `SelectionCapture` enum to TermWindow
+2. Implement `capture_mouse()` and `release_mouse()` in window trait
+3. Route captured mouse events to appropriate handlers
+4. Extract and share line height metrics between rendering and hit testing
+
+### Phase 4: Selection Rendering ❌ NOT STARTED
+
+This phase has not been implemented yet.
+
+### Workarounds and Technical Debt
+
+1. **Fallback to character positions**: Mouse handlers still fall back to old char position arrays
+   - This works but defeats the purpose of hierarchical hit testing
+   - Should be removed once position extraction is complete
+
+2. **Hardcoded metrics throughout**:
+   - Line heights: 20.0 for paragraphs, `font_size * 1.2` for headings
+   - Padding: 8.0 for code blocks, 4.0 for inline code
+   - These should come from shared constants or be extracted during rendering
+
+3. **Incomplete coordinate transformation usage**:
+   - Goal text and suggestion text still use old coordinate mixing
+   - Only activity log items use the new 5-tier system properly
+
+4. **Thread safety compromises**:
+   - Had to remove font references from element types
+   - This means we can't match fonts exactly during hit testing
+
+### Critical Next Steps
+
+1. **Fix line height synchronization**: Create shared constants or extract from rendering
+2. **Complete markdown detection**: Implement proper element type detection
+3. **Finish position extraction**: Actually extract glyph positions from clusters
+4. **Add mouse capture**: Implement SelectionCapture in TermWindow
+
+The foundation is solid but needs these critical pieces to function as designed.

@@ -34,6 +34,7 @@ use wezterm_term::color::{ColorAttribute, ColorPalette};
 use wezterm_term::{CellAttributes, Line, StableRowIndex};
 use window::color::LinearRgba;
 
+pub mod activity_log_positions;
 pub mod blur;
 pub mod blur_atlas_integration;
 pub mod borders;

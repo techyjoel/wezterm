@@ -83,6 +83,7 @@ impl SidebarFonts {
 pub mod ai_sidebar;
 pub mod animation;
 pub mod components;
+pub mod position_cache;
 pub mod settings_sidebar;
 
 pub use ai_sidebar::{ActivityItem, AiSidebar};
