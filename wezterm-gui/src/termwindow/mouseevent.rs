@@ -13,7 +13,8 @@
 use crate::sidebar::ai_sidebar::SelectionTarget;
 use crate::tabbar::TabBarItem;
 use crate::termwindow::{
-    GuiWin, MouseCapture, PositionedSplit, ScrollHit, TermWindowNotif, UIItem, UIItemType, TMB,
+    FocusArea, GuiWin, MouseCapture, PositionedSplit, ScrollHit, TermWindowNotif, UIItem,
+    UIItemType, TMB,
 };
 use ::window::{
     MouseButtons, MouseButtons as WMB, MouseCursor, MouseEvent, MouseEventKind as WMEK, MousePress,
@@ -745,6 +746,28 @@ impl super::TermWindow {
     ) {
         // Set cursor to arrow for sidebar
         context.set_cursor(Some(MouseCursor::Arrow));
+        
+        // Handle clicks on empty sidebar space to clear selection
+        if let WMEK::Press(MousePress::Left) = event.kind {
+            // Check if this is the right sidebar where selections happen
+            if position == crate::sidebar::SidebarPosition::Right {
+                let sidebar_manager = self.sidebar_manager.borrow();
+                if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
+                    if let Ok(mut sidebar) = sidebar.lock() {
+                        if let Some(ai_sidebar) = sidebar
+                            .as_any_mut()
+                            .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
+                        {
+                            // Clear any active selection when clicking on empty space
+                            if ai_sidebar.clear_selection() {
+                                context.invalidate();
+                            }
+                        }
+                    }
+                }
+                drop(sidebar_manager);
+            }
+        }
 
         // Forward mouse events to the sidebar
         let mut sidebar_manager = self.sidebar_manager.borrow_mut();
@@ -1033,6 +1056,8 @@ impl super::TermWindow {
     ) {
         // Clear any sidebar focus when clicking on terminal
         if matches!(event.kind, WMEK::Press(_)) {
+            // Set focus back to terminal for copy operations
+            self.focus_area = FocusArea::Terminal;
             if let Ok(mut sidebar_manager) = self.sidebar_manager.try_borrow_mut() {
                 // Clear focus from left sidebar if it exists
                 if let Some(sidebar) = sidebar_manager.get_left_sidebar() {
@@ -1636,6 +1661,8 @@ impl super::TermWindow {
 
         match event.kind {
             WMEK::Press(MousePress::Left) => {
+                // Set focus to sidebar for copy operations
+                self.focus_area = FocusArea::Sidebar;
                 log::debug!(
                     "Chat input clicked at ({}, {})",
                     event.coords.x,
@@ -1650,6 +1677,19 @@ impl super::TermWindow {
                                 .as_any_mut()
                                 .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
                             ) {
+                                // Clear any existing non-chat-input selection when clicking in chat input
+                                if let Some(selection) = &ai_sidebar.selection_state.active_selection {
+                                    match selection {
+                                        SelectionTarget::ChatInput { .. } => {
+                                            // Don't clear chat input selections - let the handler manage them
+                                        }
+                                        _ => {
+                                            // Clear other types of selections (goal, activity, suggestion)
+                                            ai_sidebar.clear_selection();
+                                        }
+                                    }
+                                }
+                                
                                 // Get the bounds of the chat input from the UI item
                                 let bounds = euclid::rect::<f32, euclid::UnknownUnit>(
                                     item.x as f32,
@@ -1783,6 +1823,9 @@ impl super::TermWindow {
 
         match event.kind {
             WMEK::Press(MousePress::Left) => {
+                // Set focus to sidebar for copy operations
+                self.focus_area = FocusArea::Sidebar;
+
                 let x = event.coords.x as f32;
                 log::debug!("Activity item {} text clicked at x={}", index, x);
                 log::debug!(
@@ -1796,13 +1839,17 @@ impl super::TermWindow {
 
                 // Store the potential selection start but don't activate selection yet
                 // Selection will only start when dragging begins
-                with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
+                let needs_invalidate = with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
                     ai_sidebar.prepare_selection(SelectionTarget::ActivityItem {
                         index,
                         anchor_byte: byte_offset,
                         current_byte: byte_offset,
-                    });
-                });
+                    })
+                }).unwrap_or(false);
+                
+                if needs_invalidate {
+                    context.invalidate();
+                }
             }
             WMEK::Move => {
                 // Only start selection if mouse button is pressed (dragging)
@@ -1851,7 +1898,7 @@ impl super::TermWindow {
                 let byte_offset = find_byte_offset_from_x(x, char_positions);
 
                 // Start text selection for suggestion
-                if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
+                let needs_invalidate = if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
                     if let Some(sidebar) = mgr.get_right_sidebar() {
                         if let Ok(mut sidebar) = sidebar.lock() {
                             if let Some(ai_sidebar) = sidebar
@@ -1861,10 +1908,22 @@ impl super::TermWindow {
                                 ai_sidebar.prepare_selection(SelectionTarget::Suggestion {
                                     anchor_byte: byte_offset,
                                     current_byte: byte_offset,
-                                });
+                                })
+                            } else {
+                                false
                             }
+                        } else {
+                            false
                         }
+                    } else {
+                        false
                     }
+                } else {
+                    false
+                };
+                
+                if needs_invalidate {
+                    context.invalidate();
                 }
             }
             WMEK::Move => {
@@ -1943,6 +2002,9 @@ impl super::TermWindow {
 
         match event.kind {
             WMEK::Press(MousePress::Left) => {
+                // Set focus to sidebar for copy operations
+                self.focus_area = FocusArea::Sidebar;
+
                 let x = event.coords.x as f32;
                 log::debug!("GOAL EVENT DEBUG: Goal text clicked at absolute x={}", x);
                 log::debug!(
@@ -2035,7 +2097,7 @@ impl super::TermWindow {
                     byte_offset, relative_x);
 
                 // Start text selection for goal
-                if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
+                let needs_invalidate = if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
                     if let Some(sidebar) = mgr.get_right_sidebar() {
                         if let Ok(mut sidebar) = sidebar.lock() {
                             if let Some(ai_sidebar) = sidebar
@@ -2045,11 +2107,23 @@ impl super::TermWindow {
                                 ai_sidebar.prepare_selection(SelectionTarget::Goal {
                                     anchor_byte: byte_offset,
                                     current_byte: byte_offset,
-                                });
+                                })
+                            } else {
+                                false
                             }
+                        } else {
+                            false
                         }
+                    } else {
+                        false
                     }
-                }
+                } else {
+                    false
+                };
+                
+                // Always invalidate on goal text click to ensure UI updates
+                // This is needed because prepare_selection might clear an existing selection
+                context.invalidate();
             }
             WMEK::Move => {
                 // Only start selection if mouse button is pressed (dragging)

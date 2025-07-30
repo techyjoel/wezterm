@@ -636,7 +636,8 @@ impl AiSidebar {
     }
 
     /// Prepare for potential selection (on mouse down)
-    pub fn prepare_selection(&mut self, target: SelectionTarget) {
+    /// Returns true if UI should be invalidated
+    pub fn prepare_selection(&mut self, target: SelectionTarget) -> bool {
         // Check if clicking on existing selection to deselect
         if let Some(active) = &self.selection_state.active_selection {
             // If clicking within the same target type, clear selection
@@ -653,15 +654,19 @@ impl AiSidebar {
 
             if should_clear {
                 self.selection_state.clear();
-                return;
+                // Don't return - allow starting a new selection after clearing
             }
         }
 
         // Store the potential selection but don't activate it yet
         self.selection_state.prepared_selection = Some(target);
-        // Clear any existing selection
+        // Clear any existing selection if not already cleared
+        let had_selection = self.selection_state.active_selection.is_some();
         self.selection_state.active_selection = None;
         self.selection_state.is_dragging = false;
+        
+        // Return true if we cleared an existing selection
+        had_selection
     }
 
     /// Activate the prepared selection (on drag start)
@@ -677,6 +682,15 @@ impl AiSidebar {
     /// End selection
     pub fn end_selection(&mut self) {
         self.selection_state.is_dragging = false;
+    }
+
+    /// Clear all selection state
+    /// Returns true if there was a selection to clear
+    pub fn clear_selection(&mut self) -> bool {
+        let had_selection = self.selection_state.active_selection.is_some() 
+            || self.selection_state.prepared_selection.is_some();
+        self.selection_state.clear();
+        had_selection
     }
 
     /// Clear selection if activity log items change
@@ -2528,14 +2542,21 @@ This example demonstrates:
                 } else {
                     // Find position within line
                     let mut found = false;
+                    let mut prev_end = 0.0;
+                    
                     for (x_start, x_end, byte_offset) in visual_line_positions.iter() {
-                        if *byte_offset >= cursor_document_byte_offset {
-                            // Cursor should be at the start of this glyph
+                        if *byte_offset == cursor_document_byte_offset {
+                            // Cursor is exactly at this glyph's position - put it at the start
                             cursor_x = *x_start;
                             found = true;
                             break;
+                        } else if *byte_offset > cursor_document_byte_offset {
+                            // We've passed the cursor position - use the end of the previous glyph
+                            cursor_x = prev_end;
+                            found = true;
+                            break;
                         }
-                        cursor_x = *x_end; // Keep updating to the end of each glyph
+                        prev_end = *x_end;
                     }
 
                     // If we didn't find a position (cursor at end of line), use the last glyph's end

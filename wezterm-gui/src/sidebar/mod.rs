@@ -85,7 +85,7 @@ pub mod animation;
 pub mod components;
 pub mod settings_sidebar;
 
-pub use ai_sidebar::AiSidebar;
+pub use ai_sidebar::{ActivityItem, AiSidebar};
 pub use animation::{SidebarAnimation, SidebarPositionAnimation};
 pub use components::ScrollbarInfo;
 pub use settings_sidebar::SettingsSidebar;

@@ -391,6 +391,13 @@ enum EventState {
     InProgressWithQueued(Option<PaneId>),
 }
 
+/// Tracks which area of the window currently has focus for copy operations
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum FocusArea {
+    Terminal,
+    Sidebar,
+}
+
 pub struct TermWindow {
     pub window: Option<Window>,
     pub config: ConfigHandle,
@@ -496,6 +503,9 @@ pub struct TermWindow {
     config_subscription: Option<config::ConfigSubscription>,
     blur_renderer: RefCell<Option<render::blur::BlurRenderer>>,
     effects_overlay: RefCell<Option<render::effects_overlay::EffectsOverlay>>,
+
+    /// Tracks which area currently has focus for copy operations
+    focus_area: FocusArea,
 }
 
 impl TermWindow {
@@ -970,6 +980,7 @@ impl TermWindow {
             }),
             blur_renderer: RefCell::new(None),
             effects_overlay: RefCell::new(None),
+            focus_area: FocusArea::Terminal,
         };
 
         let tw = Rc::new(RefCell::new(myself));
@@ -2985,8 +2996,33 @@ impl TermWindow {
                 window.set_window_level(level.clone());
             }
             CopyTo(dest) => {
-                let text = self.selection_text(pane);
-                self.copy_to_clipboard(*dest, text);
+                // Use focus area to determine where to copy from
+                let mut handled = false;
+
+                if self.focus_area == FocusArea::Sidebar {
+                    // Try to copy from sidebar first when sidebar has focus
+                    let sidebar_manager = self.sidebar_manager.borrow();
+
+                    if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
+                        if let Ok(mut sidebar) = sidebar.lock() {
+                            if let Some(ai_sidebar) = sidebar
+                                .as_any_mut()
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
+                            ) {
+                                if ai_sidebar.handle_copy(self.window.as_ref().unwrap()) {
+                                    handled = true;
+                                }
+                            }
+                        }
+                    }
+                    drop(sidebar_manager);
+                }
+
+                // If sidebar didn't handle it (or terminal has focus), copy terminal selection
+                if !handled {
+                    let text = self.selection_text(pane);
+                    self.copy_to_clipboard(*dest, text);
+                }
             }
             CopyTextTo { text, destination } => {
                 self.copy_to_clipboard(*destination, text.clone());

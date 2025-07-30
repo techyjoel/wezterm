@@ -1032,6 +1032,10 @@ pub enum ComputedElementContent {
         line_styles: Option<Vec<Vec<ElementColors>>>,
         /// Optional per-cell font styles for bold/italic
         line_font_styles: Option<Vec<Vec<Option<FontStyleFlags>>>>,
+        /// Line information including byte offsets and source text
+        line_info: Option<Vec<WrappedLine>>,
+        /// Actual Y positions of each line as determined during layout
+        line_positions: Vec<f32>,
     },
     Children(Vec<ComputedElement>),
     Poly {
@@ -1063,19 +1067,19 @@ impl ElementCell {
 
 /// Represents a wrapped line of text with its byte offsets
 #[derive(Debug, Clone)]
-struct WrappedLine {
+pub struct WrappedLine {
     /// Byte offset in the original text where this line starts
-    byte_offset: usize,
+    pub byte_offset: usize,
     /// Byte offset in the original text where this line ends (exclusive)
-    byte_end: usize,
+    pub byte_end: usize,
     /// Whether to skip leading spaces when rendering
-    skip_leading_spaces: bool,
+    pub skip_leading_spaces: bool,
     /// Number of bytes to skip at start (for leading space handling)
-    leading_space_bytes: usize,
+    pub leading_space_bytes: usize,
     /// Text actually sent to shaper (may differ from original due to skipped spaces)
-    shaped_text: String,
+    pub shaped_text: String,
     /// Byte offset of shaped_text within the line text
-    shaped_offset: usize,
+    pub shaped_offset: usize,
 }
 
 impl WrappedLine {
@@ -1625,6 +1629,7 @@ impl super::TermWindow {
         Vec<Vec<ElementCell>>,
         Vec<Vec<ElementColors>>,
         Vec<Vec<Option<FontStyleFlags>>>,
+        Vec<WrappedLine>,
     )> {
         // Check if this is monospace-only content (e.g., code blocks)
         // Code blocks have no font variants and no font overrides
@@ -1640,11 +1645,9 @@ impl super::TermWindow {
             self.calculate_average_char_width(default_font, context, default_style)?
         };
 
-        // Debug: compare with monospace cell width and log more details
-        let monospace_width = context.metrics.cell_size.width as f32;
-        let ratio = char_width / monospace_width;
-
         let wrapped_lines = self.wrap_text_with_estimates(text, char_width, max_width);
+        // Clone wrapped_lines to return them along with the shaped content
+        let wrapped_lines_for_return = wrapped_lines.clone();
 
         // Step 2: Shape each wrapped line with appropriate fonts
         let mut shaped_lines = Vec::new();
@@ -1687,7 +1690,12 @@ impl super::TermWindow {
             line_font_styles.push(line_fonts);
         }
 
-        Ok((shaped_lines, line_styles, line_font_styles))
+        Ok((
+            shaped_lines,
+            line_styles,
+            line_font_styles,
+            wrapped_lines_for_return,
+        ))
     }
 
     /// Calculate average character width for a font by measuring representative characters
@@ -1733,6 +1741,17 @@ impl super::TermWindow {
         // where our sample text underestimates the average width of actual content
         let width_correction_factor = get_width_correction_factor();
         let avg_width = raw_avg_width * width_correction_factor;
+
+        // Trace logging to understand width calculation
+        log::trace!(
+            "CHAR_WIDTH_CALC: font={:?}, total_width={:.2}, sample_len={}, raw_avg={:.2}, correction={:.2}, final_avg={:.2}",
+            font.id(),
+            total_width,
+            SAMPLE_TEXT.len(),
+            raw_avg_width,
+            width_correction_factor,
+            avg_width
+        );
 
         // Store in cache with simple eviction policy
         FONT_WIDTH_CACHE.with(|cache| {
@@ -1807,7 +1826,7 @@ impl super::TermWindow {
         style: &config::TextStyle,
         track_cluster: bool,
     ) -> anyhow::Result<Vec<ElementCell>> {
-        log::debug!(
+        log::trace!(
             "shape_text_to_cells: text='{}', text.len()={}, infos.len()={}, track_cluster={}",
             text,
             text.len(),
@@ -2172,6 +2191,7 @@ impl super::TermWindow {
 
             // Convert to cells
             let track_cluster = context.source == RenderSource::Sidebar;
+
             let segment_cells = match self.shape_text_to_cells(
                 segment_text,
                 &infos,
@@ -2451,6 +2471,26 @@ impl super::TermWindow {
                         line_height,
                         line_styles: None,
                         line_font_styles: None,
+                        line_info: Some(wrapped_lines.clone()),
+                        line_positions: {
+                            // Calculate actual Y positions for each line
+                            // Use different spacing based on content type
+                            let spacing_multiplier = if matches!(
+                                element.item_type,
+                                Some(UIItemType::ChatInput { .. })
+                            ) {
+                                1.1 // Chat input uses 1.1x spacing
+                            } else {
+                                1.0 // Regular content uses exact line height
+                            };
+                            let mut positions = Vec::new();
+                            let mut y_pos = 0.0;
+                            for _ in 0..lines.len() {
+                                positions.push(y_pos);
+                                y_pos += line_height * spacing_multiplier;
+                            }
+                            positions
+                        },
                     },
                 };
 
@@ -2638,7 +2678,7 @@ impl super::TermWindow {
             }
             ElementContent::StyledWrappedText { text, style_spans } => {
                 // Use wrap_styled_text to get wrapped lines with style information
-                let (lines, line_styles, line_font_styles) = self.wrap_styled_text(
+                let (lines, line_styles, line_font_styles, wrapped_lines) = self.wrap_styled_text(
                     text,
                     &element.font,
                     style_spans,
@@ -2655,6 +2695,24 @@ impl super::TermWindow {
                 let content_rect = euclid::rect(0., 0., max_width, pixel_height);
                 let rects = element.compute_rects(context, content_rect);
                 let clip_bounds = element.compute_clip_bounds(context, &rects);
+
+                // Calculate line positions before moving lines
+                let line_positions = {
+                    // Use different spacing based on content type
+                    let spacing_multiplier =
+                        if matches!(element.item_type, Some(UIItemType::ChatInput { .. })) {
+                            1.1 // Chat input uses 1.1x spacing
+                        } else {
+                            1.0 // Regular content uses exact line height
+                        };
+                    let mut positions = Vec::new();
+                    let mut y_pos = 0.0;
+                    for _ in 0..lines.len() {
+                        positions.push(y_pos);
+                        y_pos += line_height * spacing_multiplier;
+                    }
+                    positions
+                };
 
                 Ok(ComputedElement {
                     item_type: element.item_type.clone(),
@@ -2675,6 +2733,8 @@ impl super::TermWindow {
                         line_height,
                         line_styles: Some(line_styles),
                         line_font_styles: Some(line_font_styles),
+                        line_info: Some(wrapped_lines), // Now includes source text information for styled text
+                        line_positions,
                     },
                 })
             }
@@ -2923,6 +2983,8 @@ impl super::TermWindow {
                 line_height,
                 line_styles,
                 line_font_styles,
+                line_info: _,
+                line_positions,
             } => {
                 let mut y_offset = 0.0;
 
@@ -2932,7 +2994,12 @@ impl super::TermWindow {
                     for (line_idx, (line_cells, line_colors)) in
                         lines.iter().zip(styles.iter()).enumerate()
                     {
-                        let y = element.content_rect.min_y() + (line_idx as f32 * line_height);
+                        // Use actual Y position from line_positions
+                        let y = element.content_rect.min_y()
+                            + line_positions
+                                .get(line_idx)
+                                .copied()
+                                .unwrap_or(line_idx as f32 * line_height);
 
                         // Group consecutive cells with the same color
                         let mut segment_start = 0;
@@ -3029,7 +3096,12 @@ impl super::TermWindow {
                     // No clipping - allow text to render wherever it needs to
                     for (line_idx, line_cells) in lines.iter().enumerate() {
                         let mut pos_x = element.content_rect.min_x();
-                        let y = element.content_rect.min_y() + (line_idx as f32 * line_height);
+                        // Use actual Y position from line_positions
+                        let y = element.content_rect.min_y()
+                            + line_positions
+                                .get(line_idx)
+                                .copied()
+                                .unwrap_or(line_idx as f32 * line_height);
 
                         for cell in line_cells.iter() {
                             match cell {

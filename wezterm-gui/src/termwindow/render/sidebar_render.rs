@@ -924,6 +924,15 @@ impl crate::TermWindow {
                             log::debug!("No UIItemType::ChatInput found in computed element");
                         }
 
+                        // Extract positions from the chat input before rendering
+                        if let Some(positions) = self.extract_chat_input_positions(&chat_input_computed) {
+                            log::debug!(
+                                "Extracted {} lines of positions for chat input",
+                                positions.len()
+                            );
+                            ai_sidebar.set_chat_input_glyph_positions(positions);
+                        }
+                        
                         // Render the chat input text (now clipped by scissor rect)
                         self.render_element(&chat_input_computed, gl_state, None)?;
 
@@ -1649,6 +1658,67 @@ impl crate::TermWindow {
             }
         }
 
+        None
+    }
+    
+    /// Extract chat input positions from a computed element tree
+    fn extract_chat_input_positions(
+        &self,
+        computed: &ComputedElement,
+    ) -> Option<Vec<Vec<(f32, f32, usize)>>> {
+        // Check if this element is the chat input
+        if let Some(UIItemType::ChatInput { .. }) = &computed.item_type {
+            // Extract positions from the content
+            if let ComputedElementContent::MultilineText { lines, .. } = &computed.content {
+                let mut line_positions = Vec::new();
+                
+                // Process each line of text
+                for (line_idx, cells) in lines.iter().enumerate() {
+                    let mut x_pos = 0.0;
+                    let mut positions = Vec::new();
+                    
+                    for cell in cells {
+                        match cell {
+                            ElementCell::GlyphWithCluster { glyph, cluster } => {
+                                let x_start = x_pos;
+                                let x_end = x_pos + glyph.x_advance.get() as f32;
+                                positions.push((x_start, x_end, *cluster as usize));
+                                x_pos = x_end;
+                            }
+                            ElementCell::Glyph(glyph) => {
+                                // Skip glyphs without cluster info
+                                x_pos += glyph.x_advance.get() as f32;
+                            }
+                            ElementCell::Sprite(_sprite) => {
+                                // Sprites are block drawing characters, use cell width
+                                // For chat input, we might not have sprites, but handle just in case
+                                x_pos += 8.0; // Approximate cell width, ideally get from context
+                            }
+                        }
+                    }
+                    
+                    line_positions.push(positions);
+                }
+                
+                log::debug!(
+                    "Chat input position extraction: {} lines, first line has {} positions",
+                    line_positions.len(),
+                    line_positions.first().map(|l| l.len()).unwrap_or(0)
+                );
+                
+                return Some(line_positions);
+            }
+        }
+        
+        // Recursively search children
+        if let ComputedElementContent::Children(children) = &computed.content {
+            for child in children {
+                if let Some(positions) = self.extract_chat_input_positions(child) {
+                    return Some(positions);
+                }
+            }
+        }
+        
         None
     }
 }

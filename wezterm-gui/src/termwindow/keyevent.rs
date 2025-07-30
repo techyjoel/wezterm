@@ -636,6 +636,32 @@ impl super::TermWindow {
     }
 
     pub fn key_event_impl(&mut self, window_key: KeyEvent, context: &dyn WindowOps) {
+        // Log key events at trace level for debugging
+        if window_key.key_is_down {
+            log::trace!(
+                "key_event_impl called: key={:?}, mods={:?}",
+                window_key.key,
+                window_key.modifiers
+            );
+        }
+
+        // Note: Cmd-C on macOS is handled through the menu system.
+        // On Windows/Linux, we need to check for Ctrl-Shift-C here.
+        #[cfg(not(target_os = "macos"))]
+        if window_key.key_is_down && matches!(&window_key.key, ::window::KeyCode::Char('c')) {
+            let copy_mod = window_key
+                .modifiers
+                .contains(Modifiers::CTRL | Modifiers::SHIFT);
+
+            if copy_mod {
+                log::trace!("key_event_impl: Ctrl-Shift-C detected on Windows/Linux");
+                // Dispatch copy command, which will handle focus-aware copying
+                self.perform_assignment(&KeyAssignment::CopyTo(wezterm_term::ClipboardCopyDestination::Clipboard));
+                context.invalidate();
+                return;
+            }
+        }
+
         // Only route keyboard events to sidebars if they have focus or an active modal
         {
             let sidebar_manager = self.sidebar_manager.borrow();
@@ -645,32 +671,6 @@ impl super::TermWindow {
                 if let Ok(mut sidebar) = sidebar.lock() {
                     // Check if this sidebar should capture keyboard input
                     if sidebar.has_keyboard_focus() {
-                        // Check for Ctrl+C / Cmd+C for copy operation
-                        if window_key.key_is_down {
-                            let is_copy = match &window_key.key {
-                                ::window::KeyCode::Char('c') => {
-                                    #[cfg(target_os = "macos")]
-                                    let copy_mod = window_key.modifiers.contains(Modifiers::SUPER);
-                                    #[cfg(not(target_os = "macos"))]
-                                    let copy_mod = window_key.modifiers.contains(Modifiers::CTRL);
-                                    copy_mod
-                                }
-                                _ => false,
-                            };
-
-                            if is_copy {
-                                if let Some(ai_sidebar) = sidebar
-                                    .as_any_mut()
-                                    .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
-                                ) {
-                                    if ai_sidebar.handle_copy(context) {
-                                        context.invalidate();
-                                        return;
-                                    }
-                                }
-                            }
-                        }
-
                         // Convert window KeyCode to termwiz KeyCode
                         // Only process key down events to avoid double processing
                         if window_key.key_is_down {
@@ -699,24 +699,6 @@ impl super::TermWindow {
                 if let Ok(mut sidebar) = sidebar.lock() {
                     // Check if this sidebar should capture keyboard input
                     if sidebar.has_keyboard_focus() {
-                        // Check for Ctrl+C / Cmd+C for copy operation
-                        if window_key.key_is_down {
-                            let is_copy = match &window_key.key {
-                                ::window::KeyCode::Char('c') => {
-                                    #[cfg(target_os = "macos")]
-                                    let copy_mod = window_key.modifiers.contains(Modifiers::SUPER);
-                                    #[cfg(not(target_os = "macos"))]
-                                    let copy_mod = window_key.modifiers.contains(Modifiers::CTRL);
-                                    copy_mod
-                                }
-                                _ => false,
-                            };
-
-                            if is_copy {
-                                // Left sidebar currently doesn't support copy, but structure is here for future
-                            }
-                        }
-
                         // Convert window KeyCode to termwiz KeyCode
                         // Only process key down events to avoid double processing
                         if window_key.key_is_down {
@@ -745,40 +727,6 @@ impl super::TermWindow {
             Some(pane) => pane,
             None => return,
         };
-
-        // Check for Ctrl+C / Cmd+C even when sidebar doesn't have focus
-        // (since we allow selection without changing focus)
-        if window_key.key_is_down {
-            let is_copy = match &window_key.key {
-                ::window::KeyCode::Char('c') => {
-                    #[cfg(target_os = "macos")]
-                    let copy_mod = window_key.modifiers.contains(Modifiers::SUPER);
-                    #[cfg(not(target_os = "macos"))]
-                    let copy_mod = window_key.modifiers.contains(Modifiers::CTRL);
-                    copy_mod
-                }
-                _ => false,
-            };
-
-            if is_copy {
-                let sidebar_manager = self.sidebar_manager.borrow();
-
-                // Check right sidebar for selections
-                if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
-                    if let Ok(mut sidebar) = sidebar.lock() {
-                        if let Some(ai_sidebar) = sidebar
-                            .as_any_mut()
-                            .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
-                        ) {
-                            if ai_sidebar.handle_copy(context) {
-                                context.invalidate();
-                                return;
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         // The leader key is a kind of modal modifier key.
         // It is allowed to be active for up to the leader timeout duration,

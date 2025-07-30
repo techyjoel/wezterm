@@ -4,7 +4,7 @@ This directory contains technical documentation for developers working on our We
 
 ## Critical Implementation Notes
 
-**IMPORTANT**: Each documentation file below contains a "Critical Implementation Notes" section at the top. You MUST read this section for any area you plan to work on. These notes distinguish between:
+**IMPORTANT**: Each documentation file below contains a "Critical Implementation Notes" section at the top. You MUST read this section for any area you plan to work on. You SHOULD also read the full files for any area's you know you needf details on. These notes distinguish between:
 
 - **Architectural requirements**: Fundamental design constraints that cannot be changed without major rewrites
 - **Current implementation constraints**: Limitations of the current code that could potentially be fixed
