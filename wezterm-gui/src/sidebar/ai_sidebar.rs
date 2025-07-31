@@ -385,61 +385,6 @@ fn calculate_char_positions(text: &str, font: &Rc<LoadedFont>) -> Vec<(f32, f32,
     positions
 }
 
-/// Create style spans for text with selection
-fn create_selection_spans(text: &str, start_byte: usize, end_byte: usize) -> Vec<StyleSpan> {
-    let mut spans = vec![];
-
-    log::debug!(
-        "Creating selection spans: text_len={}, start_byte={}, end_byte={}",
-        text.len(),
-        start_byte,
-        end_byte
-    );
-
-    // Text before selection (if any)
-    if start_byte > 0 {
-        spans.push(StyleSpan {
-            start: 0,
-            end: start_byte,
-            colors: ElementColors {
-                text: InheritableColor::Color(LinearRgba::with_components(0.9, 0.9, 0.9, 1.0)), // Normal text color
-                ..ElementColors::default()
-            },
-            font: None,
-            font_style: None,
-        });
-    }
-
-    // Selected text with blue background
-    spans.push(StyleSpan {
-        start: start_byte,
-        end: end_byte,
-        colors: ElementColors {
-            bg: InheritableColor::Color(LinearRgba::with_components(0.2, 0.4, 0.7, 1.0)), // Blue selection with full opacity
-            text: InheritableColor::Color(LinearRgba::with_components(1.0, 1.0, 1.0, 1.0)), // White text
-            ..ElementColors::default()
-        },
-        font: None,
-        font_style: None,
-    });
-
-    // Text after selection (if any)
-    if end_byte < text.len() {
-        spans.push(StyleSpan {
-            start: end_byte,
-            end: text.len(),
-            colors: ElementColors {
-                text: InheritableColor::Color(LinearRgba::with_components(0.9, 0.9, 0.9, 1.0)), // Normal text color
-                ..ElementColors::default()
-            },
-            font: None,
-            font_style: None,
-        });
-    }
-
-    spans
-}
-
 #[derive(Debug, Clone)]
 pub enum ActivityItem {
     Command {
@@ -1550,30 +1495,15 @@ This example demonstrates:
             };
 
             // For short content, still use fixed height
-            let elem = if let Some((start, end)) = selection {
-                let spans = create_selection_spans(&suggestion.content, start, end);
-                Element::new(
-                    &fonts.body,
-                    ElementContent::StyledWrappedText {
-                        text: suggestion.content.clone(),
-                        style_spans: spans,
-                    },
-                )
-            } else {
-                Element::new(
-                    &fonts.body,
-                    ElementContent::WrappedText(suggestion.content.clone()),
-                )
-            };
+            // Selection is now rendered as an overlay, not inline styles
+            let elem = Element::new(
+                &fonts.body,
+                ElementContent::WrappedText(suggestion.content.clone()),
+            );
 
             // Calculate available width for suggestion text
             let sidebar_width = self.width as f32;
             let suggestion_content_width = sidebar_width - 40.0; // Account for padding
-
-            log::debug!(
-                "Suggestion width calculation: sidebar_width={}, content_width={}, has_selection={}",
-                sidebar_width, suggestion_content_width, selection.is_some()
-            );
 
             content_elements.push(
                 elem.item_type(UIItemType::SuggestionText {
@@ -1754,19 +1684,6 @@ This example demonstrates:
                     - (CHAT_ITEM_PADDING * 2.0)
                     - (CHAT_ITEM_BORDER * 2.0)
                     - SCROLLBAR_SPACE;
-                
-                // Debug logging for width issue
-                if item_index == 1 {  // The first user message (chat1)
-                    log::debug!(
-                        "Chat item {} width calculation: sidebar_width={}, margin={}, padding={}, border={}, scrollbar={}, content_width={}",
-                        item_index, sidebar_width, CHAT_ITEM_HORIZONTAL_MARGIN, CHAT_ITEM_PADDING * 2.0,
-                        CHAT_ITEM_BORDER * 2.0, SCROLLBAR_SPACE, content_width
-                    );
-                    log::debug!(
-                        "Chat item {} is_user={}, message_len={}",
-                        item_index, is_user, message.len()
-                    );
-                }
 
                 let bg_color = if *is_user {
                     LinearRgba::with_components(0.1, 0.3, 0.5, 0.3)
@@ -1819,52 +1736,34 @@ This example demonstrates:
 
                 // Render message content with markdown if it's from AI
                 let content = if *is_user {
-                    // User messages - always use StyledWrappedText for consistency
-                    let spans = if let Some((start, end)) = selection {
-                        create_selection_spans(message, start, end)
-                    } else {
-                        // No selection - create a single span with default style
-                        vec![StyleSpan {
-                            start: 0,
-                            end: message.len(),
-                            colors: ElementColors {
-                                text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
-                                ..Default::default()
-                            },
-                            font: None,
-                            font_style: None,
-                        }]
-                    };
-
+                    // User messages - use WrappedText for proper width calculation
+                    // Selection is now rendered as an overlay, not inline styles
                     Element::new(
                         &fonts.body,
-                        ElementContent::StyledWrappedText {
-                            text: message.clone(),
-                            style_spans: spans,
-                        },
+                        ElementContent::WrappedText(message.clone()),
                     )
                     .item_type(UIItemType::ActivityItemText {
                         index: item_index,
                         char_positions: Vec::new(), // Position data extracted after rendering
                     })
+                    .colors(ElementColors {
+                        text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
+                        ..Default::default()
+                    })
                     .max_width(Some(Dimension::Pixels(content_width)))
                 } else {
-                    // AI messages - if there's a selection, render as plain text with selection
-                    // Otherwise use markdown rendering
-                    if let Some((start, end)) = selection {
-                        let spans = create_selection_spans(message, start, end);
-                        Element::new(
-                            &fonts.body,
-                            ElementContent::StyledWrappedText {
-                                text: message.clone(),
-                                style_spans: spans,
-                            },
-                        )
-                        .item_type(UIItemType::ActivityItemText {
+                    // AI messages - use markdown rendering
+                    // Selection is now rendered as an overlay, not inline styles
+                    if selection.is_some() {
+                        // When there's a selection, we still use markdown but the selection
+                        // will be rendered as an overlay
+                        let elem = MarkdownRenderer::render_with_fonts(message, fonts, Some(content_width));
+
+                        // Add item type for click handling
+                        elem.item_type(UIItemType::ActivityItemText {
                             index: item_index,
                             char_positions: Vec::new(), // Position data extracted after rendering
                         })
-                        .max_width(Some(Dimension::Pixels(content_width)))
                     } else {
                         // AI messages use markdown rendering with code font support
                         // Need to add width constraint for proper text wrapping

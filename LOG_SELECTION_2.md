@@ -736,9 +736,9 @@ if cfg!(debug_assertions) && std::env::var("WEZTERM_DEBUG_SELECTION").is_ok() {
 
 ## Implementation Status
 
-### Current Issues (As of troubleshooting session 4)
+### Current Issues (As of troubleshooting session 5)
 
-After implementing Phases 1-4 and troubleshooting, we've made progress but core selection functionality remains broken. Here's a comprehensive status:
+After implementing Phases 1-4 and troubleshooting, we've made significant progress. The half-width rendering issue has been resolved, but core selection functionality remains broken. Here's a comprehensive status:
 
 #### ✅ FIXED: Text wrapping for command items
 - **Issue**: Command items didn't wrap and flowed off the side
@@ -751,7 +751,7 @@ After implementing Phases 1-4 and troubleshooting, we've made progress but core 
 - **Fix applied**: Added `ActivityLogBackground` UIItemType with click handler
 - **Status**: Deselection works, but selection still non-functional
 
-#### ❌ STILL BROKEN: Half-width rendering (First user message only)
+#### ✅ FIXED: Half-width rendering (First user message only) - RESOLVED in session 5
 - **Issue**: First user message renders at half width, all other items render correctly
 - **Historical context**: 
   - This was caused by the prior attempt at implementing text selection in the activity log
@@ -762,10 +762,19 @@ After implementing Phases 1-4 and troubleshooting, we've made progress but core 
   - Debug logs confirm correct values: `content_width=342`, `max_width=342`, `content_rect: width=342`
   - Issue appears to be visual only, not computational
   - Box model's complex constraint logic (box_model.rs:2361-2370) may be applying unexpected limits
-- **Next steps**: 
-  - Issue may be in parent element constraints or CSS-like inheritance
-  - Check if there's a parent element applying additional constraints
-  - Investigate differences between first and subsequent chat items
+- **Root cause discovered (session 5)**:
+  - `StyledWrappedText` calculated its content_rect as `euclid::rect(0., 0., max_width, pixel_height)`
+  - `WrappedText` calculated actual line widths: `euclid::rect(0., 0., max_line_width.max(min_width), pixel_height)`
+  - This forced StyledWrappedText elements to be exactly max_width wide regardless of actual content
+- **Fix applied**:
+  1. Updated `StyledWrappedText` content rect calculation to match `WrappedText` behavior
+  2. Removed `StyledWrappedText` usage from activity log entirely:
+     - User messages now use `WrappedText` 
+     - AI messages continue using `MarkdownRenderer`
+     - Selection will be rendered as overlays per the plan, not inline styles
+  3. Removed `create_selection_spans()` function from ai_sidebar.rs
+  4. Cleaned up all debug logging related to this issue
+- **Status**: ✅ FULLY RESOLVED - All messages now render at proper width
 
 #### ❌ CRITICAL: Selection completely non-functional
 - **Current state**:
@@ -869,18 +878,25 @@ After implementing Phases 1-4 and troubleshooting, we've made progress but core 
 4. **Added debug logging**: For width calculations and mouse events
 5. **Coordinate translation attempt**: Added then removed due to double-translation issue
 6. **Changed command output from Text to WrappedText**: Fixed text wrapping for command output
+7. **Half-width rendering fix (session 5)**: 
+   - Fixed `StyledWrappedText` content rect calculation to use actual line widths
+   - Removed `StyledWrappedText` usage from activity log user messages
+   - All messages now use `WrappedText` or `MarkdownRenderer` for consistent rendering
 
 **Critical Discoveries**:
 1. **Position extraction receives wrong element**: Gets entire activity log instead of individual items
 2. **Card wrapper blocks position access**: UIItemType on wrapper, cluster data in nested content
 3. **Markdown works differently**: Flatter structure allows position extraction to succeed
 4. **Coordinate system mismatch**: UI items use relative coords, mouse events use absolute
+5. **StyledWrappedText width bug (session 5)**: Content rect forced to max_width instead of actual text width
 
 **What We've Learned**:
 - The plan's architecture is sound, but implementation details matter
 - Card wrapper structure wasn't anticipated in the original plan
 - Position extraction needs to handle nested element structures
 - Debug logging is essential for understanding complex rendering pipelines
+- Content type rendering consistency is crucial - mixing StyledWrappedText with WrappedText caused width issues
+- The overlay-based selection approach is correct - inline style modifications create maintenance problems
 
 
 ### Phase 1: Position Infrastructure ✅ COMPLETED
@@ -1039,12 +1055,14 @@ After implementing Phases 1-4 and troubleshooting, we've made progress but core 
 
 Before proceeding with multi-item selection or enhancements, we must fix the fundamental issues:
 
-1. **Fix text wrapping in activity log**:
-   - Identify why `render_activity_item_static` is being used instead of `render_activity_item`
-   - Ensure proper width constraints are applied to all content types
+1. ~~**Fix text wrapping in activity log**~~ ✅ COMPLETED
+   - ~~Identify why `render_activity_item_static` is being used instead of `render_activity_item`~~
+   - ~~Ensure proper width constraints are applied to all content types~~
 
-2. **Fix half-width rendering issue**:
-   - Trace through the rendering pipeline from the very top to the very bottom to understand where width is being halved
+2. ~~**Fix half-width rendering issue**~~ ✅ COMPLETED (session 5)
+   - ~~Trace through the rendering pipeline from the very top to the very bottom to understand where width is being halved~~
+   - Root cause: StyledWrappedText content rect calculation bug
+   - Fixed by updating width calculation and removing StyledWrappedText usage
 
 3. **Fix selection hit testing**:
 

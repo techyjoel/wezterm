@@ -1685,13 +1685,6 @@ impl super::TermWindow {
         Vec<Vec<Option<FontStyleFlags>>>,
         Vec<WrappedLine>,
     )> {
-        // Debug logging for half-width issue
-        if text.contains("I'm trying to compile") {
-            log::debug!(
-                "wrap_styled_text for first user message: max_width={}, text_len={}",
-                max_width, text.len()
-            );
-        }
         // Check if this is monospace-only content (e.g., code blocks)
         // Code blocks have no font variants and no font overrides
         let is_monospace_only = style_spans.iter().all(|span| span.is_monospace());
@@ -1707,21 +1700,6 @@ impl super::TermWindow {
         };
 
         let wrapped_lines = self.wrap_text_with_estimates(text, char_width, max_width);
-        
-        // Debug logging for half-width issue
-        if text.contains("I'm trying to compile") {
-            log::debug!(
-                "Wrapped into {} lines, char_width={}, is_monospace={}",
-                wrapped_lines.len(), char_width, is_monospace_only
-            );
-            for (idx, line) in wrapped_lines.iter().enumerate() {
-                log::debug!(
-                    "Line {}: shaped_text='{}', len={}, byte_offset={}", 
-                    idx, &line.shaped_text[..line.shaped_text.len().min(50)], 
-                    line.shaped_text.len(), line.byte_offset
-                );
-            }
-        }
         
         // Clone wrapped_lines to return them along with the shaped content
         let wrapped_lines_for_return = wrapped_lines.clone();
@@ -2758,14 +2736,6 @@ impl super::TermWindow {
                 })
             }
             ElementContent::StyledWrappedText { text, style_spans } => {
-                // Debug logging for half-width issue
-                if text.contains("I'm trying to compile") {
-                    log::debug!(
-                        "StyledWrappedText rendering first user message: max_width={}, context.bounds.width()={}, border_and_padding_width={}",
-                        max_width, context.bounds.width(), border_and_padding_width
-                    );
-                }
-                
                 // Use wrap_styled_text to get wrapped lines with style information
                 let (lines, line_styles, line_font_styles, wrapped_lines) = self.wrap_styled_text(
                     text,
@@ -2780,16 +2750,18 @@ impl super::TermWindow {
                 let line_height = context.height.pixel_cell;
                 let num_lines = lines.len() as f32;
 
-                let pixel_height = num_lines * line_height;
-                let content_rect = euclid::rect(0., 0., max_width, pixel_height);
-                
-                // Debug logging for half-width issue
-                if text.contains("I'm trying to compile") {
-                    log::debug!(
-                        "StyledWrappedText content_rect: width={}, height={}, num_lines={}",
-                        content_rect.width(), content_rect.height(), num_lines
-                    );
+                // Calculate actual max width of all lines (like WrappedText does)
+                let mut max_line_width: f32 = 0.0;
+                for line in &lines {
+                    let mut line_width = 0.0;
+                    for cell in line {
+                        line_width += self.get_cell_width(cell, context)?;
+                    }
+                    max_line_width = max_line_width.max(line_width);
                 }
+
+                let pixel_height = num_lines * line_height;
+                let content_rect = euclid::rect(0., 0., max_line_width.max(min_width), pixel_height);
                 
                 let rects = element.compute_rects(context, content_rect);
                 let clip_bounds = element.compute_clip_bounds(context, &rects);
