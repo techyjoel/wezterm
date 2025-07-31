@@ -736,44 +736,152 @@ if cfg!(debug_assertions) && std::env::var("WEZTERM_DEBUG_SELECTION").is_ok() {
 
 ## Implementation Status
 
-### Current Issues (As of 2025-07-31)
+### Current Issues (As of troubleshooting session 4)
 
-After implementing Phases 1-4, we're experiencing several critical issues that need to be resolved:
+After implementing Phases 1-4 and troubleshooting, we've made progress but core selection functionality remains broken. Here's a comprehensive status:
 
-1. **Text wrapping broken in activity log**: The first mock item (make command) doesn't wrap and flows off the side. Note, this was an issue before our work in this file began, so it's not caused by this work but still needs to be resolved.
-2. **Half-width rendering**: The second activity log item shows at half width. Note, this was an issue before our work in this file began, so it's not caused by this work but still needs to be resolved. It was caused by the prior attempt at implementing text selection in the activity log, and prior research shows that it's due to a double width constraint somewhere (we had difficulty finding where, and I can't remember where right now, so it's probably non-obvious).
-3. **Selection completely non-functional**: 
-   - Clicking and dragging does nothing visually
-   - No deselection happens when clicking in activity log
-   - Cmd-C doesn't copy text
-   - Selection in goal card still works correctly
+#### ✅ FIXED: Text wrapping for command items
+- **Issue**: Command items didn't wrap and flowed off the side
+- **Root cause**: `ElementContent::WrappedText` requires explicit `max_width` constraint
+- **Fix applied**: Added width calculation and `.max_width(Some(Dimension::Pixels(content_width)))` to command items
+- **Status**: Working correctly
 
-#### Potential Root Cause Analysis
+#### ✅ PARTIAL: Click to deselect
+- **Progress**: Clicking in activity log now deselects goal card selection
+- **Fix applied**: Added `ActivityLogBackground` UIItemType with click handler
+- **Status**: Deselection works, but selection still non-functional
 
-Investigation revealed several underlying issues:
+#### ❌ STILL BROKEN: Half-width rendering (First user message only)
+- **Issue**: First user message renders at half width, all other items render correctly
+- **Historical context**: 
+  - This was caused by the prior attempt at implementing text selection in the activity log
+  - Old selection code switched from `MarkdownRenderer` to `StyledWrappedText` without width constraints
+- **Investigation findings**:
+  - Current code DOES have `max_width` on `StyledWrappedText`, so that's not the issue
+  - Width calculation appears correct: sidebar_width - margins - padding - borders - scrollbar
+  - Debug logs confirm correct values: `content_width=342`, `max_width=342`, `content_rect: width=342`
+  - Issue appears to be visual only, not computational
+  - Box model's complex constraint logic (box_model.rs:2361-2370) may be applying unexpected limits
+- **Next steps**: 
+  - Issue may be in parent element constraints or CSS-like inheritance
+  - Check if there's a parent element applying additional constraints
+  - Investigate differences between first and subsequent chat items
 
-1. **Width constraint issues in `render_activity_item_static`**: This static function (used for virtual scrolling) uses `ElementContent::Text` instead of `ElementContent::WrappedText` for commands, preventing text wrapping. The function also lacks proper width constraints.
+#### ❌ CRITICAL: Selection completely non-functional
+- **Current state**:
+  - Cursor remains arrow on first command item and first user message
+  - Cursor changes to text selection cursor on first AI message
+  - Clicking and dragging does nothing (no visual selection)
+  - Cmd-C doesn't work (no selection to copy)
+  - Deselection of goal card selection works when clicking in activity log background
+  - **Key insight**: The cursor changing on the first AI message likely proves:
+    - UI item hit testing IS working correctly
+    - Mouse events are being dispatched to the right handlers
+    - Position extraction succeeds for markdown but fails for Card-wrapped content
 
-2. **Double width constraints**: The non-static `render_activity_item` applies `max_width` twice on markdown content - once in `MarkdownRenderer::render_with_fonts()` and again with `.max_width()`. This may be causing the half-width rendering.
+- **Root cause analysis (from subagent investigation)**:
+  1. **Wrong element passed to position extraction (verify)**:
+     - `extract_activity_item_positions` receives the entire activity log element
+     - It should receive the specific activity item (Card) element (theory)
+     - The function doesn't search for the child with matching UIItemType
+  
+  2. **Card wrapper structure may prevent position extraction (verify)**:
+     - Command/user messages use `Card::render()` which creates:
+       ```
+       Card (has UIItemType::ActivityItemText)
+       └── Content Wrapper
+           └── Actual Text (has cluster data)
+       ```
+     - UIItemType is on outer Card, but cluster data is in nested text
+     - Position extraction can't find the text content with cluster data
+  
+  3. **AI messages work because**:
+     - They don't use Card wrapper (flatter structure)
+     - UIItemType is closer to actual text content
+     - Markdown renderer creates individual elements that are processed correctly
 
-3. **Position tracking not working**: Hit testing returns `None` because:
-   - The `LayoutContext` for activity log already has `source: RenderSource::Sidebar` set (line 567 of sidebar_render.rs)
-   - Cluster tracking should be enabled, but position extraction may not be working properly
-   - `StyledWrappedText` is being used for user messages but may not be generating `GlyphWithCluster` cells correctly
-   - However, since de-selection of a selected goal text section doesn't work when clicking in the activity log, it's possible that there's a more fundamental issue with mouse detection/usage in the activity log.
+- **Historical attempts and learnings**:
+  - **Coordinate translation attempt**: Added UI item coordinate translation in sidebar_render.rs:
+    - Tried: `ui_item.x += (sidebar_x + activity_bounds.origin.x)` and y translation
+    - Result: Deselection started working, but was double-translating coordinates
+    - Status: Removed after discovering activity_bounds already includes sidebar_x
+    - **Current understanding**: This wasn't the root cause - the real issue is position extraction receiving the wrong element
+  
+  - **Hit testing order investigation**: Confirmed UI items are checked in reverse order (last added = first checked)
+    - **Current relevance**: This is correct behavior and not the issue
+  
+  - **Sidebar UI item blocking hypothesis**: 
+    - Initially suspected Sidebar UI items were blocking activity log clicks
+    - Tried moving Sidebar UI item to end of list (made it worse - blocked everything)
+    - Tried removing Sidebar UI item entirely (broke scrolling)
+    - **Conclusion**: Sidebar items are at bottom of stack, not the issue. The real problem is in position extraction, not UI item ordering
+  
+  - **calculate_char_positions removal**: Replaced old character estimation with position extraction
+    - **Current status**: Good change aligned with plan, but exposed the Card wrapper issue
+  
+  - **Virtual scrolling negative margin hypothesis**: Suspected the activity log's negative top margin wasn't accounted for
+    - **Current understanding**: Likely not the issue since deselection works correctly with current coordinates
 
-### Attempted Fixes (Reverted)
+- **Next steps**:
+  1. Fix `extract_activity_item_positions` to search for the correct child element
+  2. Handle Card wrapper structure to find nested text content
+  3. Ensure position extraction works for all content types (not just markdown)
 
-1. **Added width constraints to `render_activity_item_static`**: 
-   - Changed `ElementContent::Text` to `ElementContent::WrappedText` for commands
-   - Added `max_width` constraints based on calculated content width
-   - **Result**: No visible change in symptoms
+#### Technical Deep Dive: Theory Why Selection Doesn't Work
 
-2. **Removed double width constraints**:
-   - Removed redundant `.max_width()` calls after `MarkdownRenderer::render_with_fonts()`
-   - **Result**: No visible change in symptoms
+**Position Extraction System Status**:
+- ✅ Cluster tracking is enabled for sidebar (`RenderSource::Sidebar`)
+- ✅ Text shaping creates `GlyphWithCluster` cells with position data
+- ✅ Position extraction logic handles all markdown elements correctly
+- ❌ Position extraction receives wrong computed element (entire activity log vs individual items)
+- ❌ Card wrapper structure prevents accessing nested text content
 
-These changes were reverted since they didn't fix the issues.
+**Coordinate System Implementation**:
+- ✅ All 5 coordinate types implemented as per plan (Window, Viewport, Item, Element, Selection)
+- ✅ `CoordinateTransform` struct with transformation methods
+- ❌ Transformations not being applied correctly during hit testing
+- ❌ UI items retain relative coordinates instead of absolute
+
+**Why Different Content Types Behave Differently**:
+- **AI Messages (working cursor change)**:
+  - Use `MarkdownRenderer` → creates `Children` structure
+  - Each child element processed individually
+  - Position data successfully extracted
+  
+- **Command/User Messages (broken)**:
+  - Use `Card::render()` → creates wrapper structure
+  - UIItemType attached to wrapper, not text
+  - Position extraction can't navigate to actual text content
+
+#### Implementation History and Lessons Learned
+
+**Phase 1-4 Implementation (Completed)**:
+- ✅ Position infrastructure with all coordinate types and transformations
+- ✅ Glyph position extraction with cluster tracking
+- ✅ Semantic tagging for markdown elements
+- ✅ Mouse event architecture (partially working)
+- ✅ Selection rendering infrastructure (not yet functional)
+
+**Key Fixes Applied**:
+1. **Text wrapping fix**: Added `max_width` constraints to command items (WORKING)
+2. **ActivityLogBackground UIItemType**: Added for deselection functionality (WORKING)
+3. **Removed calculate_char_positions**: Replaced character estimation with position extraction
+4. **Added debug logging**: For width calculations and mouse events
+5. **Coordinate translation attempt**: Added then removed due to double-translation issue
+6. **Changed command output from Text to WrappedText**: Fixed text wrapping for command output
+
+**Critical Discoveries**:
+1. **Position extraction receives wrong element**: Gets entire activity log instead of individual items
+2. **Card wrapper blocks position access**: UIItemType on wrapper, cluster data in nested content
+3. **Markdown works differently**: Flatter structure allows position extraction to succeed
+4. **Coordinate system mismatch**: UI items use relative coords, mouse events use absolute
+
+**What We've Learned**:
+- The plan's architecture is sound, but implementation details matter
+- Card wrapper structure wasn't anticipated in the original plan
+- Position extraction needs to handle nested element structures
+- Debug logging is essential for understanding complex rendering pipelines
+
 
 ### Phase 1: Position Infrastructure ✅ COMPLETED
 

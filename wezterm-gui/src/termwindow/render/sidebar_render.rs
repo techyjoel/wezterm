@@ -1014,6 +1014,7 @@ impl crate::TermWindow {
             self.render_sidebar_modals(&sidebar, sidebar_x, visible_width)?;
         }
 
+
         Ok(())
     }
 

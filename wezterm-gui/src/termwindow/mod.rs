@@ -188,6 +188,7 @@ pub enum UIItemType {
         // Pre-calculated character position mapping for hit testing
         char_positions: Vec<(f32, f32, usize)>,
     },
+    ActivityLogBackground,
 }
 
 #[derive(Clone, Debug, PartialEq)]

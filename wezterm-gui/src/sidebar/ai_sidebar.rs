@@ -1577,7 +1577,7 @@ This example demonstrates:
 
             content_elements.push(
                 elem.item_type(UIItemType::SuggestionText {
-                    char_positions: calculate_char_positions(&suggestion.content, &fonts.body),
+                    char_positions: Vec::new(), // Position data extracted after rendering
                 })
                 .colors(ElementColors {
                     text: LinearRgba(0.9, 0.9, 0.9, 1.0).into(),
@@ -1699,20 +1699,29 @@ This example demonstrates:
                     CommandStatus::Failed(_) => LinearRgba::with_components(0.9, 0.4, 0.4, 1.0),
                 };
 
+                // Calculate available width for command content
+                let sidebar_width = self.width as f32;
+                let content_width = sidebar_width
+                    - CHAT_ITEM_HORIZONTAL_MARGIN
+                    - (CHAT_ITEM_PADDING * 2.0)
+                    - (CHAT_ITEM_BORDER * 2.0)
+                    - SCROLLBAR_SPACE;
+
                 let mut content = vec![Element::new(
                     &fonts.body,
-                    ElementContent::Text(format!("{} {}", status_icon, command)),
+                    ElementContent::WrappedText(format!("{} {}", status_icon, command)),
                 )
                 .colors(ElementColors {
                     text: status_color.into(),
                     ..Default::default()
-                })];
+                })
+                .max_width(Some(Dimension::Pixels(content_width)))];
 
                 if *expanded && output.is_some() {
                     content.push(
                         Element::new(
                             &fonts.body,
-                            ElementContent::Text(output.as_ref().unwrap().clone()),
+                            ElementContent::WrappedText(output.as_ref().unwrap().clone()),
                         )
                         .colors(ElementColors {
                             text: LinearRgba::with_components(0.7, 0.7, 0.7, 1.0).into(),
@@ -1722,11 +1731,18 @@ This example demonstrates:
                             left: Dimension::Pixels(4.0),
                             top: Dimension::Pixels(4.0),
                             ..Default::default()
-                        }),
+                        })
+                        .max_width(Some(Dimension::Pixels(content_width))),
                     );
                 }
 
-                Card::new().with_content(content).render(&fonts.body)
+                Card::new()
+                    .with_content(content)
+                    .render(&fonts.body)
+                    .item_type(UIItemType::ActivityItemText {
+                        index: item_index,
+                        char_positions: Vec::new(), // Position data extracted after rendering
+                    })
             }
             ActivityItem::Chat {
                 message, is_user, ..
@@ -1738,6 +1754,19 @@ This example demonstrates:
                     - (CHAT_ITEM_PADDING * 2.0)
                     - (CHAT_ITEM_BORDER * 2.0)
                     - SCROLLBAR_SPACE;
+                
+                // Debug logging for width issue
+                if item_index == 1 {  // The first user message (chat1)
+                    log::debug!(
+                        "Chat item {} width calculation: sidebar_width={}, margin={}, padding={}, border={}, scrollbar={}, content_width={}",
+                        item_index, sidebar_width, CHAT_ITEM_HORIZONTAL_MARGIN, CHAT_ITEM_PADDING * 2.0,
+                        CHAT_ITEM_BORDER * 2.0, SCROLLBAR_SPACE, content_width
+                    );
+                    log::debug!(
+                        "Chat item {} is_user={}, message_len={}",
+                        item_index, is_user, message.len()
+                    );
+                }
 
                 let bg_color = if *is_user {
                     LinearRgba::with_components(0.1, 0.3, 0.5, 0.3)
@@ -1816,7 +1845,7 @@ This example demonstrates:
                     )
                     .item_type(UIItemType::ActivityItemText {
                         index: item_index,
-                        char_positions: calculate_char_positions(message, &fonts.body),
+                        char_positions: Vec::new(), // Position data extracted after rendering
                     })
                     .max_width(Some(Dimension::Pixels(content_width)))
                 } else {
@@ -1833,7 +1862,7 @@ This example demonstrates:
                         )
                         .item_type(UIItemType::ActivityItemText {
                             index: item_index,
-                            char_positions: calculate_char_positions(message, &fonts.body),
+                            char_positions: Vec::new(), // Position data extracted after rendering
                         })
                         .max_width(Some(Dimension::Pixels(content_width)))
                     } else {
@@ -1869,13 +1898,12 @@ This example demonstrates:
                             )
                         } else {
                             MarkdownRenderer::render_with_fonts(message, fonts, Some(content_width))
-                        }
-                        .max_width(Some(Dimension::Pixels(content_width)));
+                        };
 
                         // Add item type for click handling
                         elem = elem.item_type(UIItemType::ActivityItemText {
                             index: item_index,
-                            char_positions: calculate_char_positions(message, &fonts.body),
+                            char_positions: Vec::new(), // Position data extracted after rendering
                         });
                         elem
                     }
@@ -1934,19 +1962,26 @@ This example demonstrates:
 
                 Card::new()
                     .with_title(format!("Past: {}", title))
-                    .with_content(vec![
-                        markdown_content.max_width(Some(Dimension::Pixels(content_width)))
-                    ])
+                    .with_content(vec![markdown_content])
                     .render(&fonts.heading)
-            }
-            ActivityItem::Goal { text, .. } => {
-                Element::new(&fonts.body, ElementContent::Text(format!("Goal: {}", text)))
-                    .colors(ElementColors {
-                        text: LinearRgba::with_components(0.8, 0.8, 0.8, 1.0).into(),
-                        ..Default::default()
+                    .item_type(UIItemType::ActivityItemText {
+                        index: item_index,
+                        char_positions: Vec::new(), // Position data extracted after rendering
                     })
-                    .padding(BoxDimension::new(Dimension::Pixels(8.0)))
             }
+            ActivityItem::Goal { text, .. } => Element::new(
+                &fonts.body,
+                ElementContent::WrappedText(format!("Goal: {}", text)),
+            )
+            .colors(ElementColors {
+                text: LinearRgba::with_components(0.8, 0.8, 0.8, 1.0).into(),
+                ..Default::default()
+            })
+            .padding(BoxDimension::new(Dimension::Pixels(8.0)))
+            .item_type(UIItemType::ActivityItemText {
+                index: item_index,
+                char_positions: Vec::new(), // Position data extracted after rendering
+            }),
         }
     }
 
@@ -3691,7 +3726,8 @@ This example demonstrates:
                 ..Default::default()
             })
             .min_width(Some(Dimension::Pixels(bounds.size.width)))
-            .min_height(Some(Dimension::Pixels(bounds.size.height)));
+            .min_height(Some(Dimension::Pixels(bounds.size.height)))
+            .item_type(UIItemType::ActivityLogBackground);
 
         container
     }
@@ -5209,7 +5245,7 @@ fn render_activity_item_static(
             if *expanded {
                 if let Some(output) = output {
                     children.push(
-                        Element::new(&fonts.body, ElementContent::Text(output.clone()))
+                        Element::new(&fonts.body, ElementContent::WrappedText(output.clone()))
                             .colors(ElementColors {
                                 text: LinearRgba::with_components(0.7, 0.7, 0.7, 1.0).into(),
                                 ..Default::default()
@@ -5268,14 +5304,15 @@ fn render_activity_item_static(
             )
             .padding(BoxDimension::new(Dimension::Pixels(8.0)))
         }
-        ActivityItem::Goal { text, .. } => {
-            Element::new(&fonts.body, ElementContent::Text(format!("Goal: {}", text)))
-                .colors(ElementColors {
-                    text: LinearRgba::with_components(0.8, 0.8, 0.8, 1.0).into(),
-                    ..Default::default()
-                })
-                .padding(BoxDimension::new(Dimension::Pixels(8.0)))
-        }
+        ActivityItem::Goal { text, .. } => Element::new(
+            &fonts.body,
+            ElementContent::WrappedText(format!("Goal: {}", text)),
+        )
+        .colors(ElementColors {
+            text: LinearRgba::with_components(0.8, 0.8, 0.8, 1.0).into(),
+            ..Default::default()
+        })
+        .padding(BoxDimension::new(Dimension::Pixels(8.0))),
     }
 }
 

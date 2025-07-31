@@ -119,6 +119,12 @@ impl super::TermWindow {
                 x, y, self.ui_items.len()
             );
 
+            // Log mouse position and UI items
+            log::debug!(
+                "Mouse event at ({}, {}), checking {} UI items", 
+                x, y, self.ui_items.len()
+            );
+            
             // Log all UIItems that could match this position
             for (idx, item) in self.ui_items.iter().enumerate().rev() {
                 if item.hit_test(x, y) {
@@ -164,7 +170,8 @@ impl super::TermWindow {
             | UIItemType::ChatInput { .. }
             | UIItemType::ActivityItemText { .. }
             | UIItemType::SuggestionText { .. }
-            | UIItemType::GoalText { .. } => {}
+            | UIItemType::GoalText { .. }
+            | UIItemType::ActivityLogBackground => {}
         }
     }
 
@@ -188,7 +195,8 @@ impl super::TermWindow {
             | UIItemType::ChatInput { .. }
             | UIItemType::ActivityItemText { .. }
             | UIItemType::SuggestionText { .. }
-            | UIItemType::GoalText { .. } => {}
+            | UIItemType::GoalText { .. }
+            | UIItemType::ActivityLogBackground => {}
         }
     }
 
@@ -656,6 +664,9 @@ impl super::TermWindow {
             }
             UIItemType::GoalText { char_positions } => {
                 self.mouse_event_goal_text(char_positions, event, context);
+            }
+            UIItemType::ActivityLogBackground => {
+                self.mouse_event_activity_log_background(event, context);
             }
         }
     }
@@ -2254,6 +2265,44 @@ impl super::TermWindow {
                         }
                     }
                 }
+            }
+            WMEK::VertWheel(_) => {
+                // Forward scroll events to the sidebar handler
+                self.mouse_event_sidebar(crate::sidebar::SidebarPosition::Right, event, context);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn mouse_event_activity_log_background(
+        &mut self,
+        event: MouseEvent,
+        context: &dyn WindowOps,
+    ) {
+        context.set_cursor(Some(MouseCursor::Arrow));
+
+        match event.kind {
+            WMEK::Press(MousePress::Left) => {
+                // Clear any existing selection when clicking on the activity log background
+                self.focus_area = FocusArea::Sidebar;
+                log::debug!("Activity log background clicked - clearing selection");
+
+                // Clear any active selection
+                if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
+                    if let Some(sidebar) = mgr.get_right_sidebar() {
+                        if let Ok(mut sidebar) = sidebar.lock() {
+                            if let Some(ai_sidebar) = sidebar
+                                .as_any_mut()
+                                .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
+                            ) {
+                                ai_sidebar.clear_selection();
+                            }
+                        }
+                    }
+                }
+
+                // Request window invalidation
+                context.invalidate();
             }
             WMEK::VertWheel(_) => {
                 // Forward scroll events to the sidebar handler
