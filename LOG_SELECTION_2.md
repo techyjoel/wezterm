@@ -736,6 +736,45 @@ if cfg!(debug_assertions) && std::env::var("WEZTERM_DEBUG_SELECTION").is_ok() {
 
 ## Implementation Status
 
+### Current Issues (As of 2025-07-31)
+
+After implementing Phases 1-4, we're experiencing several critical issues that need to be resolved:
+
+1. **Text wrapping broken in activity log**: The first mock item (make command) doesn't wrap and flows off the side. Note, this was an issue before our work in this file began, so it's not caused by this work but still needs to be resolved.
+2. **Half-width rendering**: The second activity log item shows at half width. Note, this was an issue before our work in this file began, so it's not caused by this work but still needs to be resolved. It was caused by the prior attempt at implementing text selection in the activity log, and prior research shows that it's due to a double width constraint somewhere (we had difficulty finding where, and I can't remember where right now, so it's probably non-obvious).
+3. **Selection completely non-functional**: 
+   - Clicking and dragging does nothing visually
+   - No deselection happens when clicking in activity log
+   - Cmd-C doesn't copy text
+   - Selection in goal card still works correctly
+
+#### Potential Root Cause Analysis
+
+Investigation revealed several underlying issues:
+
+1. **Width constraint issues in `render_activity_item_static`**: This static function (used for virtual scrolling) uses `ElementContent::Text` instead of `ElementContent::WrappedText` for commands, preventing text wrapping. The function also lacks proper width constraints.
+
+2. **Double width constraints**: The non-static `render_activity_item` applies `max_width` twice on markdown content - once in `MarkdownRenderer::render_with_fonts()` and again with `.max_width()`. This may be causing the half-width rendering.
+
+3. **Position tracking not working**: Hit testing returns `None` because:
+   - The `LayoutContext` for activity log already has `source: RenderSource::Sidebar` set (line 567 of sidebar_render.rs)
+   - Cluster tracking should be enabled, but position extraction may not be working properly
+   - `StyledWrappedText` is being used for user messages but may not be generating `GlyphWithCluster` cells correctly
+   - However, since de-selection of a selected goal text section doesn't work when clicking in the activity log, it's possible that there's a more fundamental issue with mouse detection/usage in the activity log.
+
+### Attempted Fixes (Reverted)
+
+1. **Added width constraints to `render_activity_item_static`**: 
+   - Changed `ElementContent::Text` to `ElementContent::WrappedText` for commands
+   - Added `max_width` constraints based on calculated content width
+   - **Result**: No visible change in symptoms
+
+2. **Removed double width constraints**:
+   - Removed redundant `.max_width()` calls after `MarkdownRenderer::render_with_fonts()`
+   - **Result**: No visible change in symptoms
+
+These changes were reverted since they didn't fix the issues.
+
 ### Phase 1: Position Infrastructure ✅ COMPLETED
 
 **What was built:**
@@ -888,13 +927,27 @@ if cfg!(debug_assertions) && std::env::var("WEZTERM_DEBUG_SELECTION").is_ok() {
 
 ## Next Steps
 
-### Immediate Priority (Phase 4 Completion)
+### Critical Bug Fixes Required
+
+Before proceeding with multi-item selection or enhancements, we must fix the fundamental issues:
+
+1. **Fix text wrapping in activity log**:
+   - Identify why `render_activity_item_static` is being used instead of `render_activity_item`
+   - Ensure proper width constraints are applied to all content types
+
+2. **Fix half-width rendering issue**:
+   - Trace through the rendering pipeline from the very top to the very bottom to understand where width is being halved
+
+3. **Fix selection hit testing**:
+
+
+### Original Phase 4 Completion (Postponed)
 1. **Implement multi-item selection rendering**
-   - This is the main missing piece from Phase 4
+   - This is blocked until single-item selection works
    - Architecture is in place, just needs the logic in the else branch
    - Will require iterating through items and handling partial selections
 
-### Future Enhancements
+### Future Enhancements (Postponed)
 1. **Performance optimization**
    - Cache position data to avoid recalculation every frame
    - Implement dirty tracking for position updates
@@ -910,16 +963,3 @@ if cfg!(debug_assertions) && std::env::var("WEZTERM_DEBUG_SELECTION").is_ok() {
    - Shift+click for range selection
    - Keyboard navigation of selection
 
-## Summary
-
-The text selection implementation has made significant progress through Phases 1-4. The core architecture is solid and working well:
-
-- ✅ Position tracking infrastructure with 5-tier coordinate system
-- ✅ Glyph position extraction using HarfBuzz clusters
-- ✅ Semantic tagging for markdown elements
-- ✅ Hierarchical hit testing with proper coordinate transformations
-- ✅ Visual selection feedback for single items
-
-The main limitation is the lack of multi-item selection support, which is architecturally straightforward to add but was left as a TODO. The implementation successfully achieves pixel-perfect text selection within individual activity log items, properly handles complex markdown content, and maintains good performance despite some optimization opportunities.
-
-The foundation laid here provides a robust base for future enhancements and demonstrates that the architectural approach in this plan was sound and implementable.
