@@ -85,6 +85,7 @@ pub mod animation;
 pub mod components;
 pub mod position_cache;
 pub mod settings_sidebar;
+pub mod sidebar_constants;
 
 pub use ai_sidebar::{ActivityItem, AiSidebar};
 pub use animation::{SidebarAnimation, SidebarPositionAnimation};

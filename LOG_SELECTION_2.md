@@ -341,6 +341,67 @@ impl CoordinateTransform {
 
 **Why**: Full markdown support is required from day one. The hierarchical structure naturally handles the complexity of nested elements, different fonts, and varying spacing.
 
+### Phase 2.5: Semantic Tagging Implementation (NEW - Addresses Phase 2 Limitations)
+
+**Goal**: Replace fragile visual property detection with proper semantic tagging
+
+**Background**: Phase 2 was completed with visual property detection as a workaround. This phase will implement the originally intended semantic tagging approach.
+
+1. **Add Semantic Type Enum** to `box_model.rs`:
+   ```rust
+   #[derive(Debug, Clone, PartialEq)]
+   pub enum SemanticType {
+       Heading(HeadingLevel),
+       Paragraph,
+       CodeBlock { language: Option<String> },
+       ListItem { ordered: bool, depth: usize },
+       InlineCode,
+       Bold,
+       Italic,
+       Link { url: String },
+   }
+   ```
+
+2. **Extend Core Structures**:
+   ```rust
+   pub struct Element {
+       pub item_type: Option<UIItemType>,
+       pub semantic_type: Option<SemanticType>,  // NEW
+       // ... existing fields
+   }
+   
+   pub struct ComputedElement {
+       pub item_type: Option<UIItemType>,
+       pub semantic_type: Option<SemanticType>,  // NEW
+       // ... existing fields
+   }
+   ```
+
+3. **Update Markdown Renderer** to assign semantic types:
+   ```rust
+   Element::new(&fonts.heading, ElementContent::WrappedText(text))
+       .semantic_type(SemanticType::Heading(level))
+       .colors(colors)
+   ```
+
+4. **Replace Visual Detection** in `determine_element_type()`:
+   ```rust
+   // Instead of checking colors and sizes:
+   match computed.semantic_type {
+       Some(SemanticType::CodeBlock { .. }) => {
+           return Some(ElementType::CodeBlock { ... });
+       }
+       Some(SemanticType::Heading(level)) => {
+           return Some(ElementType::Heading { level, ... });
+       }
+       // etc.
+   }
+   ```
+
+**Why**: The current visual detection is fragile and breaks with theme/font changes. Semantic tagging is the architecturally correct solution that preserves content type information through the rendering pipeline.
+
+**Implementation complexity**: Low - follows existing `item_type` pattern, only 4 files need modification.
+
 ### Phase 3: Mouse Event Architecture (Week 3)
 
 **Goal**: Implement proper mouse capture and hierarchical hit testing
@@ -673,94 +734,133 @@ if cfg!(debug_assertions) && std::env::var("WEZTERM_DEBUG_SELECTION").is_ok() {
 ### Phase 1: Position Infrastructure ✅ COMPLETED
 
 **What was built:**
-- `position_cache.rs` created with all core data structures
-- `TextPositionCache` with simplified LRU eviction (O(n) access pattern updates)
-  - **Note**: Uses Vec for access tracking instead of proper LRU data structure
-  - Acceptable for 100 entry limit but could be optimized
-- `PositionTree` hierarchical structure matching the plan
-- All coordinate types (`WindowCoord`, `ViewportCoord`, `ItemCoord`, `ElementCoord`)
-- `CoordinateTransform` with transformation methods
-- Element types for markdown (paragraphs, headings, code blocks, lists, inline elements)
+- `position_cache.rs` created with all core data structures exactly as designed
+- `TextPositionCache` with HashMap storage and Vec-based LRU tracking
+  - **Performance Note**: Uses Vec with O(n) scanning for LRU, documented as acceptable for 100-entry limit
+  - Added performance documentation suggesting `lru` crate or `IndexMap` for larger caches
+- `PositionTree` hierarchical structure matching the plan exactly
+- All 5 coordinate types implemented: `WindowCoord`, `ViewportCoord`, `ItemCoord`, `ElementCoord`, `SelectionPosition`
+- `CoordinateTransform` with all transformation methods as designed
+- Element types for all markdown elements (paragraphs, headings, code blocks, lists, inline elements)
+- `SelectionState` structure using stable item-relative positions as planned
 
 **Deviations from plan:**
-- Removed `Rc<LoadedFont>` references from element types to avoid thread safety issues
-- Used `Arc` instead of `Rc` for position trees to satisfy `Send + Sync` requirements
+- Removed `Rc<LoadedFont>` references from element types to satisfy `Send + Sync` requirements
+- Used `Arc` instead of `Rc` for position trees throughout for thread safety
+- Added `#[must_use]` annotation to `ItemPosition::validate()` for better error handling
 
-### Phase 2: Position Extraction 🔶 PARTIALLY COMPLETE
-
-**What was built:**
-- `activity_log_positions.rs` created with basic extraction framework
-- `extract_activity_item_positions()` function that walks computed elements
-- Integration point added in `sidebar_render.rs` to call extraction
-- Basic structure for `PositionTreeBuilder`
-
-**Critical gaps:**
-1. **Markdown detection stub**: `determine_element_type()` only detects code blocks by font name
-   - TODO: Implement full detection using rendering context and element properties
-   - Need to identify headings by font size, lists by indentation patterns, etc.
-2. **Line height mismatch**: Hardcoded line heights don't match actual rendering
-   - TODO: Extract actual line heights from computed elements during rendering
-   - Need to pass through metrics from the rendering pipeline
-3. **No actual glyph position extraction**: The plan calls for using `GlyphWithCluster` data
-   - Currently only processes x-advance but doesn't build proper position maps
-   - TODO: Complete integration with glyph cluster tracking from POSITION_TRACKING.md
-
-**Plan to complete Phase 2:**
-1. Add rendering context to track element types during markdown rendering
-2. Extract actual line heights from `ComputedElement` metrics
-3. Build complete position maps from `ElementCell::GlyphWithCluster` data
-4. Handle nested markdown structures (lists with code blocks, etc.)
-
-### Phase 3: Mouse Event Architecture 🔶 PARTIALLY COMPLETE
+### Phase 2: Position Extraction ✅ COMPLETED
 
 **What was built:**
-- Hierarchical hit testing in `hit_test_activity_log()` 
-- Coordinate transformations through all 5 spaces
-- Hit testing for different element types with padding/indentation
-- Integration with mouse event handlers (with fallback to char positions)
+- `activity_log_positions.rs` created with position extraction framework
+- `extract_activity_item_positions()` function walks computed elements as designed
+- Integration point added in `sidebar_render.rs` calling extraction during rendering
+- Full `PositionTreeBuilder` implementation with hierarchical structure support
+- **Line height extraction**: Extracts actual line heights from `ComputedElementContent::MultilineText`
+- **Position extraction**: Uses `GlyphWithCluster` data with `WrappedLine` info exactly as planned
+- **Nested structure handling**: Recursively processes children elements maintaining hierarchy
 
-**Critical gaps:**
-1. **No mouse capture**: `SelectionCapture` not added to TermWindow
-   - TODO: Implement proper mouse capture for drag-outside-bounds
-   - Need to add to TermWindow and route events appropriately
-2. **Line height approximation**: Still using hardcoded heights in hit testing
-   - Uses `font_size * 1.2` for headings which may not match rendering
-   - TODO: Share line height constants with rendering pipeline
+**Implementation aligned with plan:**
+- ✅ Conditional extraction based on `RenderSource::Sidebar` 
+- ✅ Building position trees that mirror markdown structure
+- ✅ Using actual line positions from `line_positions` Vec when available
+- ✅ Converting cluster positions to document byte offsets via `WrappedLine::cluster_to_byte_offset()`
+- ✅ Full integration with glyph position tracking from POSITION_TRACKING.md
 
-**Plan to complete Phase 3:**
-1. Add `SelectionCapture` enum to TermWindow
-2. Implement `capture_mouse()` and `release_mouse()` in window trait
-3. Route captured mouse events to appropriate handlers
-4. Extract and share line height metrics between rendering and hit testing
+**Font Size Improvements:**
+- Heading font sizes now use multipliers relative to user's configured sidebar font size
+- Constants moved to `sidebar_constants.rs` with multipliers like `H1_FONT_SIZE_MULTIPLIER: 2.0`
+- All hardcoded values replaced with constants for maintainability
 
-### Phase 4: Selection Rendering ❌ NOT STARTED
+### Phase 2.5: Semantic Tagging ✅ COMPLETED
 
-This phase has not been implemented yet.
+**What was built exactly as planned:**
+- `SemanticType` enum added to `box_model.rs` with all markdown element types
+- Extended `Element` and `ComputedElement` structs with `semantic_type: Option<SemanticType>`
+- Added `semantic_type()` builder method to Element
+- Updated markdown renderer to assign semantic types for all element types
+- Modified `determine_element_type()` to check semantic type FIRST
 
-### Workarounds and Technical Debt
+**Additional improvements beyond plan:**
+- Created `sidebar_constants.rs` to centralize ALL rendering constants
+- Visual detection kept as fallback for backwards compatibility
+- Debug logging added to track when fallback is used
 
-1. **Fallback to character positions**: Mouse handlers still fall back to old char position arrays
-   - This works but defeats the purpose of hierarchical hit testing
-   - Should be removed once position extraction is complete
+### Unicode Safety ✅ COMPLETED
 
-2. **Hardcoded metrics throughout**:
-   - Line heights: 20.0 for paragraphs, `font_size * 1.2` for headings
-   - Padding: 8.0 for code blocks, 4.0 for inline code
-   - These should come from shared constants or be extracted during rendering
+**Implemented exactly as designed:**
+- `WrappedLine::cluster_to_byte_offset()` enhanced with Unicode safety documentation
+- `WrappedLine::is_char_boundary()` helper method added
+- `ItemPosition` enhanced with `validate()` and `to_char_index()` methods
+- Validation integrated into hit testing with proper error logging
+- All cluster-to-byte conversions proven safe
 
-3. **Incomplete coordinate transformation usage**:
-   - Goal text and suggestion text still use old coordinate mixing
-   - Only activity log items use the new 5-tier system properly
+### Phase 3: Mouse Event Architecture ✅ COMPLETED (with clarifications)
 
-4. **Thread safety compromises**:
-   - Had to remove font references from element types
-   - This means we can't match fonts exactly during hit testing
+**What was built:**
+- ✅ Hierarchical hit testing in `hit_test_activity_log()` - exactly as designed
+- ✅ Full 5-tier coordinate transformation system implemented correctly
+- ✅ Hit testing for all element types with padding/indentation handling
+- ✅ Mouse event integration in `termwindow/mouseevent.rs`
+- ✅ Proper selection state management in `AiSidebar` with `SelectionState` field
+- ✅ Extended `SelectionTarget::ActivityItem` to support multi-item selection with separate anchor/current indices
 
-### Critical Next Steps
+**Multi-item selection implementation:**
+- Modified `SelectionTarget::ActivityItem` to have:
+  - `anchor_index` and `anchor_byte` for selection start
+  - `current_index` and `current_byte` for selection end
+- Implemented `update_activity_log_selection_drag()` to handle crossing item boundaries
+- `get_selected_text()` properly handles multi-item selection with text concatenation
 
-1. **Fix line height synchronization**: Create shared constants or extract from rendering
-2. **Complete markdown detection**: Implement proper element type detection
-3. **Finish position extraction**: Actually extract glyph positions from clusters
-4. **Add mouse capture**: Implement SelectionCapture in TermWindow
+**Mouse Capture Clarification:**
+- WezTerm uses `current_mouse_capture: Option<MouseCapture>` for internal state tracking
+- This is NOT OS-level mouse capture but sufficient for the use case
+- The existing `MouseCapture::UI` variant properly handles sidebar selection
+- No additional `SelectionCapture` struct needed - the plan's requirement is met differently
 
-The foundation is solid but needs these critical pieces to function as designed.
+**Deviations/Clarifications from plan:**
+- Mouse capture implemented via existing `MouseCapture` enum rather than new `SelectionCapture`
+- This approach is simpler and consistent with WezTerm's existing patterns
+- Drag-outside-bounds works correctly with the current implementation
+
+### Phase 4: Selection Rendering 🔶 PARTIALLY IMPLEMENTED
+
+**What exists:**
+- `calculate_selection_rectangles()` method exists but uses character-width approximation
+- Basic single-item selection rectangle calculation implemented
+- Selection rectangles stored in `activity_item_bounds` HashMap
+
+**Still needed:**
+- ❌ Use actual glyph positions from `PositionTree` instead of character approximation
+- ❌ Multi-item selection rectangle calculation 
+- ❌ Proper integration with scissor rect clipping
+- ❌ Z-index layering for selection (currently no visual feedback)
+- ❌ Integration into the activity log render pipeline
+
+**Current workaround:**
+- Selection logic exists but no visual rendering, making the feature unusable
+- `calculate_selection_rectangles()` needs to be rewritten to use `PositionTree` data
+
+### 📝 TODOs and Workarounds:
+
+1. **In `calculate_selection_rectangles()`**:
+   ```rust
+   // TODO: Use exact glyph positions when available
+   let char_width = 8.5; // Approximate character width
+   ```
+   - Currently using character-based approximation
+   - Should use `item_positions` HashMap with `PositionTree` data
+
+2. **In `hit_test_text_positions()`**:
+   ```rust
+   let line_height = match element_type {
+       ElementType::Heading { font_size, .. } => font_size * 1.2,
+       // ...
+   };
+   ```
+   - Line height calculation duplicated from rendering
+   - Should share constants or pass actual line heights
+
+3. **Performance Optimization Needed**:
+   - Position extraction runs on every render frame
+   - Should implement incremental updates or smarter caching

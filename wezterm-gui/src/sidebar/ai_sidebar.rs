@@ -17,6 +17,7 @@ use super::components::{
 };
 use super::{Sidebar, SidebarConfig, SidebarFonts, SidebarPosition};
 use crate::color::LinearRgba;
+use crate::sidebar::position_cache::ElementType;
 use crate::termwindow::box_model::{
     BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent, Float,
     InheritableColor, StyleSpan,
@@ -115,8 +116,11 @@ pub struct SelectionState {
 #[derive(Debug, Clone)]
 pub enum SelectionTarget {
     ActivityItem {
-        index: usize,
+        // Anchor position (where selection started)
+        anchor_index: usize,
         anchor_byte: usize,
+        // Current position (where selection ends)
+        current_index: usize,
         current_byte: usize,
     },
     Suggestion {
@@ -141,15 +145,69 @@ impl SelectionState {
             None => None,
             Some(selection) => match selection {
                 SelectionTarget::ActivityItem {
-                    index,
+                    anchor_index,
                     anchor_byte,
+                    current_index,
                     current_byte,
-                } => sidebar.activity_log.get(*index).and_then(|item| {
-                    let text = get_item_text(item);
-                    let start = anchor_byte.min(current_byte);
-                    let end = anchor_byte.max(current_byte);
-                    text.get(*start..*end).map(|s| s.to_string())
-                }),
+                } => {
+                    // Handle single-item or multi-item selection
+                    if anchor_index == current_index {
+                        // Single item selection
+                        sidebar.activity_log.get(*anchor_index).and_then(|item| {
+                            let text = get_item_text(item);
+                            let start = anchor_byte.min(current_byte);
+                            let end = anchor_byte.max(current_byte);
+                            text.get(*start..*end).map(|s| s.to_string())
+                        })
+                    } else {
+                        // Multi-item selection
+                        let start_index = anchor_index.min(current_index);
+                        let end_index = anchor_index.max(current_index);
+                        let mut selected_text = String::new();
+                        
+                        for index in *start_index..=*end_index {
+                            if let Some(item) = sidebar.activity_log.get(index) {
+                                let text = get_item_text(item);
+                                
+                                if index == *start_index && index == *anchor_index {
+                                    // First item, from anchor_byte to end
+                                    if let Some(partial) = text.get(*anchor_byte..) {
+                                        selected_text.push_str(partial);
+                                    }
+                                } else if index == *start_index {
+                                    // First item, from current_byte to end
+                                    if let Some(partial) = text.get(*current_byte..) {
+                                        selected_text.push_str(partial);
+                                    }
+                                } else if index == *end_index && index == *anchor_index {
+                                    // Last item, from start to anchor_byte
+                                    if let Some(partial) = text.get(..*anchor_byte) {
+                                        selected_text.push_str(partial);
+                                    }
+                                } else if index == *end_index {
+                                    // Last item, from start to current_byte
+                                    if let Some(partial) = text.get(..*current_byte) {
+                                        selected_text.push_str(partial);
+                                    }
+                                } else {
+                                    // Middle items, entire text
+                                    selected_text.push_str(text);
+                                }
+                                
+                                // Add newline between items
+                                if index < *end_index {
+                                    selected_text.push('\n');
+                                }
+                            }
+                        }
+                        
+                        if selected_text.is_empty() {
+                            None
+                        } else {
+                            Some(selected_text)
+                        }
+                    }
+                }
                 SelectionTarget::Suggestion {
                     anchor_byte,
                     current_byte,
@@ -541,8 +599,9 @@ impl AiSidebar {
         );
         if index < self.activity_log.len() {
             self.selection_state.active_selection = Some(SelectionTarget::ActivityItem {
-                index,
+                anchor_index: index,
                 anchor_byte: byte_offset,
+                current_index: index,
                 current_byte: byte_offset,
             });
             self.selection_state.is_dragging = true;
@@ -578,6 +637,19 @@ impl AiSidebar {
         }
     }
 
+    /// Start selection at the given position for an activity log item
+    pub fn start_activity_log_selection(&mut self, item_index: usize, byte_offset: usize) {
+        if self.activity_log.get(item_index).is_some() {
+            self.selection_state.active_selection = Some(SelectionTarget::ActivityItem {
+                anchor_index: item_index,
+                anchor_byte: byte_offset,
+                current_index: item_index,
+                current_byte: byte_offset,
+            });
+            self.selection_state.is_dragging = true;
+        }
+    }
+
     /// Update selection during drag
     pub fn update_selection_drag(&mut self, byte_offset: usize) {
         if !self.selection_state.is_dragging {
@@ -586,7 +658,9 @@ impl AiSidebar {
 
         // Update the current byte offset for the active selection
         match &mut self.selection_state.active_selection {
-            Some(SelectionTarget::ActivityItem { current_byte, .. }) => {
+            Some(SelectionTarget::ActivityItem { current_byte, current_index, .. }) => {
+                // This method only updates within the same item
+                // For multi-item selection, use update_activity_log_selection_drag
                 *current_byte = byte_offset;
             }
             Some(SelectionTarget::Suggestion { current_byte, .. }) => {
@@ -604,6 +678,29 @@ impl AiSidebar {
                 // This will be handled by a separate method that knows the visual position
             }
             None => {}
+        }
+    }
+
+    /// Update activity log selection during drag, handling crossing item boundaries
+    pub fn update_activity_log_selection_drag(&mut self, item_index: usize, byte_offset: usize) {
+        if !self.selection_state.is_dragging {
+            return;
+        }
+
+        // Check if we have an active activity item selection
+        if let Some(SelectionTarget::ActivityItem { 
+            anchor_index, 
+            anchor_byte,
+            .. 
+        }) = &self.selection_state.active_selection {
+            // Update the selection to span from anchor to current position
+            // This properly handles selection across multiple items
+            self.selection_state.active_selection = Some(SelectionTarget::ActivityItem {
+                anchor_index: *anchor_index,
+                anchor_byte: *anchor_byte,
+                current_index: item_index,
+                current_byte: byte_offset,
+            });
         }
     }
 
@@ -649,8 +746,8 @@ impl AiSidebar {
             let should_clear = match (active, &target) {
                 (SelectionTarget::Goal { .. }, SelectionTarget::Goal { .. }) => true,
                 (
-                    SelectionTarget::ActivityItem { index: a, .. },
-                    SelectionTarget::ActivityItem { index: b, .. },
+                    SelectionTarget::ActivityItem { anchor_index: a, .. },
+                    SelectionTarget::ActivityItem { anchor_index: b, .. },
                 ) => a == b,
                 (SelectionTarget::Suggestion { .. }, SelectionTarget::Suggestion { .. }) => true,
                 (SelectionTarget::ChatInput { .. }, SelectionTarget::ChatInput { .. }) => true,
@@ -700,10 +797,10 @@ impl AiSidebar {
 
     /// Clear selection if activity log items change
     pub fn clear_selection_if_invalid(&mut self) {
-        if let Some(SelectionTarget::ActivityItem { index, .. }) =
+        if let Some(SelectionTarget::ActivityItem { anchor_index, current_index, .. }) =
             &self.selection_state.active_selection
         {
-            if *index >= self.activity_log.len() {
+            if *anchor_index >= self.activity_log.len() || *current_index >= self.activity_log.len() {
                 self.selection_state.clear();
             }
         }
@@ -1638,13 +1735,42 @@ This example demonstrates:
                 // Check if this message has a selection
                 let selection = match &self.selection_state.active_selection {
                     Some(SelectionTarget::ActivityItem {
-                        index,
+                        anchor_index,
                         anchor_byte,
+                        current_index,
                         current_byte,
-                    }) if *index == item_index => Some((
-                        *anchor_byte.min(current_byte),
-                        *anchor_byte.max(current_byte),
-                    )),
+                    }) if *anchor_index == item_index || *current_index == item_index => {
+                        // Determine selection bounds for this item
+                        if *anchor_index == *current_index && *anchor_index == item_index {
+                            // Single item selection
+                            Some((
+                                *anchor_byte.min(current_byte),
+                                *anchor_byte.max(current_byte),
+                            ))
+                        } else if *anchor_index.min(current_index) == item_index {
+                            // This is the first item in multi-item selection
+                            let byte_start = if *anchor_index == item_index {
+                                *anchor_byte
+                            } else {
+                                *current_byte
+                            };
+                            Some((byte_start, usize::MAX)) // Select to end
+                        } else if *anchor_index.max(current_index) == item_index {
+                            // This is the last item in multi-item selection
+                            let byte_end = if *anchor_index == item_index {
+                                *anchor_byte
+                            } else {
+                                *current_byte
+                            };
+                            Some((0, byte_end)) // Select from start
+                        } else if item_index > *anchor_index.min(current_index) 
+                               && item_index < *anchor_index.max(current_index) {
+                            // This is a middle item - select entire text
+                            Some((0, usize::MAX))
+                        } else {
+                            None
+                        }
+                    }
                     _ => None,
                 };
 
@@ -2702,23 +2828,43 @@ This example demonstrates:
         &self,
         window_point: euclid::Point2D<f32, window::PixelUnit>,
     ) -> Option<crate::sidebar::position_cache::HitResult> {
-        use crate::sidebar::position_cache::{WindowCoord, ViewportCoord, ItemCoord};
-        
+        use crate::sidebar::position_cache::{ItemCoord, ViewportCoord, WindowCoord};
+
         // 1. Window → Viewport transformation
-        let viewport_point = self.coordinate_transform.window_to_viewport(WindowCoord(window_point));
-        
+        let viewport_point = self
+            .coordinate_transform
+            .window_to_viewport(WindowCoord(window_point));
+
         // 2. Find which item was hit
         for (index, item_data) in &self.item_positions {
             if let Some(item_viewport_y) = item_data.viewport_y {
                 // Check if point is within item bounds vertically
                 let item_height = item_data.position_tree.bounds.size.height;
-                if viewport_point.0.y >= item_viewport_y 
-                    && viewport_point.0.y < item_viewport_y + item_height {
+                if viewport_point.0.y >= item_viewport_y
+                    && viewport_point.0.y < item_viewport_y + item_height
+                {
                     // 3. Viewport → Item transformation
-                    let item_point = self.coordinate_transform.viewport_to_item(viewport_point, item_viewport_y);
-                    
+                    let item_point = self
+                        .coordinate_transform
+                        .viewport_to_item(viewport_point, item_viewport_y);
+
                     // 4. Hit test within item (item-relative coordinates)
-                    if let Some(position) = self.hit_test_item(&item_data.position_tree, item_point) {
+                    if let Some(position) = self.hit_test_item(&item_data.position_tree, item_point)
+                    {
+                        // Validate the position if we have access to the item's text
+                        if let Some(item) = self.activity_log.get(*index) {
+                            let text = match item {
+                                ActivityItem::Chat { message, .. } => message,
+                                ActivityItem::Command { command, output, .. } => output.as_deref().unwrap_or(command),
+                                ActivityItem::Suggestion { content, .. } => content,
+                                ActivityItem::Goal { text, .. } => text,
+                            };
+                            if let Err(e) = position.validate(text) {
+                                log::warn!("Invalid position from hit test: {}", e);
+                                continue; // Skip this invalid position
+                            }
+                        }
+                        
                         return Some(crate::sidebar::position_cache::HitResult {
                             item_index: *index,
                             position_in_item: position,
@@ -2737,15 +2883,17 @@ This example demonstrates:
         point: crate::sidebar::position_cache::ItemCoord,
     ) -> Option<crate::sidebar::position_cache::ItemPosition> {
         use crate::sidebar::position_cache::{ElementType, ItemPosition, TextAffinity};
-        
+
         // Check if point is within this element's bounds
         if !position_tree.bounds.contains(point.0) {
             return None;
         }
-        
+
         // Transform to element-relative coordinates
-        let element_point = self.coordinate_transform.item_to_element(point, &position_tree.bounds);
-        
+        let element_point = self
+            .coordinate_transform
+            .item_to_element(point, &position_tree.bounds);
+
         // Handle different element types
         match &position_tree.element_type {
             ElementType::CodeBlock { padding, .. } => {
@@ -2757,7 +2905,11 @@ This example demonstrates:
                     &position_tree.element_type,
                 )
             }
-            ElementType::ListItem { indent, marker_width, .. } => {
+            ElementType::ListItem {
+                indent,
+                marker_width,
+                ..
+            } => {
                 // Account for list indentation and marker
                 let adjusted = element_point.0 - euclid::Vector2D::new(indent + marker_width, 0.0);
                 // First check children (list item content)
@@ -2790,7 +2942,11 @@ This example demonstrates:
                     }
                 }
                 // Then check own text positions
-                self.hit_test_text_positions(&position_tree.text_positions, element_point.0, &position_tree.element_type)
+                self.hit_test_text_positions(
+                    &position_tree.text_positions,
+                    element_point.0,
+                    &position_tree.element_type,
+                )
             }
         }
     }
@@ -2803,9 +2959,10 @@ This example demonstrates:
         element_type: &crate::sidebar::position_cache::ElementType,
     ) -> Option<crate::sidebar::position_cache::ItemPosition> {
         use crate::sidebar::position_cache::{ItemPosition, TextAffinity};
-        
+
         // Find the line containing the y coordinate
-        let line_positions: Vec<_> = positions.iter()
+        let line_positions: Vec<_> = positions
+            .iter()
             .filter(|p| {
                 // Check if point is within line height
                 // Use a reasonable default that matches our text rendering
@@ -2818,15 +2975,15 @@ This example demonstrates:
                 point.y >= p.y && point.y < p.y + line_height
             })
             .collect();
-        
+
         if line_positions.is_empty() {
             return None;
         }
-        
+
         // Find the closest position on the line
         let mut best_position = None;
         let mut best_distance = f32::MAX;
-        
+
         for pos in &line_positions {
             if point.x >= pos.x_start && point.x < pos.x_end {
                 // Point is within this glyph
@@ -2838,7 +2995,8 @@ This example demonstrates:
                     });
                 } else {
                     // Find the next position if available
-                    let next_offset = line_positions.iter()
+                    let next_offset = line_positions
+                        .iter()
                         .find(|p| p.byte_offset > pos.byte_offset)
                         .map(|p| p.byte_offset)
                         .unwrap_or(pos.byte_offset + 1); // Approximate
@@ -2848,11 +3006,11 @@ This example demonstrates:
                     });
                 }
             }
-            
+
             // Track closest position for edge cases
             let dist_to_start = (point.x - pos.x_start).abs();
             let dist_to_end = (point.x - pos.x_end).abs();
-            
+
             if dist_to_start < best_distance {
                 best_distance = dist_to_start;
                 best_position = Some(ItemPosition {
@@ -2860,11 +3018,12 @@ This example demonstrates:
                     affinity: TextAffinity::Leading,
                 });
             }
-            
+
             if dist_to_end < best_distance {
                 best_distance = dist_to_end;
                 // Use next byte offset if available
-                let next_offset = line_positions.iter()
+                let next_offset = line_positions
+                    .iter()
                     .find(|p| p.byte_offset > pos.byte_offset)
                     .map(|p| p.byte_offset)
                     .unwrap_or(pos.byte_offset + 1);
@@ -2874,7 +3033,7 @@ This example demonstrates:
                 });
             }
         }
-        
+
         best_position
     }
 
@@ -2909,15 +3068,19 @@ This example demonstrates:
 
         match selection {
             SelectionTarget::ActivityItem {
-                index,
+                anchor_index,
                 anchor_byte,
+                current_index,
                 current_byte,
             } => {
-                // Get the activity item bounds
-                if let Some(bounds) = self.activity_item_bounds.get(index) {
-                    if let Some(item) = self.activity_log.get(*index) {
-                        let start_byte = anchor_byte.min(current_byte);
-                        let end_byte = anchor_byte.max(current_byte);
+                // TODO: Implement multi-item selection rendering
+                // For now, only render selection for single item
+                if anchor_index == current_index {
+                    // Get the activity item bounds
+                    if let Some(bounds) = self.activity_item_bounds.get(anchor_index) {
+                        if let Some(item) = self.activity_log.get(*anchor_index) {
+                            let start_byte = anchor_byte.min(current_byte);
+                            let end_byte = anchor_byte.max(current_byte);
 
                         // TEMPORARY: Show selection even for zero-width (for debugging)
                         if start_byte == end_byte {}
@@ -2981,7 +3144,7 @@ This example demonstrates:
 
                             log::debug!(
                                 "Created selection rectangle for activity item {}: x={}, y={}, w={}, h={}, start_char={}, end_char={}",
-                                index,
+                                anchor_index,
                                 start_x,
                                 bounds.origin.y + padding,
                                 end_x - start_x,
@@ -2991,8 +3154,9 @@ This example demonstrates:
                             );
                         }
                     }
-                } else {
-                    log::debug!("No bounds found for activity item {}", index);
+                    } else {
+                        log::debug!("No bounds found for activity item {}", anchor_index);
+                    }
                 }
             }
             SelectionTarget::Suggestion {
@@ -3961,9 +4125,9 @@ impl Sidebar for AiSidebar {
                                 // log::debug!("SELECTION DEBUG: No goal bounds available");
                             }
                         }
-                        SelectionTarget::ActivityItem { index, .. } => {
-                            // TODO: Handle activity item drag
-                            // log::debug!("SELECTION DEBUG: Activity item {} drag - not yet implemented", index);
+                        SelectionTarget::ActivityItem { anchor_index, .. } => {
+                            // Activity item drag is handled by the mouse event handler
+                            // which calls update_activity_log_selection_drag
                         }
                         SelectionTarget::Suggestion { .. } => {
                             // TODO: Handle suggestion drag

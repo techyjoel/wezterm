@@ -446,6 +446,7 @@ impl MarkdownRenderer {
                                     heading_element_font,
                                     ElementContent::WrappedText(combined_text),
                                 )
+                                .semantic_type(crate::termwindow::box_model::SemanticType::Heading(level))
                                 .colors(ElementColors {
                                     text: color.into(),
                                     ..Default::default()
@@ -540,12 +541,22 @@ impl MarkdownRenderer {
                                 dimming_factor,
                             );
 
-                            // Add left padding for indentation
-                            list_item = list_item.padding(BoxDimension {
-                                left: Dimension::Pixels(indent),
-                                bottom: Dimension::Pixels(4.0), // Tighter spacing for list items
-                                ..Default::default()
-                            });
+                            // Determine if the list is ordered
+                            let is_ordered = list_stack.last()
+                                .map(|(ordered, _)| *ordered)
+                                .unwrap_or(false);
+
+                            // Add semantic type and left padding for indentation
+                            list_item = list_item
+                                .semantic_type(crate::termwindow::box_model::SemanticType::ListItem {
+                                    ordered: is_ordered,
+                                    depth: list_depth.saturating_sub(1),
+                                })
+                                .padding(BoxDimension {
+                                    left: Dimension::Pixels(indent),
+                                    bottom: Dimension::Pixels(4.0), // Tighter spacing for list items
+                                    ..Default::default()
+                                });
 
                             elements.push(list_item);
                             current_paragraph.clear();
@@ -1090,6 +1101,9 @@ impl MarkdownRenderer {
         let computed_height = line_count as f32 * code_line_height as f32;
         let mut code_block = Element::new(font, ElementContent::Children(line_elements))
             .with_computed_height(computed_height)
+            .semantic_type(crate::termwindow::box_model::SemanticType::CodeBlock {
+                language: language.map(|s| s.to_string()),
+            })
             .colors(ElementColors {
                 bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),
                 border: BorderColor::new(LinearRgba::with_components(0.2, 0.2, 0.25, 0.5)),

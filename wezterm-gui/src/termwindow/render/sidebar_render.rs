@@ -641,7 +641,7 @@ impl crate::TermWindow {
                                 item_bounds.size.width,
                                 item_bounds.size.height
                             );
-                            
+
                             // Extract position data for this activity item
                             if let Some(position_tree) = crate::termwindow::render::activity_log_positions::extract_activity_item_positions(
                                 &activity_log_computed,

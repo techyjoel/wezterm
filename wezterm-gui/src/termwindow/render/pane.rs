@@ -751,6 +751,7 @@ impl crate::TermWindow {
 
         Ok(ComputedElement {
             item_type: None,
+            semantic_type: None,
             zindex: 0,
             bounds: background_rect,
             border: PixelDimension::default(),

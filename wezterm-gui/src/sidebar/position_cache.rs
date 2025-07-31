@@ -16,31 +16,28 @@ use window::PixelUnit;
 #[derive(Debug, Clone)]
 pub enum ElementType {
     /// Regular paragraph text
-    Paragraph { 
-        line_height: f32, 
-        margin: f32 
-    },
+    Paragraph { line_height: f32, margin: f32 },
     /// Heading text with level (1-6)
-    Heading { 
-        level: u8, 
-        font_size: f32, 
-        margin: f32 
+    Heading {
+        level: u8,
+        font_size: f32,
+        margin: f32,
     },
     /// Code block with monospace font
-    CodeBlock { 
+    CodeBlock {
         line_height: f32,
-        padding: f32, 
-        bg_color: crate::color::LinearRgba 
+        padding: f32,
+        bg_color: crate::color::LinearRgba,
     },
     /// List item with indentation
-    ListItem { 
-        indent: f32, 
+    ListItem {
+        indent: f32,
         marker_width: f32,
         depth: usize,
         is_ordered: bool,
     },
     /// Inline text with style
-    InlineText { 
+    InlineText {
         style: TextStyle,
         is_link: Option<String>,
     },
@@ -68,10 +65,60 @@ pub enum TextAffinity {
 }
 
 /// Position within an item's text
-#[derive(Debug, Clone, PartialEq)]
+/// 
+/// # Unicode Safety
+/// The byte_offset must be on a valid UTF-8 character boundary.
+/// This is guaranteed by the position extraction process which uses
+/// HarfBuzz clusters (always on boundaries) and character-aware string operations.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ItemPosition {
     pub byte_offset: usize,
     pub affinity: TextAffinity,
+}
+
+impl ItemPosition {
+    /// Validate that this position's byte offset is on a character boundary
+    /// 
+    /// # Arguments
+    /// * `text` - The text to validate against
+    /// 
+    /// # Returns
+    /// * `Ok(())` if the offset is valid
+    /// * `Err(String)` with details if the offset is invalid
+    #[must_use]
+    pub fn validate(&self, text: &str) -> Result<(), String> {
+        if self.byte_offset > text.len() {
+            return Err(format!(
+                "Byte offset {} exceeds text length {}",
+                self.byte_offset,
+                text.len()
+            ));
+        }
+        
+        if self.byte_offset > 0 && self.byte_offset < text.len() && !text.is_char_boundary(self.byte_offset) {
+            return Err(format!(
+                "Byte offset {} is not on a character boundary",
+                self.byte_offset
+            ));
+        }
+        
+        Ok(())
+    }
+    
+    /// Convert byte offset to character index
+    /// 
+    /// # Arguments
+    /// * `text` - The text to calculate character index in
+    /// 
+    /// # Returns
+    /// The character index, or None if the byte offset is invalid
+    pub fn to_char_index(&self, text: &str) -> Option<usize> {
+        if self.validate(text).is_ok() {
+            Some(text[..self.byte_offset].chars().count())
+        } else {
+            None
+        }
+    }
 }
 
 /// Hierarchical position tree that mirrors markdown structure
@@ -142,7 +189,7 @@ pub struct SelectionState {
 }
 
 /// Result of hit testing
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct HitResult {
     pub item_index: usize,
     pub position_in_item: ItemPosition,
@@ -168,12 +215,16 @@ impl CoordinateTransform {
     pub fn window_to_viewport(&self, w: WindowCoord) -> ViewportCoord {
         ViewportCoord(w.0 - Vector2D::new(self.sidebar_x, self.sidebar_y))
     }
-    
+
     pub fn viewport_to_item(&self, v: ViewportCoord, item_viewport_y: f32) -> ItemCoord {
         ItemCoord(v.0 - Vector2D::new(0.0, item_viewport_y))
     }
-    
-    pub fn item_to_element(&self, i: ItemCoord, element_bounds: &Rect<f32, PixelUnit>) -> ElementCoord {
+
+    pub fn item_to_element(
+        &self,
+        i: ItemCoord,
+        element_bounds: &Rect<f32, PixelUnit>,
+    ) -> ElementCoord {
         ElementCoord(i.0 - element_bounds.origin.to_vector())
     }
 }
@@ -186,6 +237,11 @@ pub struct PositionCacheKey {
 }
 
 /// LRU cache for position data
+/// 
+/// Note: This uses a Vec for LRU tracking with O(n) lookup for simplicity. 
+/// With our limit of 100 entries, this is acceptable performance-wise. 
+/// For larger caches, consider using a proper LRU data structure like 
+/// the `lru` crate or `IndexMap`.
 pub struct TextPositionCache {
     /// Cached position trees by key
     positions: HashMap<PositionCacheKey, Arc<PositionTree>>,
@@ -203,7 +259,7 @@ impl TextPositionCache {
             max_entries,
         }
     }
-    
+
     pub fn get(&mut self, key: &PositionCacheKey) -> Option<Arc<PositionTree>> {
         if let Some(tree) = self.positions.get(key) {
             // Update LRU order
@@ -214,7 +270,7 @@ impl TextPositionCache {
             None
         }
     }
-    
+
     pub fn insert(&mut self, key: PositionCacheKey, tree: PositionTree) {
         // Evict oldest if at capacity
         if self.positions.len() >= self.max_entries && !self.positions.contains_key(&key) {
@@ -223,12 +279,12 @@ impl TextPositionCache {
                 self.access_order.remove(0);
             }
         }
-        
+
         self.positions.insert(key.clone(), Arc::new(tree));
         self.access_order.retain(|k| k != &key);
         self.access_order.push(key);
     }
-    
+
     pub fn clear(&mut self) {
         self.positions.clear();
         self.access_order.clear();
@@ -250,12 +306,12 @@ impl PositionTreeBuilder {
             current_y: 0.0,
         }
     }
-    
+
     pub fn start_element(&mut self, element_type: ElementType, bounds: Rect<f32, PixelUnit>) {
         if let Some(current) = self.current_element.take() {
             self.element_stack.push(current);
         }
-        
+
         self.current_element = Some(PositionTree {
             element_type,
             bounds,
@@ -264,13 +320,13 @@ impl PositionTreeBuilder {
         });
         self.current_y = 0.0;
     }
-    
+
     pub fn add_text_position(&mut self, position: TextPosition) {
         if let Some(ref mut current) = self.current_element {
             current.text_positions.push(position);
         }
     }
-    
+
     pub fn end_element(&mut self) -> Option<PositionTree> {
         if let Some(completed) = self.current_element.take() {
             if let Some(mut parent) = self.element_stack.pop() {
@@ -284,7 +340,7 @@ impl PositionTreeBuilder {
             None
         }
     }
-    
+
     pub fn build(mut self) -> Option<PositionTree> {
         // End any remaining elements
         while !self.element_stack.is_empty() {

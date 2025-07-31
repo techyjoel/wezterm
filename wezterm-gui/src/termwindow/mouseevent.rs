@@ -1832,27 +1832,61 @@ impl super::TermWindow {
                 // Set focus to sidebar for copy operations
                 self.focus_area = FocusArea::Sidebar;
 
-                let window_point = euclid::Point2D::new(event.coords.x as f32, event.coords.y as f32);
-                log::debug!("Activity item {} text clicked at ({}, {})", index, window_point.x, window_point.y);
+                let window_point =
+                    euclid::Point2D::new(event.coords.x as f32, event.coords.y as f32);
+                log::debug!(
+                    "Activity item {} text clicked at ({}, {})",
+                    index,
+                    window_point.x,
+                    window_point.y
+                );
 
                 // Use hierarchical hit testing to find exact text position
                 let hit_result = with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
                     ai_sidebar.hit_test_activity_log(window_point)
-                }).flatten();
+                })
+                .flatten();
 
-                let byte_offset = if let Some(hit) = hit_result {
+                if let Some(ref hit) = hit_result {
                     if hit.item_index == index {
-                        log::debug!("Hit test found byte_offset = {} for item {}", hit.position_in_item.byte_offset, index);
+                        // Start selection at the hit position
+                        with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
+                            ai_sidebar.start_activity_log_selection(
+                                hit.item_index, 
+                                hit.position_in_item.byte_offset
+                            );
+                            Some(())
+                        });
+                        context.invalidate();
+                        return;
+                    }
+                }
+
+                // Fallback to character positions if hierarchical hit testing fails
+                // TODO: Remove this fallback once position extraction is complete
+                let byte_offset = if let Some(ref hit) = hit_result {
+                    if hit.item_index == index {
+                        log::debug!(
+                            "Hit test found byte_offset = {} for item {}",
+                            hit.position_in_item.byte_offset,
+                            index
+                        );
                         hit.position_in_item.byte_offset
                     } else {
-                        log::warn!("Hit test returned different item index: {} vs expected {}", hit.item_index, index);
-                        // Fall back to character positions
-                        find_byte_offset_from_x(event.coords.x as f32, char_positions)
+                        log::warn!(
+                            "Hit test returned different item index: {} vs expected {}",
+                            hit.item_index,
+                            index
+                        );
+                        // Don't fall back - this indicates a coordinate system issue
+                        log::error!("Hit test returned wrong item index - coordinate system mismatch");
+                        return self.window.as_ref().unwrap().clone().invalidate()
                     }
                 } else {
-                    log::debug!("Hit test returned None, falling back to char positions");
-                    // Fall back to character positions if hit test fails
-                    find_byte_offset_from_x(event.coords.x as f32, char_positions)
+                    log::debug!("Hit test returned None - position data may not be ready");
+                    // Don't fall back to imprecise character positions
+                    // The position data may not be extracted yet for this item
+                    return self.window.as_ref().unwrap().clone().invalidate()
                 };
 
                 log::debug!("Final byte_offset = {}", byte_offset);
@@ -1861,8 +1895,9 @@ impl super::TermWindow {
                 // Selection will only start when dragging begins
                 let needs_invalidate = with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
                     ai_sidebar.prepare_selection(SelectionTarget::ActivityItem {
-                        index,
+                        anchor_index: index,
                         anchor_byte: byte_offset,
+                        current_index: index,
                         current_byte: byte_offset,
                     })
                 })
@@ -1875,29 +1910,33 @@ impl super::TermWindow {
             WMEK::Move => {
                 // Only start selection if mouse button is pressed (dragging)
                 if event.mouse_buttons.contains(MouseButtons::LEFT) {
-                    let window_point = euclid::Point2D::new(event.coords.x as f32, event.coords.y as f32);
-                    
+                    let window_point =
+                        euclid::Point2D::new(event.coords.x as f32, event.coords.y as f32);
+
                     // Use hierarchical hit testing for drag position
                     let hit_result = with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
                         ai_sidebar.hit_test_activity_log(window_point)
-                    }).flatten();
-                    
-                    let byte_offset = if let Some(hit) = hit_result {
-                        // For drag, we allow crossing item boundaries
-                        hit.position_in_item.byte_offset
-                    } else {
-                        // Fall back to character positions if hit test fails
-                        find_byte_offset_from_x(event.coords.x as f32, char_positions)
-                    };
+                    })
+                    .flatten();
 
-                    with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
-                        // Activate selection if not already active
-                        if !ai_sidebar.is_selecting() {
-                            ai_sidebar.activate_prepared_selection();
-                        }
-                        // Update selection end point
-                        ai_sidebar.update_selection_drag(byte_offset);
-                    });
+                    if let Some(hit) = hit_result {
+                        with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
+                            // Activate selection if not already active
+                            if !ai_sidebar.is_selecting() {
+                                ai_sidebar.activate_prepared_selection();
+                            }
+                            // Update selection with new hit position
+                            // This handles crossing item boundaries
+                            ai_sidebar.update_activity_log_selection_drag(
+                                hit.item_index,
+                                hit.position_in_item.byte_offset
+                            );
+                        });
+                    } else {
+                        // If hit testing fails during drag, we're likely outside the activity log
+                        // Continue with the last valid position
+                        log::debug!("Hit test failed during drag - mouse likely outside activity log");
+                    }
                 }
             }
             WMEK::Release(MousePress::Left) => {

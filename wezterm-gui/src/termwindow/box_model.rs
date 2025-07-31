@@ -46,6 +46,28 @@ use wezterm_font::{LoadedFont, LoadedFontId};
 use wezterm_term::color::{ColorAttribute, ColorPalette};
 use window::bitmaps::atlas::{OutOfTextureSpace, Sprite};
 
+/// Semantic type information for markdown elements
+/// Used to preserve content type through the rendering pipeline
+#[derive(Debug, Clone, PartialEq)]
+pub enum SemanticType {
+    /// Heading with level (1-6) from markdown
+    Heading(pulldown_cmark::HeadingLevel),
+    /// Regular paragraph text
+    Paragraph,
+    /// Code block with optional language identifier
+    CodeBlock { language: Option<String> },
+    /// List item with ordered/unordered flag and nesting depth
+    ListItem { ordered: bool, depth: usize },
+    /// Inline code
+    InlineCode,
+    /// Bold text
+    Bold,
+    /// Italic text
+    Italic,
+    /// Link with URL
+    Link { url: String },
+}
+
 /// Maximum number of fonts to cache character widths for
 const FONT_WIDTH_CACHE_SIZE: usize = 100;
 
@@ -643,6 +665,7 @@ pub struct LayerScissor {
 #[derive(Debug, Clone)]
 pub struct Element {
     pub item_type: Option<UIItemType>,
+    pub semantic_type: Option<SemanticType>,
     pub vertical_align: VerticalAlign,
     pub zindex: i8,
     pub display: DisplayType,
@@ -671,6 +694,7 @@ impl Element {
     pub fn new(font: &Rc<LoadedFont>, content: ElementContent) -> Self {
         Self {
             item_type: None,
+            semantic_type: None,
             zindex: 0,
             display: DisplayType::Inline,
             float: Float::None,
@@ -808,6 +832,11 @@ impl Element {
         self
     }
 
+    pub fn semantic_type(mut self, semantic_type: SemanticType) -> Self {
+        self.semantic_type.replace(semantic_type);
+        self
+    }
+
     pub fn display(mut self, display: DisplayType) -> Self {
         self.display = display;
         self
@@ -936,6 +965,7 @@ pub struct LayoutContext<'a> {
 #[derive(Debug, Clone)]
 pub struct ComputedElement {
     pub item_type: Option<UIItemType>,
+    pub semantic_type: Option<SemanticType>,
     pub zindex: i8,
     /// The outer bounds of the element box (its margin)
     pub bounds: RectF,
@@ -1084,6 +1114,14 @@ pub struct WrappedLine {
 
 impl WrappedLine {
     /// Convert a cluster position (relative to shaped text) to document byte offset
+    /// 
+    /// # Unicode Safety
+    /// 
+    /// HarfBuzz clusters represent byte offsets that are guaranteed to be on
+    /// character boundaries in the shaped text. This method preserves that
+    /// guarantee by only adding offsets that also respect character boundaries
+    /// (byte_offset, leading_space_bytes, and shaped_offset are all computed
+    /// from character-aware string operations).
     pub fn cluster_to_byte_offset(&self, cluster: u32) -> usize {
         // Cluster is relative to shaped_text, not original document
         // Account for: line offset + skipped spaces + shaped offset + cluster
@@ -1092,6 +1130,22 @@ impl WrappedLine {
         } else {
             self.byte_offset + self.shaped_offset + cluster as usize
         }
+    }
+    
+    /// Validate that a byte offset is on a UTF-8 character boundary
+    /// 
+    /// # Arguments
+    /// * `text` - The text to validate against
+    /// * `byte_offset` - The byte offset to check
+    /// 
+    /// # Returns
+    /// * `true` if the offset is valid (on a character boundary or at text end)
+    /// * `false` if the offset would split a UTF-8 sequence
+    pub fn is_char_boundary(text: &str, byte_offset: usize) -> bool {
+        if byte_offset == 0 || byte_offset == text.len() {
+            return true;
+        }
+        text.is_char_boundary(byte_offset)
     }
 }
 
@@ -2406,6 +2460,7 @@ impl super::TermWindow {
 
                 Ok(ComputedElement {
                     item_type: element.item_type.clone(),
+                    semantic_type: element.semantic_type.clone(),
                     zindex: element.zindex + context.zindex,
                     baseline,
                     border,
@@ -2454,6 +2509,7 @@ impl super::TermWindow {
                 // Create the computed element
                 let mut computed = ComputedElement {
                     item_type: element.item_type.clone(),
+                    semantic_type: element.semantic_type.clone(),
                     zindex: element.zindex + context.zindex,
                     baseline,
                     border,
@@ -2635,6 +2691,7 @@ impl super::TermWindow {
 
                 Ok(ComputedElement {
                     item_type: element.item_type.clone(),
+                    semantic_type: element.semantic_type.clone(),
                     zindex: element.zindex + context.zindex,
                     baseline,
                     border,
@@ -2658,6 +2715,7 @@ impl super::TermWindow {
 
                 Ok(ComputedElement {
                     item_type: element.item_type.clone(),
+                    semantic_type: element.semantic_type.clone(),
                     zindex: element.zindex + context.zindex,
                     baseline,
                     border,
@@ -2716,6 +2774,7 @@ impl super::TermWindow {
 
                 Ok(ComputedElement {
                     item_type: element.item_type.clone(),
+                    semantic_type: element.semantic_type.clone(),
                     zindex: element.zindex + context.zindex,
                     baseline,
                     border,
