@@ -1852,8 +1852,8 @@ impl super::TermWindow {
                         // Start selection at the hit position
                         with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
                             ai_sidebar.start_activity_log_selection(
-                                hit.item_index, 
-                                hit.position_in_item.byte_offset
+                                hit.item_index,
+                                hit.position_in_item.byte_offset,
                             );
                             Some(())
                         });
@@ -1879,14 +1879,16 @@ impl super::TermWindow {
                             index
                         );
                         // Don't fall back - this indicates a coordinate system issue
-                        log::error!("Hit test returned wrong item index - coordinate system mismatch");
-                        return self.window.as_ref().unwrap().clone().invalidate()
+                        log::error!(
+                            "Hit test returned wrong item index - coordinate system mismatch"
+                        );
+                        return self.window.as_ref().unwrap().clone().invalidate();
                     }
                 } else {
                     log::debug!("Hit test returned None - position data may not be ready");
                     // Don't fall back to imprecise character positions
                     // The position data may not be extracted yet for this item
-                    return self.window.as_ref().unwrap().clone().invalidate()
+                    return self.window.as_ref().unwrap().clone().invalidate();
                 };
 
                 log::debug!("Final byte_offset = {}", byte_offset);
@@ -1929,13 +1931,15 @@ impl super::TermWindow {
                             // This handles crossing item boundaries
                             ai_sidebar.update_activity_log_selection_drag(
                                 hit.item_index,
-                                hit.position_in_item.byte_offset
+                                hit.position_in_item.byte_offset,
                             );
                         });
                     } else {
                         // If hit testing fails during drag, we're likely outside the activity log
                         // Continue with the last valid position
-                        log::debug!("Hit test failed during drag - mouse likely outside activity log");
+                        log::debug!(
+                            "Hit test failed during drag - mouse likely outside activity log"
+                        );
                     }
                 }
             }

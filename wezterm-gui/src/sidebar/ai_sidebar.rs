@@ -164,11 +164,11 @@ impl SelectionState {
                         let start_index = anchor_index.min(current_index);
                         let end_index = anchor_index.max(current_index);
                         let mut selected_text = String::new();
-                        
+
                         for index in *start_index..=*end_index {
                             if let Some(item) = sidebar.activity_log.get(index) {
                                 let text = get_item_text(item);
-                                
+
                                 if index == *start_index && index == *anchor_index {
                                     // First item, from anchor_byte to end
                                     if let Some(partial) = text.get(*anchor_byte..) {
@@ -193,14 +193,14 @@ impl SelectionState {
                                     // Middle items, entire text
                                     selected_text.push_str(text);
                                 }
-                                
+
                                 // Add newline between items
                                 if index < *end_index {
                                     selected_text.push('\n');
                                 }
                             }
                         }
-                        
+
                         if selected_text.is_empty() {
                             None
                         } else {
@@ -658,7 +658,11 @@ impl AiSidebar {
 
         // Update the current byte offset for the active selection
         match &mut self.selection_state.active_selection {
-            Some(SelectionTarget::ActivityItem { current_byte, current_index, .. }) => {
+            Some(SelectionTarget::ActivityItem {
+                current_byte,
+                current_index,
+                ..
+            }) => {
                 // This method only updates within the same item
                 // For multi-item selection, use update_activity_log_selection_drag
                 *current_byte = byte_offset;
@@ -688,11 +692,12 @@ impl AiSidebar {
         }
 
         // Check if we have an active activity item selection
-        if let Some(SelectionTarget::ActivityItem { 
-            anchor_index, 
+        if let Some(SelectionTarget::ActivityItem {
+            anchor_index,
             anchor_byte,
-            .. 
-        }) = &self.selection_state.active_selection {
+            ..
+        }) = &self.selection_state.active_selection
+        {
             // Update the selection to span from anchor to current position
             // This properly handles selection across multiple items
             self.selection_state.active_selection = Some(SelectionTarget::ActivityItem {
@@ -746,8 +751,12 @@ impl AiSidebar {
             let should_clear = match (active, &target) {
                 (SelectionTarget::Goal { .. }, SelectionTarget::Goal { .. }) => true,
                 (
-                    SelectionTarget::ActivityItem { anchor_index: a, .. },
-                    SelectionTarget::ActivityItem { anchor_index: b, .. },
+                    SelectionTarget::ActivityItem {
+                        anchor_index: a, ..
+                    },
+                    SelectionTarget::ActivityItem {
+                        anchor_index: b, ..
+                    },
                 ) => a == b,
                 (SelectionTarget::Suggestion { .. }, SelectionTarget::Suggestion { .. }) => true,
                 (SelectionTarget::ChatInput { .. }, SelectionTarget::ChatInput { .. }) => true,
@@ -797,10 +806,14 @@ impl AiSidebar {
 
     /// Clear selection if activity log items change
     pub fn clear_selection_if_invalid(&mut self) {
-        if let Some(SelectionTarget::ActivityItem { anchor_index, current_index, .. }) =
-            &self.selection_state.active_selection
+        if let Some(SelectionTarget::ActivityItem {
+            anchor_index,
+            current_index,
+            ..
+        }) = &self.selection_state.active_selection
         {
-            if *anchor_index >= self.activity_log.len() || *current_index >= self.activity_log.len() {
+            if *anchor_index >= self.activity_log.len() || *current_index >= self.activity_log.len()
+            {
                 self.selection_state.clear();
             }
         }
@@ -1763,8 +1776,9 @@ This example demonstrates:
                                 *current_byte
                             };
                             Some((0, byte_end)) // Select from start
-                        } else if item_index > *anchor_index.min(current_index) 
-                               && item_index < *anchor_index.max(current_index) {
+                        } else if item_index > *anchor_index.min(current_index)
+                            && item_index < *anchor_index.max(current_index)
+                        {
                             // This is a middle item - select entire text
                             Some((0, usize::MAX))
                         } else {
@@ -2813,6 +2827,14 @@ This example demonstrates:
         self.item_positions.insert(index, position_data);
     }
 
+    /// Get position data for an activity item
+    pub fn get_item_positions(
+        &self,
+        item_index: usize,
+    ) -> Option<&crate::sidebar::position_cache::ItemPositionData> {
+        self.item_positions.get(&item_index)
+    }
+
     /// Update coordinate transform for the sidebar
     pub fn update_coordinate_transform(&mut self, x: f32, y: f32, width: f32, height: f32) {
         self.coordinate_transform = crate::sidebar::position_cache::CoordinateTransform {
@@ -2855,7 +2877,9 @@ This example demonstrates:
                         if let Some(item) = self.activity_log.get(*index) {
                             let text = match item {
                                 ActivityItem::Chat { message, .. } => message,
-                                ActivityItem::Command { command, output, .. } => output.as_deref().unwrap_or(command),
+                                ActivityItem::Command {
+                                    command, output, ..
+                                } => output.as_deref().unwrap_or(command),
                                 ActivityItem::Suggestion { content, .. } => content,
                                 ActivityItem::Goal { text, .. } => text,
                             };
@@ -2864,7 +2888,7 @@ This example demonstrates:
                                 continue; // Skip this invalid position
                             }
                         }
-                        
+
                         return Some(crate::sidebar::position_cache::HitResult {
                             item_index: *index,
                             position_in_item: position,
@@ -3073,90 +3097,127 @@ This example demonstrates:
                 current_index,
                 current_byte,
             } => {
-                // TODO: Implement multi-item selection rendering
-                // For now, only render selection for single item
+                // For single-item selection
                 if anchor_index == current_index {
-                    // Get the activity item bounds
-                    if let Some(bounds) = self.activity_item_bounds.get(anchor_index) {
-                        if let Some(item) = self.activity_log.get(*anchor_index) {
+                    // Get the cached position data for this item
+                    if let Some(position_data) = self.get_item_positions(*anchor_index) {
+                        // Get the activity item bounds for absolute positioning
+                        if let Some(bounds) = self.activity_item_bounds.get(anchor_index) {
                             let start_byte = anchor_byte.min(current_byte);
                             let end_byte = anchor_byte.max(current_byte);
 
-                        // TEMPORARY: Show selection even for zero-width (for debugging)
-                        if start_byte == end_byte {}
+                            // Calculate selection rectangles using the position tree
+                            let item_rects =
+                                position_data.position_tree.calculate_selection_rectangles(
+                                    *start_byte,
+                                    *end_byte,
+                                    euclid::Vector2D::new(0.0, 0.0), // Item-relative coordinates
+                                );
 
-                        // Always show selection rectangle for debugging (was: if start_byte != end_byte)
-                        if true {
-                            // For activity items, we need better selection rectangle calculation
-                            let line_height = 20.0; // Approximate line height
+                            // Transform item-relative rectangles to absolute screen coordinates
+                            for rect in item_rects {
+                                // Apply the activity item's absolute position
+                                let absolute_rect = euclid::rect(
+                                    bounds.origin.x + rect.origin.x,
+                                    bounds.origin.y + rect.origin.y,
+                                    rect.size.width,
+                                    rect.size.height,
+                                );
 
-                            // Get the message text to estimate selection position
-                            let text = match item {
-                                ActivityItem::Chat { message, .. } => message,
-                                ActivityItem::Command { command, .. } => command,
-                                ActivityItem::Suggestion { content, .. } => content,
-                                ActivityItem::Goal { text, .. } => text,
-                            };
+                                rects.push(absolute_rect);
 
-                            // Calculate more accurate selection rectangles
-                            // Account for padding inside the activity item
-                            let padding = if matches!(item, ActivityItem::Chat { .. }) {
-                                CHAT_ITEM_PADDING
-                            } else {
-                                8.0 // Default card padding
-                            };
+                                log::debug!(
+                                    "Activity item {} selection rect: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+                                    anchor_index,
+                                    absolute_rect.origin.x,
+                                    absolute_rect.origin.y,
+                                    absolute_rect.size.width,
+                                    absolute_rect.size.height
+                                );
+                            }
+                        }
+                    } else {
+                        // Fallback to character-based approximation if position data not available
+                        log::warn!(
+                            "No position data available for activity item {}, using fallback",
+                            anchor_index
+                        );
 
-                            // For now, use character-based approximation
-                            // TODO: Use exact glyph positions when available
-                            let char_width = 8.5; // Approximate character width
+                        if let Some(bounds) = self.activity_item_bounds.get(anchor_index) {
+                            if let Some(item) = self.activity_log.get(*anchor_index) {
+                                let start_byte = anchor_byte.min(current_byte);
+                                let end_byte = anchor_byte.max(current_byte);
 
-                            // Calculate approximate x positions for selection
-                            let start_char = text.chars().take(*start_byte).count();
-                            let end_char = text.chars().take(*end_byte).count();
+                                // TEMPORARY: Show selection even for zero-width (for debugging)
+                                if start_byte == end_byte {}
 
-                            let start_x =
-                                bounds.origin.x + padding + (start_char as f32 * char_width);
-                            let mut end_x =
-                                bounds.origin.x + padding + (end_char as f32 * char_width);
+                                // Always show selection rectangle for debugging (was: if start_byte != end_byte)
+                                if true {
+                                    // For activity items, we need better selection rectangle calculation
+                                    let line_height = 20.0; // Approximate line height
 
-                            // Ensure we don't exceed the bounds
-                            let max_x = bounds.origin.x + bounds.size.width - padding;
-                            end_x = end_x.min(max_x);
+                                    // Get the message text to estimate selection position
+                                    let text = match item {
+                                        ActivityItem::Chat { message, .. } => message,
+                                        ActivityItem::Command { command, .. } => command,
+                                        ActivityItem::Suggestion { content, .. } => content,
+                                        ActivityItem::Goal { text, .. } => text,
+                                    };
 
-                            // For zero-width selections, show a cursor-width rectangle
-                            let width = if start_byte == end_byte {
-                                2.0 // Cursor width
-                            } else {
-                                end_x - start_x
-                            };
+                                    // Calculate more accurate selection rectangles
+                                    // Account for padding inside the activity item
+                                    let padding = if matches!(item, ActivityItem::Chat { .. }) {
+                                        CHAT_ITEM_PADDING
+                                    } else {
+                                        8.0 // Default card padding
+                                    };
 
-                            let rect = euclid::rect(
-                                start_x,
-                                bounds.origin.y + padding,
-                                width,
-                                line_height,
-                            );
+                                    // For now, use character-based approximation
+                                    let char_width = 8.5; // Approximate character width
 
-                            // log::debug!("SELECTION DEBUG: Creating rectangle at x={:.1}, y={:.1}, w={:.1}, h={:.1}",
-                            //     rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+                                    // Calculate approximate x positions for selection
+                                    let start_char = text.chars().take(*start_byte).count();
+                                    let end_char = text.chars().take(*end_byte).count();
 
-                            rects.push(rect);
+                                    let start_x = bounds.origin.x
+                                        + padding
+                                        + (start_char as f32 * char_width);
+                                    let mut end_x =
+                                        bounds.origin.x + padding + (end_char as f32 * char_width);
 
-                            log::debug!(
-                                "Created selection rectangle for activity item {}: x={}, y={}, w={}, h={}, start_char={}, end_char={}",
-                                anchor_index,
-                                start_x,
-                                bounds.origin.y + padding,
-                                end_x - start_x,
-                                line_height,
-                                start_char,
-                                end_char
-                            );
+                                    // Ensure we don't exceed the bounds
+                                    let max_x = bounds.origin.x + bounds.size.width - padding;
+                                    end_x = end_x.min(max_x);
+
+                                    // For zero-width selections, show a cursor-width rectangle
+                                    let width = if start_byte == end_byte {
+                                        2.0 // Cursor width
+                                    } else {
+                                        end_x - start_x
+                                    };
+
+                                    let rect = euclid::rect(
+                                        start_x,
+                                        bounds.origin.y + padding,
+                                        width,
+                                        line_height,
+                                    );
+
+                                    rects.push(rect);
+                                }
+                            }
+                        } else {
+                            log::debug!("No bounds found for activity item {}", anchor_index);
                         }
                     }
-                    } else {
-                        log::debug!("No bounds found for activity item {}", anchor_index);
-                    }
+                } else {
+                    // TODO: Implement multi-item selection rendering
+                    // This will require calculating rectangles for all items from anchor to current
+                    log::debug!(
+                        "Multi-item selection not yet implemented: {} to {}",
+                        anchor_index,
+                        current_index
+                    );
                 }
             }
             SelectionTarget::Suggestion {

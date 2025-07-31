@@ -446,7 +446,9 @@ impl MarkdownRenderer {
                                     heading_element_font,
                                     ElementContent::WrappedText(combined_text),
                                 )
-                                .semantic_type(crate::termwindow::box_model::SemanticType::Heading(level))
+                                .semantic_type(crate::termwindow::box_model::SemanticType::Heading(
+                                    level,
+                                ))
                                 .colors(ElementColors {
                                     text: color.into(),
                                     ..Default::default()
@@ -542,16 +544,19 @@ impl MarkdownRenderer {
                             );
 
                             // Determine if the list is ordered
-                            let is_ordered = list_stack.last()
+                            let is_ordered = list_stack
+                                .last()
                                 .map(|(ordered, _)| *ordered)
                                 .unwrap_or(false);
 
                             // Add semantic type and left padding for indentation
                             list_item = list_item
-                                .semantic_type(crate::termwindow::box_model::SemanticType::ListItem {
-                                    ordered: is_ordered,
-                                    depth: list_depth.saturating_sub(1),
-                                })
+                                .semantic_type(
+                                    crate::termwindow::box_model::SemanticType::ListItem {
+                                        ordered: is_ordered,
+                                        depth: list_depth.saturating_sub(1),
+                                    },
+                                )
                                 .padding(BoxDimension {
                                     left: Dimension::Pixels(indent),
                                     bottom: Dimension::Pixels(4.0), // Tighter spacing for list items

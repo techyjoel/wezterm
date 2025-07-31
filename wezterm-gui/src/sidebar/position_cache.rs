@@ -65,7 +65,7 @@ pub enum TextAffinity {
 }
 
 /// Position within an item's text
-/// 
+///
 /// # Unicode Safety
 /// The byte_offset must be on a valid UTF-8 character boundary.
 /// This is guaranteed by the position extraction process which uses
@@ -78,10 +78,10 @@ pub struct ItemPosition {
 
 impl ItemPosition {
     /// Validate that this position's byte offset is on a character boundary
-    /// 
+    ///
     /// # Arguments
     /// * `text` - The text to validate against
-    /// 
+    ///
     /// # Returns
     /// * `Ok(())` if the offset is valid
     /// * `Err(String)` with details if the offset is invalid
@@ -94,22 +94,25 @@ impl ItemPosition {
                 text.len()
             ));
         }
-        
-        if self.byte_offset > 0 && self.byte_offset < text.len() && !text.is_char_boundary(self.byte_offset) {
+
+        if self.byte_offset > 0
+            && self.byte_offset < text.len()
+            && !text.is_char_boundary(self.byte_offset)
+        {
             return Err(format!(
                 "Byte offset {} is not on a character boundary",
                 self.byte_offset
             ));
         }
-        
+
         Ok(())
     }
-    
+
     /// Convert byte offset to character index
-    /// 
+    ///
     /// # Arguments
     /// * `text` - The text to calculate character index in
-    /// 
+    ///
     /// # Returns
     /// The character index, or None if the byte offset is invalid
     pub fn to_char_index(&self, text: &str) -> Option<usize> {
@@ -132,6 +135,135 @@ pub struct PositionTree {
     pub text_positions: Vec<TextPosition>,
     /// Child elements
     pub children: Vec<PositionTree>,
+}
+
+impl PositionTree {
+    /// Calculate selection rectangles for a byte range within this element tree
+    ///
+    /// # Arguments
+    /// * `start_byte` - Start byte offset (inclusive)
+    /// * `end_byte` - End byte offset (exclusive)
+    /// * `parent_offset` - Offset of parent element for coordinate transformation
+    ///
+    /// # Returns
+    /// Vector of rectangles representing the selection, in element-relative coordinates
+    pub fn calculate_selection_rectangles(
+        &self,
+        start_byte: usize,
+        end_byte: usize,
+        parent_offset: Vector2D<f32, PixelUnit>,
+    ) -> Vec<Rect<f32, PixelUnit>> {
+        // Validate selection range
+        if start_byte > end_byte {
+            log::warn!(
+                "Invalid selection range: start {} > end {}",
+                start_byte,
+                end_byte
+            );
+            return Vec::new();
+        }
+
+        let mut rects = Vec::new();
+        let element_offset = parent_offset + self.bounds.origin.to_vector();
+
+        // Process text positions in this element
+        if !self.text_positions.is_empty() {
+            self.add_text_selection_rects(start_byte, end_byte, element_offset, &mut rects);
+        }
+
+        // Recurse into children
+        for child in &self.children {
+            let child_rects =
+                child.calculate_selection_rectangles(start_byte, end_byte, element_offset);
+            rects.extend(child_rects);
+        }
+
+        rects
+    }
+
+    /// Get the line height for this element type
+    pub fn get_line_height(&self) -> f32 {
+        match &self.element_type {
+            ElementType::Paragraph { line_height, .. } => *line_height,
+            ElementType::Heading { font_size, .. } => font_size * 1.2,
+            ElementType::CodeBlock { line_height, .. } => *line_height,
+            ElementType::InlineText { .. } => 20.0, // Default
+            ElementType::InlineCode { .. } => 20.0, // Default
+            ElementType::ListItem { .. } => 20.0,   // Default
+        }
+    }
+
+    /// Add selection rectangles for text positions
+    fn add_text_selection_rects(
+        &self,
+        start_byte: usize,
+        end_byte: usize,
+        offset: Vector2D<f32, PixelUnit>,
+        rects: &mut Vec<Rect<f32, PixelUnit>>,
+    ) {
+        // Group positions by line
+        let mut lines: HashMap<usize, Vec<&TextPosition>> = HashMap::new();
+        for pos in &self.text_positions {
+            lines.entry(pos.line_index).or_default().push(pos);
+        }
+
+        // Get line height for this element
+        let line_height = self.get_line_height();
+
+        // Process each line
+        for (line_index, line_positions) in lines {
+            if let Some(line_rect) = self.calculate_line_selection_rect(
+                line_positions,
+                start_byte,
+                end_byte,
+                line_height,
+            ) {
+                // Apply offset to convert to absolute coordinates
+                let absolute_rect = Rect::new(
+                    Point2D::new(line_rect.origin.x + offset.x, line_rect.origin.y + offset.y),
+                    line_rect.size,
+                );
+                rects.push(absolute_rect);
+            }
+        }
+    }
+
+    /// Calculate selection rectangle for a single line
+    fn calculate_line_selection_rect(
+        &self,
+        line_positions: Vec<&TextPosition>,
+        start_byte: usize,
+        end_byte: usize,
+        line_height: f32,
+    ) -> Option<Rect<f32, PixelUnit>> {
+        // Find the leftmost and rightmost positions within the selection range
+        let mut min_x = f32::MAX;
+        let mut max_x = f32::MIN;
+        let mut y_pos = 0.0;
+        let mut found_any = false;
+
+        for pos in line_positions {
+            // Check if this position is within the selection range
+            if pos.byte_offset >= start_byte && pos.byte_offset < end_byte {
+                min_x = min_x.min(pos.x_start);
+                max_x = max_x.max(pos.x_end);
+                y_pos = pos.y;
+                found_any = true;
+            }
+            // Note: We don't need to check for glyphs that span the selection boundary
+            // because byte_offset represents the start of the glyph, and selections
+            // are made at glyph boundaries in our implementation
+        }
+
+        if found_any {
+            Some(Rect::new(
+                Point2D::new(min_x, y_pos),
+                Size2D::new(max_x - min_x, line_height),
+            ))
+        } else {
+            None
+        }
+    }
 }
 
 /// Position information for a single text segment
@@ -237,10 +369,10 @@ pub struct PositionCacheKey {
 }
 
 /// LRU cache for position data
-/// 
-/// Note: This uses a Vec for LRU tracking with O(n) lookup for simplicity. 
-/// With our limit of 100 entries, this is acceptable performance-wise. 
-/// For larger caches, consider using a proper LRU data structure like 
+///
+/// Note: This uses a Vec for LRU tracking with O(n) lookup for simplicity.
+/// With our limit of 100 entries, this is acceptable performance-wise.
+/// For larger caches, consider using a proper LRU data structure like
 /// the `lru` crate or `IndexMap`.
 pub struct TextPositionCache {
     /// Cached position trees by key

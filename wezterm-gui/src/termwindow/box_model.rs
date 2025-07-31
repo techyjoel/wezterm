@@ -1114,9 +1114,9 @@ pub struct WrappedLine {
 
 impl WrappedLine {
     /// Convert a cluster position (relative to shaped text) to document byte offset
-    /// 
+    ///
     /// # Unicode Safety
-    /// 
+    ///
     /// HarfBuzz clusters represent byte offsets that are guaranteed to be on
     /// character boundaries in the shaped text. This method preserves that
     /// guarantee by only adding offsets that also respect character boundaries
@@ -1131,13 +1131,13 @@ impl WrappedLine {
             self.byte_offset + self.shaped_offset + cluster as usize
         }
     }
-    
+
     /// Validate that a byte offset is on a UTF-8 character boundary
-    /// 
+    ///
     /// # Arguments
     /// * `text` - The text to validate against
     /// * `byte_offset` - The byte offset to check
-    /// 
+    ///
     /// # Returns
     /// * `true` if the offset is valid (on a character boundary or at text end)
     /// * `false` if the offset would split a UTF-8 sequence

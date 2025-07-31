@@ -242,18 +242,19 @@ fn determine_element_type(
                     ComputedElementContent::MultilineText { line_height, .. } => *line_height,
                     _ => PARAGRAPH_LINE_HEIGHT * HEADING_LINE_HEIGHT_MULTIPLIER,
                 };
-                
+
                 // Calculate font size based on user's configured sidebar font size
                 let base_font_size = fonts.body.metrics().cell_height.get() as f32;
-                let font_size = base_font_size * match level {
-                    pulldown_cmark::HeadingLevel::H1 => H1_FONT_SIZE_MULTIPLIER,
-                    pulldown_cmark::HeadingLevel::H2 => H2_FONT_SIZE_MULTIPLIER,
-                    pulldown_cmark::HeadingLevel::H3 => H3_FONT_SIZE_MULTIPLIER,
-                    pulldown_cmark::HeadingLevel::H4 => H4_FONT_SIZE_MULTIPLIER,
-                    pulldown_cmark::HeadingLevel::H5 => H5_FONT_SIZE_MULTIPLIER,
-                    pulldown_cmark::HeadingLevel::H6 => H6_FONT_SIZE_MULTIPLIER,
-                };
-                
+                let font_size = base_font_size
+                    * match level {
+                        pulldown_cmark::HeadingLevel::H1 => H1_FONT_SIZE_MULTIPLIER,
+                        pulldown_cmark::HeadingLevel::H2 => H2_FONT_SIZE_MULTIPLIER,
+                        pulldown_cmark::HeadingLevel::H3 => H3_FONT_SIZE_MULTIPLIER,
+                        pulldown_cmark::HeadingLevel::H4 => H4_FONT_SIZE_MULTIPLIER,
+                        pulldown_cmark::HeadingLevel::H5 => H5_FONT_SIZE_MULTIPLIER,
+                        pulldown_cmark::HeadingLevel::H6 => H6_FONT_SIZE_MULTIPLIER,
+                    };
+
                 return Some(ElementType::Heading {
                     level: match level {
                         pulldown_cmark::HeadingLevel::H1 => 1,
@@ -272,7 +273,7 @@ fn determine_element_type(
                     ComputedElementContent::MultilineText { line_height, .. } => *line_height,
                     _ => CODE_LINE_HEIGHT,
                 };
-                
+
                 return Some(ElementType::CodeBlock {
                     line_height,
                     padding: computed.padding.width() / 2.0,
@@ -284,7 +285,7 @@ fn determine_element_type(
             }
             crate::termwindow::box_model::SemanticType::ListItem { ordered, depth } => {
                 let indent = computed.padding.origin.x;
-                
+
                 return Some(ElementType::ListItem {
                     indent,
                     marker_width: LIST_MARKER_WIDTH,
@@ -310,7 +311,7 @@ fn determine_element_type(
     // This ensures we don't break existing code that hasn't been updated with semantic tagging
     // TODO: Remove this fallback once all markdown rendering uses semantic types
     log::debug!("No semantic type found, using visual detection fallback for element");
-    
+
     // DEPRECATED: Visual detection - fragile and theme-dependent
     // Check for code block characteristics
     let has_code_bg = match &computed.colors.bg {
@@ -361,15 +362,16 @@ pub fn extract_markdown_positions(
     let element_type = match markdown_type {
         MarkdownElementType::Heading { level } => ElementType::Heading {
             level,
-            font_size: base_font_size * match level {
-                1 => H1_FONT_SIZE_MULTIPLIER,
-                2 => H2_FONT_SIZE_MULTIPLIER,
-                3 => H3_FONT_SIZE_MULTIPLIER,
-                4 => H4_FONT_SIZE_MULTIPLIER,
-                5 => H5_FONT_SIZE_MULTIPLIER,
-                6 => H6_FONT_SIZE_MULTIPLIER,
-                _ => 1.0,
-            },
+            font_size: base_font_size
+                * match level {
+                    1 => H1_FONT_SIZE_MULTIPLIER,
+                    2 => H2_FONT_SIZE_MULTIPLIER,
+                    3 => H3_FONT_SIZE_MULTIPLIER,
+                    4 => H4_FONT_SIZE_MULTIPLIER,
+                    5 => H5_FONT_SIZE_MULTIPLIER,
+                    6 => H6_FONT_SIZE_MULTIPLIER,
+                    _ => 1.0,
+                },
             margin: 12.0,
         },
         MarkdownElementType::CodeBlock => ElementType::CodeBlock {
@@ -416,7 +418,6 @@ pub enum MarkdownElementType {
     ListItem { depth: usize, is_ordered: bool },
     InlineCode,
 }
-
 
 /// Store extracted positions in the sidebar
 pub fn store_activity_item_positions(
