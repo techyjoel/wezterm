@@ -1,3 +1,4 @@
+use crate::sidebar::sidebar_constants::{CARD_BORDER, CARD_CONTENT_PADDING, CARD_MARGIN};
 use crate::termwindow::box_model::{
     BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent,
 };
@@ -142,7 +143,7 @@ impl Card {
             let content_wrapper =
                 Element::new(font, ElementContent::Children(self.content.clone()))
                     .display(DisplayType::Block)
-                    .padding(BoxDimension::new(Dimension::Pixels(12.0)));
+                    .padding(BoxDimension::new(Dimension::Pixels(CARD_CONTENT_PADDING)));
             children.push(content_wrapper);
         }
 
@@ -166,8 +167,8 @@ impl Card {
         // Create the card container
         let mut card = Element::new(font, ElementContent::Children(children))
             .display(DisplayType::Block)
-            .border(BoxDimension::new(Dimension::Pixels(1.0)))
-            .margin(BoxDimension::new(Dimension::Pixels(8.0)))
+            .border(BoxDimension::new(Dimension::Pixels(CARD_BORDER)))
+            .margin(BoxDimension::new(Dimension::Pixels(CARD_MARGIN)))
             .colors(ElementColors {
                 border: BorderColor::new(LinearRgba::with_components(0.3, 0.3, 0.35, 1.0)),
                 bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),

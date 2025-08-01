@@ -105,6 +105,11 @@ impl super::TermWindow {
         let x = event.coords.x;
         let y = event.coords.y;
 
+        // Debug log during drag to see what UI items are being resolved
+        if matches!(event.kind, WMEK::Move) && !event.mouse_buttons.is_empty() {
+            log::debug!("resolve_ui_item during drag at ({}, {})", x, y);
+        }
+
         // Debug logging for goal area clicks
         let sidebar_manager = self.sidebar_manager.borrow();
         let sidebar_width = sidebar_manager.get_window_expansion() as f32;
@@ -121,10 +126,12 @@ impl super::TermWindow {
 
             // Log mouse position and UI items
             log::debug!(
-                "Mouse event at ({}, {}), checking {} UI items", 
-                x, y, self.ui_items.len()
+                "Mouse event at ({}, {}), checking {} UI items",
+                x,
+                y,
+                self.ui_items.len()
             );
-            
+
             // Log all UIItems that could match this position
             for (idx, item) in self.ui_items.iter().enumerate().rev() {
                 if item.hit_test(x, y) {
@@ -209,6 +216,8 @@ impl super::TermWindow {
     /// 3. UI items (via hit testing)
     /// 4. Terminal pane content
     pub fn mouse_event_impl(&mut self, event: MouseEvent, context: &dyn WindowOps) {
+        log::debug!("mouse_event_impl: event.kind={:?}, mouse_buttons={:?}, text_selection_drag_active={}", 
+                   event.kind, event.mouse_buttons, self.text_selection_drag_active);
         log::trace!("{:?}", event);
         let pane = match self.get_active_pane_or_overlay() {
             Some(pane) => pane,
@@ -274,6 +283,7 @@ impl super::TermWindow {
         match event.kind {
             WMEK::Release(ref press) => {
                 self.current_mouse_capture = None;
+                // Don't clear text_selection_drag_active here - let the specific handlers do it
                 self.current_mouse_buttons.retain(|p| p != press);
                 if press == &MousePress::Left && self.window_drag_position.take().is_some() {
                     // Completed a window drag
@@ -398,8 +408,14 @@ impl super::TermWindow {
 
         let prior_ui_item = self.last_ui_item.clone();
 
-        let ui_item = if matches!(self.current_mouse_capture, None | Some(MouseCapture::UI)) {
+        let ui_item = if matches!(
+            self.current_mouse_capture,
+            None | Some(MouseCapture::UI) | Some(MouseCapture::TextSelection)
+        ) {
+            log::debug!("About to resolve_ui_item - event.kind: {:?}, mouse_buttons: {:?}, text_selection_drag: {}", 
+                      event.kind, event.mouse_buttons, self.text_selection_drag_active);
             let ui_item = self.resolve_ui_item(&event);
+            log::debug!("resolve_ui_item returned: {:?}", ui_item.as_ref().map(|item| &item.item_type));
 
             match (self.last_ui_item.take(), &ui_item) {
                 (Some(prior), Some(item)) => {
@@ -452,6 +468,38 @@ impl super::TermWindow {
                     self.current_mouse_capture = Some(MouseCapture::UI);
                 }
                 self.mouse_event_ui_item(item, pane, y, event, context);
+            }
+        } else if self.text_selection_drag_active && matches!(event.kind, WMEK::Move) {
+            // Special handling for text selection drag when UI item can't be resolved
+            // This happens when UI items are rebuilt during paint
+            log::debug!("SPECIAL HANDLING: text selection drag without UI item");
+
+            let window_point = euclid::Point2D::new(event.coords.x as f32, event.coords.y as f32);
+
+            // Use hierarchical hit testing directly on the sidebar
+            let hit_result = with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
+                ai_sidebar.hit_test_activity_log(window_point)
+            })
+            .flatten();
+
+            if let Some(hit) = hit_result {
+                log::debug!(
+                    "Text selection drag hit test found item {} at byte {}",
+                    hit.item_index,
+                    hit.position_in_item.byte_offset
+                );
+                with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
+                    // Ensure selection is active
+                    if !ai_sidebar.is_selecting() {
+                        ai_sidebar.activate_prepared_selection();
+                    }
+                    // Update selection with new position
+                    ai_sidebar.update_activity_log_selection_drag(
+                        hit.item_index,
+                        hit.position_in_item.byte_offset,
+                    );
+                });
+                context.invalidate();
             }
         } else if matches!(
             self.current_mouse_capture,
@@ -594,6 +642,23 @@ impl super::TermWindow {
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
+        // Debug log mouse event details for activity and goal items
+        match &item.item_type {
+            UIItemType::ActivityItemText { .. } => {
+                log::debug!(
+                    "mouse_event_ui_item ActivityItemText - event.mouse_buttons: {:?}",
+                    event.mouse_buttons
+                );
+            }
+            UIItemType::GoalText { .. } => {
+                log::debug!(
+                    "mouse_event_ui_item GoalText - event.mouse_buttons: {:?}",
+                    event.mouse_buttons
+                );
+            }
+            _ => {}
+        }
+
         self.last_ui_item.replace(item.clone());
 
         // Debug logging for goal text
@@ -1836,7 +1901,15 @@ impl super::TermWindow {
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
+        log::debug!("mouse_event_activity_item_text called with event.kind: {:?}", event.kind);
         context.set_cursor(Some(MouseCursor::Text));
+
+        // Set mouse capture on press to ensure drag events work properly
+        if matches!(event.kind, WMEK::Press(MousePress::Left)) {
+            log::debug!("Setting text_selection_drag_active = true");
+            self.current_mouse_capture = Some(MouseCapture::TextSelection);
+            self.text_selection_drag_active = true;
+        }
 
         match event.kind {
             WMEK::Press(MousePress::Left) => {
@@ -1854,13 +1927,29 @@ impl super::TermWindow {
 
                 // Use hierarchical hit testing to find exact text position
                 let hit_result = with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
-                    ai_sidebar.hit_test_activity_log(window_point)
+                    log::debug!(
+                        "Calling hit_test_activity_log for window point {:?}",
+                        window_point
+                    );
+                    let result = ai_sidebar.hit_test_activity_log(window_point);
+                    log::debug!("Hit test result: {:?}", result);
+                    result
                 })
                 .flatten();
 
                 if let Some(ref hit) = hit_result {
+                    log::debug!(
+                        "Hit result: item_index={}, byte_offset={}",
+                        hit.item_index,
+                        hit.position_in_item.byte_offset
+                    );
                     if hit.item_index == index {
                         // Start selection at the hit position
+                        log::debug!(
+                            "Starting selection at item {} byte offset {}",
+                            hit.item_index,
+                            hit.position_in_item.byte_offset
+                        );
                         with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
                             ai_sidebar.start_activity_log_selection(
                                 hit.item_index,
@@ -1871,6 +1960,8 @@ impl super::TermWindow {
                         context.invalidate();
                         return;
                     }
+                } else {
+                    log::debug!("Hit test returned None");
                 }
 
                 // Fallback to character positions if hierarchical hit testing fails
@@ -1921,8 +2012,16 @@ impl super::TermWindow {
                 }
             }
             WMEK::Move => {
-                // Only start selection if mouse button is pressed (dragging)
-                if event.mouse_buttons.contains(MouseButtons::LEFT) {
+                log::debug!("ActivityItem WMEK::Move event - event.mouse_buttons: {:?}, current_mouse_buttons: {:?}, text_selection_drag: {}", 
+                          event.mouse_buttons, self.current_mouse_buttons, self.text_selection_drag_active);
+                // Check our text selection drag state instead of relying on event.mouse_buttons
+                // which can be lost when UI items are rebuilt
+                if self.text_selection_drag_active {
+                    log::debug!(
+                        "ActivityItem drag detected at ({}, {})",
+                        event.coords.x,
+                        event.coords.y
+                    );
                     let window_point =
                         euclid::Point2D::new(event.coords.x as f32, event.coords.y as f32);
 
@@ -1933,6 +2032,11 @@ impl super::TermWindow {
                     .flatten();
 
                     if let Some(hit) = hit_result {
+                        log::debug!(
+                            "Hit test during drag found item {} at byte {}",
+                            hit.item_index,
+                            hit.position_in_item.byte_offset
+                        );
                         with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
                             // Activate selection if not already active
                             if !ai_sidebar.is_selecting() {
@@ -1945,6 +2049,7 @@ impl super::TermWindow {
                                 hit.position_in_item.byte_offset,
                             );
                         });
+                        context.invalidate();  // Ensure UI updates during drag
                     } else {
                         // If hit testing fails during drag, we're likely outside the activity log
                         // Continue with the last valid position
@@ -1956,6 +2061,8 @@ impl super::TermWindow {
             }
             WMEK::Release(MousePress::Left) => {
                 // End selection
+                log::debug!("ActivityItem Release: clearing text_selection_drag_active (was {})", self.text_selection_drag_active);
+                self.text_selection_drag_active = false;
                 with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
                     ai_sidebar.end_selection();
                 });
@@ -2086,6 +2193,12 @@ impl super::TermWindow {
             event.kind
         );
         context.set_cursor(Some(MouseCursor::Text));
+
+        // Set mouse capture on press to ensure drag events work properly
+        if matches!(event.kind, WMEK::Press(MousePress::Left)) {
+            self.current_mouse_capture = Some(MouseCapture::TextSelection);
+            self.text_selection_drag_active = true;
+        }
 
         match event.kind {
             WMEK::Press(MousePress::Left) => {

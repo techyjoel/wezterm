@@ -112,6 +112,7 @@ pub fn get_window_class() -> String {
 pub enum MouseCapture {
     UI,
     TerminalPane(PaneId),
+    TextSelection, // NEW: Specific capture for text selection drag
 }
 
 /// Type used together with Window::notify to do something in the
@@ -449,6 +450,8 @@ pub struct TermWindow {
     current_modifier_and_leds: (Modifiers, KeyboardLedStatus),
     current_mouse_buttons: Vec<MousePress>,
     current_mouse_capture: Option<MouseCapture>,
+    /// Track text selection drag state separately to handle UI item rebuilds
+    text_selection_drag_active: bool,
 
     opengl_info: Option<String>,
 
@@ -905,6 +908,7 @@ impl TermWindow {
             pane_state: RefCell::new(HashMap::new()),
             current_mouse_buttons: vec![],
             current_mouse_capture: None,
+            text_selection_drag_active: false,
             last_mouse_click: None,
             current_highlight: None,
             quad_generation: 0,

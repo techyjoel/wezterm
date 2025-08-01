@@ -615,9 +615,11 @@ impl crate::TermWindow {
                         .update_activity_log_height_cache(&activity_log_computed, viewport_height);
 
                     // Update coordinate transform for the sidebar
+                    // Use activity_bounds.origin.y instead of 0.0 to properly transform
+                    // window coordinates to activity log viewport coordinates
                     ai_sidebar.update_coordinate_transform(
                         sidebar_x,
-                        0.0,
+                        activity_bounds.origin.y,
                         visible_width,
                         self.dimensions.pixel_height as f32,
                     );
@@ -634,27 +636,48 @@ impl crate::TermWindow {
                             );
                             ai_sidebar.set_activity_item_bounds(*index, item_bounds);
                             log::debug!(
-                                "Set activity item {} bounds: x={}, y={}, w={}, h={}",
+                                "Set activity item {} bounds: x={}, y={}, w={}, h={} (activity_bounds.y={})",
                                 index,
                                 item_bounds.origin.x,
                                 item_bounds.origin.y,
                                 item_bounds.size.width,
-                                item_bounds.size.height
+                                item_bounds.size.height,
+                                activity_bounds.origin.y
                             );
 
                             // Extract position data for this activity item
+                            log::debug!(
+                                "Attempting to extract positions for activity item {}",
+                                index
+                            );
+                            // Get the actual item bounds to pass to position extraction
+                            let item_bounds = ai_sidebar.get_activity_item_bounds(*index);
                             if let Some(position_tree) = crate::termwindow::render::activity_log_positions::extract_activity_item_positions(
                                 &activity_log_computed,
                                 &ui_item.item_type,
                                 &fonts,
+                                item_bounds,
                             ) {
+                                // Calculate viewport_y: the item's position relative to the visible viewport
+                                // ui_item.y is in window coordinates
+                                // activity_bounds.origin.y is the top of the activity log viewport in window coordinates
+                                // We need to subtract these to get viewport-relative coordinates
                                 let viewport_y = ui_item.y as f32 - activity_bounds.origin.y;
+
+                                // Debug logging to understand the values
+                                log::debug!(
+                                    "Item {} viewport_y calculation: ui_item.y={}, activity_bounds.origin.y={}, viewport_y={}",
+                                    index, ui_item.y, activity_bounds.origin.y, viewport_y
+                                );
+
                                 crate::termwindow::render::activity_log_positions::store_activity_item_positions(
                                     ai_sidebar,
                                     *index,
                                     position_tree,
                                     viewport_y,
                                 );
+                            } else {
+                                log::debug!("Failed to extract positions for activity item {}", index);
                             }
                         }
                     }
@@ -1014,7 +1037,6 @@ impl crate::TermWindow {
             self.render_sidebar_modals(&sidebar, sidebar_x, visible_width)?;
         }
 
-
         Ok(())
     }
 
@@ -1024,6 +1046,7 @@ impl crate::TermWindow {
         sidebar: &Arc<std::sync::Mutex<dyn crate::sidebar::Sidebar>>,
         sidebar_x: f32,
     ) -> Result<()> {
+        log::debug!("render_sidebar_selection_overlays called");
         let mut sidebar_locked = sidebar.lock().unwrap();
         if let Some(ai_sidebar) = sidebar_locked
             .as_any_mut()

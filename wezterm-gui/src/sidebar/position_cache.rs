@@ -236,6 +236,35 @@ impl PositionTree {
         end_byte: usize,
         line_height: f32,
     ) -> Option<Rect<f32, PixelUnit>> {
+        // Handle zero-width selection (cursor position)
+        if start_byte == end_byte {
+            // Find the position at or just before the cursor
+            let mut best_pos: Option<&TextPosition> = None;
+            for pos in &line_positions {
+                if pos.byte_offset <= start_byte {
+                    best_pos = Some(pos);
+                } else {
+                    break;
+                }
+            }
+
+            if let Some(pos) = best_pos {
+                // Place cursor at the end of the found position if it matches exactly,
+                // or at the start of the next position
+                let x = if pos.byte_offset == start_byte {
+                    pos.x_start
+                } else {
+                    pos.x_end
+                };
+
+                return Some(Rect::new(
+                    Point2D::new(x, pos.y),
+                    Size2D::new(2.0, line_height), // 2px wide cursor
+                ));
+            }
+            return None;
+        }
+
         // Find the leftmost and rightmost positions within the selection range
         let mut min_x = f32::MAX;
         let mut max_x = f32::MIN;
@@ -455,7 +484,34 @@ impl PositionTreeBuilder {
 
     pub fn add_text_position(&mut self, position: TextPosition) {
         if let Some(ref mut current) = self.current_element {
-            current.text_positions.push(position);
+            // Check for duplicate or overlapping positions
+            // This prevents markdown elements from creating multiple selection rectangles
+            // We consider positions duplicate if they have the same byte offset,
+            // even if x coordinates differ slightly due to rounding or nested elements
+            let is_duplicate = current.text_positions.iter().any(|p| {
+                // Same byte offset is always a duplicate
+                if p.byte_offset == position.byte_offset {
+                    // Allow if on different lines (legitimate multi-line text)
+                    if p.line_index != position.line_index {
+                        return false;
+                    }
+                    // Same byte, same line = duplicate
+                    return true;
+                }
+                false
+            });
+            
+            if !is_duplicate {
+                current.text_positions.push(position);
+            } else {
+                log::trace!(
+                    "Skipping duplicate text position: byte_offset={}, line_index={}, x={:.1}-{:.1}",
+                    position.byte_offset,
+                    position.line_index,
+                    position.x_start,
+                    position.x_end
+                );
+            }
         }
     }
 
@@ -476,8 +532,22 @@ impl PositionTreeBuilder {
     pub fn build(mut self) -> Option<PositionTree> {
         // End any remaining elements
         while !self.element_stack.is_empty() {
+            log::debug!(
+                "PositionTreeBuilder::build: Ending {} remaining elements on stack",
+                self.element_stack.len()
+            );
             self.end_element();
         }
+
+        if self.current_element.is_none() {
+            log::debug!("PositionTreeBuilder::build: No current element - returning None");
+        } else if let Some(ref elem) = self.current_element {
+            log::debug!(
+                "PositionTreeBuilder::build: Returning tree with {} text positions",
+                elem.text_positions.len()
+            );
+        }
+
         self.current_element
     }
 }

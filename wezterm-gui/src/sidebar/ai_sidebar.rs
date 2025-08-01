@@ -18,6 +18,10 @@ use super::components::{
 use super::{Sidebar, SidebarConfig, SidebarFonts, SidebarPosition};
 use crate::color::LinearRgba;
 use crate::sidebar::position_cache::ElementType;
+use crate::sidebar::sidebar_constants::{
+    CARD_BORDER, CARD_CONTENT_PADDING, CHAT_ITEM_PADDING, CHAT_ITEM_BOTTOM_MARGIN, 
+    CHAT_ITEM_BORDER, CHAT_ITEM_HORIZONTAL_MARGIN, GOAL_CARD_PADDING, SCROLLBAR_SPACE,
+};
 use crate::termwindow::box_model::{
     BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent, Float,
     InheritableColor, StyleSpan,
@@ -43,12 +47,7 @@ const WIDTH_CHANGE_THRESHOLD: f32 = 5.0; // Pixels of width change to trigger ca
 const HEIGHT_CHANGE_HYSTERESIS: f32 = 2.0; // Minimum height change to update cache
 
 // Activity item spacing constants (must match render_activity_item)
-const CHAT_ITEM_PADDING: f32 = 12.0; // Padding on all sides
-const CHAT_ITEM_BOTTOM_MARGIN: f32 = 8.0; // Bottom margin between chat items
-const CHAT_ITEM_BORDER: f32 = 1.0; // Border width
-const CHAT_ITEM_HORIZONTAL_MARGIN: f32 = 20.0; // Left margin for user, right margin for AI
 const CARD_DEFAULT_MARGIN: f32 = 8.0; // Default card margin (for commands/suggestions)
-const SCROLLBAR_SPACE: f32 = 12.0; // Space reserved for scrollbar
 
 /// Tracks height measurement state for activity items
 #[derive(Debug, Clone, Default)]
@@ -83,7 +82,6 @@ struct VisualAnchor {
 const SUGGESTION_CHAR_WIDTH_MULTIPLIER: f32 = 0.4; // Try to get close to 2 full lines (but not beyond)
 
 // Selection rendering constants
-const GOAL_CARD_PADDING: f32 = 8.0; // Padding inside goal card
 const SELECTION_CHAR_WIDTH: f32 = 8.5; // Approximate character width for selection
 const SELECTION_LINE_HEIGHT: f32 = 25.0; // Height of selection rectangle
 const SELECTION_VERTICAL_OFFSET: f32 = 4.0; // Offset to align selection with text
@@ -632,6 +630,13 @@ impl AiSidebar {
 
     /// Update activity log selection during drag, handling crossing item boundaries
     pub fn update_activity_log_selection_drag(&mut self, item_index: usize, byte_offset: usize) {
+        log::debug!(
+            "update_activity_log_selection_drag: item_index={}, byte_offset={}, is_dragging={}",
+            item_index,
+            byte_offset,
+            self.selection_state.is_dragging
+        );
+
         if !self.selection_state.is_dragging {
             return;
         }
@@ -643,6 +648,14 @@ impl AiSidebar {
             ..
         }) = &self.selection_state.active_selection
         {
+            log::debug!(
+                "Updating selection from anchor=({}, {}) to current=({}, {})",
+                anchor_index,
+                anchor_byte,
+                item_index,
+                byte_offset
+            );
+
             // Update the selection to span from anchor to current position
             // This properly handles selection across multiple items
             self.selection_state.active_selection = Some(SelectionTarget::ActivityItem {
@@ -690,6 +703,18 @@ impl AiSidebar {
     /// Prepare for potential selection (on mouse down)
     /// Returns true if UI should be invalidated
     pub fn prepare_selection(&mut self, target: SelectionTarget) -> bool {
+        log::debug!(
+            "prepare_selection called with target: {:?}",
+            match &target {
+                SelectionTarget::ActivityItem {
+                    anchor_index,
+                    anchor_byte,
+                    ..
+                } => format!("ActivityItem(index={}, byte={})", anchor_index, anchor_byte),
+                _ => format!("{:?}", target),
+            }
+        );
+
         // Check if clicking on existing selection to deselect
         if let Some(active) = &self.selection_state.active_selection {
             // If clicking within the same target type, clear selection
@@ -1738,26 +1763,27 @@ This example demonstrates:
                 let content = if *is_user {
                     // User messages - use WrappedText for proper width calculation
                     // Selection is now rendered as an overlay, not inline styles
-                    Element::new(
-                        &fonts.body,
-                        ElementContent::WrappedText(message.clone()),
-                    )
-                    .item_type(UIItemType::ActivityItemText {
-                        index: item_index,
-                        char_positions: Vec::new(), // Position data extracted after rendering
-                    })
-                    .colors(ElementColors {
-                        text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
-                        ..Default::default()
-                    })
-                    .max_width(Some(Dimension::Pixels(content_width)))
+                    Element::new(&fonts.body, ElementContent::WrappedText(message.clone()))
+                        .item_type(UIItemType::ActivityItemText {
+                            index: item_index,
+                            char_positions: Vec::new(), // Position data extracted after rendering
+                        })
+                        .colors(ElementColors {
+                            text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
+                            ..Default::default()
+                        })
+                        .max_width(Some(Dimension::Pixels(content_width)))
                 } else {
                     // AI messages - use markdown rendering
                     // Selection is now rendered as an overlay, not inline styles
                     if selection.is_some() {
                         // When there's a selection, we still use markdown but the selection
                         // will be rendered as an overlay
-                        let elem = MarkdownRenderer::render_with_fonts(message, fonts, Some(content_width));
+                        let elem = MarkdownRenderer::render_with_fonts(
+                            message,
+                            fonts,
+                            Some(content_width),
+                        );
 
                         // Add item type for click handling
                         elem.item_type(UIItemType::ActivityItemText {
@@ -2163,6 +2189,11 @@ This example demonstrates:
         // Render visible items
         for idx in self.activity_log_visible_range.clone() {
             if let Some((orig_idx, item)) = filtered_items.get(idx) {
+                log::debug!(
+                    "Rendering item at filtered index {} = original index {}",
+                    idx,
+                    orig_idx
+                );
                 let mut element = self.render_activity_item(item, fonts, *orig_idx, palette);
 
                 // Attach cached height if available
@@ -2758,7 +2789,21 @@ This example demonstrates:
         index: usize,
         position_data: crate::sidebar::position_cache::ItemPositionData,
     ) {
+        log::debug!(
+            "Storing item positions for index {}, viewport_y={:?}",
+            index,
+            position_data.viewport_y
+        );
         self.item_positions.insert(index, position_data);
+        log::debug!("Total item positions stored: {}", self.item_positions.len());
+    }
+
+    /// Get the bounds for a specific activity item
+    pub fn get_activity_item_bounds(
+        &self,
+        index: usize,
+    ) -> Option<euclid::Rect<f32, window::PixelUnit>> {
+        self.activity_item_bounds.get(&index).copied()
     }
 
     /// Get position data for an activity item
@@ -2786,16 +2831,50 @@ This example demonstrates:
     ) -> Option<crate::sidebar::position_cache::HitResult> {
         use crate::sidebar::position_cache::{ItemCoord, ViewportCoord, WindowCoord};
 
+        log::debug!("hit_test_activity_log: window_point={:?}", window_point);
+
         // 1. Window → Viewport transformation
         let viewport_point = self
             .coordinate_transform
             .window_to_viewport(WindowCoord(window_point));
 
+        log::debug!("Viewport point: {:?}", viewport_point);
+
         // 2. Find which item was hit
+        log::debug!("Checking {} item positions", self.item_positions.len());
+        log::debug!(
+            "Available indices: {:?}",
+            self.item_positions.keys().collect::<Vec<_>>()
+        );
+
+        // Debug: print all stored item viewport_y positions and check against click
+        for (idx, data) in &self.item_positions {
+            if let Some(y) = data.viewport_y {
+                let height = data.position_tree.bounds.size.height;
+                let in_range = viewport_point.0.y >= y && viewport_point.0.y < y + height;
+                log::debug!(
+                    "Item {}: viewport_y={}, height={}, click_y={}, in_range={}",
+                    idx,
+                    y,
+                    height,
+                    viewport_point.0.y,
+                    in_range
+                );
+            }
+        }
+
         for (index, item_data) in &self.item_positions {
             if let Some(item_viewport_y) = item_data.viewport_y {
                 // Check if point is within item bounds vertically
                 let item_height = item_data.position_tree.bounds.size.height;
+                log::debug!(
+                    "Item {}: viewport_y={}, height={}, point.y={}",
+                    index,
+                    item_viewport_y,
+                    item_height,
+                    viewport_point.0.y
+                );
+
                 if viewport_point.0.y >= item_viewport_y
                     && viewport_point.0.y < item_viewport_y + item_height
                 {
@@ -2804,9 +2883,27 @@ This example demonstrates:
                         .coordinate_transform
                         .viewport_to_item(viewport_point, item_viewport_y);
 
+                    log::debug!("Item {} hit! Item-relative point: {:?}", index, item_point);
+
                     // 4. Hit test within item (item-relative coordinates)
                     if let Some(position) = self.hit_test_item(&item_data.position_tree, item_point)
                     {
+                        // Debug: Log what we're finding vs what we're rendering
+                        if let Some(bounds) = self.activity_item_bounds.get(index) {
+                            log::debug!(
+                                "Hit test found position at byte_offset={} for click at item-relative ({:.1}, {:.1}), item bounds origin=({:.1}, {:.1})",
+                                position.byte_offset,
+                                item_point.0.x,
+                                item_point.0.y,
+                                bounds.origin.x,
+                                bounds.origin.y
+                            );
+                        }
+                        log::debug!(
+                            "Found text position in item {}: byte_offset={}",
+                            index,
+                            position.byte_offset
+                        );
                         // Validate the position if we have access to the item's text
                         if let Some(item) = self.activity_log.get(*index) {
                             let text = match item {
@@ -2853,13 +2950,14 @@ This example demonstrates:
             .item_to_element(point, &position_tree.bounds);
 
         // Handle different element types
+        // Note: Positions are now element-relative (padding already subtracted during extraction)
+        // So we no longer need to adjust for padding here
         match &position_tree.element_type {
-            ElementType::CodeBlock { padding, .. } => {
-                // Adjust for code block padding
-                let adjusted = element_point.0 - euclid::Vector2D::new(*padding, *padding);
+            ElementType::CodeBlock { .. } => {
+                // Positions already relative to code block content area
                 self.hit_test_text_positions(
                     &position_tree.text_positions,
-                    euclid::Point2D::new(adjusted.x, adjusted.y),
+                    element_point.0,
                     &position_tree.element_type,
                 )
             }
@@ -2868,7 +2966,8 @@ This example demonstrates:
                 marker_width,
                 ..
             } => {
-                // Account for list indentation and marker
+                // For list items, we still need to account for indentation and marker
+                // as these affect the text start position within the element
                 let adjusted = element_point.0 - euclid::Vector2D::new(indent + marker_width, 0.0);
                 // First check children (list item content)
                 for child in &position_tree.children {
@@ -2883,12 +2982,11 @@ This example demonstrates:
                     &position_tree.element_type,
                 )
             }
-            ElementType::InlineCode { padding, .. } => {
-                // Handle inline code padding
-                let adjusted = element_point.0 - euclid::Vector2D::new(*padding, 0.0);
+            ElementType::InlineCode { .. } => {
+                // Positions already relative to inline code content area
                 self.hit_test_text_positions(
                     &position_tree.text_positions,
-                    euclid::Point2D::new(adjusted.x, adjusted.y),
+                    element_point.0,
                     &position_tree.element_type,
                 )
             }
@@ -3014,7 +3112,22 @@ This example demonstrates:
 
     /// Get the active selection if any
     pub fn get_active_selection(&self) -> Option<&SelectionTarget> {
-        self.selection_state.active_selection.as_ref()
+        // Return active selection if dragging, otherwise check prepared selection
+        // This allows rendering selection feedback immediately on mouse down
+        let result = self
+            .selection_state
+            .active_selection
+            .as_ref()
+            .or(self.selection_state.prepared_selection.as_ref());
+
+        log::debug!(
+            "get_active_selection: active={:?}, prepared={:?}, returning={:?}",
+            self.selection_state.active_selection.is_some(),
+            self.selection_state.prepared_selection.is_some(),
+            result.is_some()
+        );
+
+        result
     }
 
     /// Calculate selection rectangles for the given selection target
@@ -3023,6 +3136,7 @@ This example demonstrates:
         selection: &SelectionTarget,
     ) -> Vec<euclid::Rect<f32, window::PixelUnit>> {
         let mut rects = Vec::new();
+        log::debug!("calculate_selection_rectangles called");
 
         match selection {
             SelectionTarget::ActivityItem {
@@ -3031,29 +3145,94 @@ This example demonstrates:
                 current_index,
                 current_byte,
             } => {
+                log::debug!(
+                    "ActivityItem selection: anchor=({}, {}), current=({}, {})",
+                    anchor_index,
+                    anchor_byte,
+                    current_index,
+                    current_byte
+                );
                 // For single-item selection
                 if anchor_index == current_index {
                     // Get the cached position data for this item
                     if let Some(position_data) = self.get_item_positions(*anchor_index) {
+                        log::debug!("Found position data for item {}", anchor_index);
                         // Get the activity item bounds for absolute positioning
                         if let Some(bounds) = self.activity_item_bounds.get(anchor_index) {
+                            log::debug!("Found bounds for item {}: {:?}", anchor_index, bounds);
                             let start_byte = anchor_byte.min(current_byte);
                             let end_byte = anchor_byte.max(current_byte);
 
                             // Calculate selection rectangles using the position tree
+                            // Positions are now element-relative (content area)
                             let item_rects =
                                 position_data.position_tree.calculate_selection_rectangles(
                                     *start_byte,
                                     *end_byte,
-                                    euclid::Vector2D::new(0.0, 0.0), // Item-relative coordinates
+                                    euclid::Vector2D::new(0.0, 0.0), // Element-relative coordinates
                                 );
+                            
+                            // Debug log to understand the rectangles
+                            log::debug!(
+                                "Item {} position tree returned {} rectangles",
+                                anchor_index,
+                                item_rects.len()
+                            );
+                            for (i, rect) in item_rects.iter().enumerate() {
+                                log::debug!(
+                                    "  Rect {}: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+                                    i, rect.origin.x, rect.origin.y, rect.size.width, rect.size.height
+                                );
+                            }
+
+                            // Element→Window coordinate transformation requires adding padding+border
+                            // Positions are Element-relative (0,0), but text renders at padding+border offset
+                            let content_offset = if let Some(item) = self.activity_log.get(*anchor_index) {
+                                match item {
+                                    ActivityItem::Chat { .. } => {
+                                        // Chat items have border + padding
+                                        CHAT_ITEM_BORDER + CHAT_ITEM_PADDING
+                                    },
+                                    ActivityItem::Command { .. } => {
+                                        // Commands use Card which has border + content padding
+                                        CARD_BORDER + CARD_CONTENT_PADDING
+                                    },
+                                    ActivityItem::Suggestion { .. } => {
+                                        // Suggestions use Card
+                                        CARD_BORDER + CARD_CONTENT_PADDING
+                                    },
+                                    ActivityItem::Goal { .. } => {
+                                        // Goal uses special padding
+                                        GOAL_CARD_PADDING
+                                    },
+                                }
+                            } else {
+                                0.0
+                            };
+                            
+                            log::debug!("Using content_offset={} for item {} (Element→Window transformation)", content_offset, anchor_index);
 
                             // Transform item-relative rectangles to absolute screen coordinates
                             for rect in item_rects {
-                                // Apply the activity item's absolute position
+                                // Debug: Add visualization rectangles for position boundaries
+                                if std::env::var("WEZTERM_DEBUG_SELECTION").is_ok() {
+                                    // Draw position boundary in red
+                                    let debug_rect = euclid::Rect::new(
+                                        euclid::Point2D::new(
+                                            bounds.origin.x + rect.origin.x + content_offset,
+                                            bounds.origin.y + rect.origin.y + content_offset,
+                                        ),
+                                        euclid::Size2D::new(rect.size.width, 2.0), // Thin line
+                                    );
+                                    rects.push(debug_rect);
+                                }
+                                // The rect positions are relative to where text is rendered (inside padding/border)
+                                // We need to:
+                                // 1. Add content offset to account for padding/border
+                                // 2. Add the activity item's window position
                                 let absolute_rect = euclid::rect(
-                                    bounds.origin.x + rect.origin.x,
-                                    bounds.origin.y + rect.origin.y,
+                                    bounds.origin.x + rect.origin.x + content_offset,
+                                    bounds.origin.y + rect.origin.y + content_offset,
                                     rect.size.width,
                                     rect.size.height,
                                 );
@@ -3072,6 +3251,15 @@ This example demonstrates:
                         }
                     } else {
                         // Fallback to character-based approximation if position data not available
+                        log::warn!(
+                            "No position data for activity item {} - using character approximation",
+                            anchor_index
+                        );
+                        
+                        // Debug: Check what items we have position data for
+                        log::debug!("Available position data for items: {:?}", 
+                                   self.item_positions.keys().collect::<Vec<_>>());
+                        
                         log::warn!(
                             "No position data available for activity item {}, using fallback",
                             anchor_index
@@ -4202,8 +4390,13 @@ impl Sidebar for AiSidebar {
         // Handle text selection drag
         if let WMEK::Move = event.kind {
             if self.selection_state.is_dragging {
-                // Drag handling is done externally where font is available
-                // Just mark that we're handling the drag
+                // For activity item selection, don't claim to handle the event
+                // The drag handling needs to be done by mouse_event_activity_item_text
+                if let Some(SelectionTarget::ActivityItem { .. }) = &self.selection_state.active_selection {
+                    log::debug!("AiSidebar: Not claiming activity item drag Move event - letting UI item handler process it");
+                    return Ok(false);
+                }
+                // For other selection types, we handle the drag here
                 return Ok(true);
             }
         }

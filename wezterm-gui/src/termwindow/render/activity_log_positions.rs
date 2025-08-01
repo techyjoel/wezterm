@@ -9,7 +9,7 @@ use crate::sidebar::position_cache::{
     TextStyle,
 };
 use crate::sidebar::sidebar_constants::*;
-use crate::termwindow::box_model::{ComputedElement, ComputedElementContent, ElementCell};
+use crate::termwindow::box_model::{ComputedElement, ComputedElementContent, ElementCell, WrappedLine};
 use crate::termwindow::UIItemType;
 use euclid::{Point2D, Rect, Size2D};
 use std::collections::HashMap;
@@ -17,46 +17,377 @@ use std::rc::Rc;
 use wezterm_font::LoadedFont;
 use window::PixelUnit;
 
+
 /// Extract position data from a computed element representing an activity log item
 pub fn extract_activity_item_positions(
     computed: &ComputedElement,
     ui_item_type: &UIItemType,
     fonts: &crate::sidebar::SidebarFonts,
+    item_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
 ) -> Option<PositionTree> {
     match ui_item_type {
         UIItemType::ActivityItemText { index, .. } => {
-            let mut builder = PositionTreeBuilder::new();
+            log::debug!("Extracting positions for activity item {}", index);
 
-            // Start with the root element for the activity item
-            // Extract actual line height if this is multiline text
-            let line_height = match &computed.content {
-                ComputedElementContent::MultilineText { line_height, .. } => *line_height,
-                _ => PARAGRAPH_LINE_HEIGHT,
-            };
-
-            builder.start_element(
-                ElementType::Paragraph {
-                    line_height,
-                    margin: 0.0,
-                },
-                Rect::new(
-                    Point2D::new(0.0, 0.0),
-                    Size2D::new(computed.bounds.width(), computed.bounds.height()),
-                ),
-            );
-
-            // Extract positions from the computed content
-            extract_positions_from_content(
-                &computed.content,
-                &mut builder,
-                Point2D::new(0.0, 0.0),
-                fonts,
-                computed,
-            );
-
-            builder.end_element()
+            // First, try to find the specific activity item element within the computed element
+            // This is necessary because we receive the entire activity log computed element
+            // but need to extract positions from the specific activity item
+            if let Some(activity_item_element) = find_activity_item_element(computed, *index) {
+                log::debug!("Found activity item {} element", index);
+                extract_positions_from_activity_item(activity_item_element, fonts, None)
+            } else {
+                // Fallback: if we can't find the specific item, try to extract from the whole element
+                // This path is less accurate but maintains backward compatibility
+                log::debug!("Failed to find activity item {} in computed element, using fallback extraction with bounds: {:?}", index, item_bounds);
+                // Pass the actual item bounds to ensure correct position tree bounds
+                extract_positions_from_activity_item(computed, fonts, item_bounds)
+            }
         }
         _ => None,
+    }
+}
+
+/// Find the specific activity item element within the activity log
+fn find_activity_item_element(
+    computed: &ComputedElement,
+    target_index: usize,
+) -> Option<&ComputedElement> {
+    // First check if this element itself has the matching UIItemType
+    if let Some(item_type) = &computed.item_type {
+        if matches!(item_type, UIItemType::ActivityItemText { index, .. } if *index == target_index)
+        {
+            log::debug!("Found activity item {} at current element", target_index);
+            return Some(computed);
+        }
+    }
+
+    // Then search through children
+    match &computed.content {
+        ComputedElementContent::Children(children) => {
+            log::debug!(
+                "Searching {} children for activity item {}",
+                children.len(),
+                target_index
+            );
+            for (i, child) in children.iter().enumerate() {
+                // Check if this child has the matching UIItemType
+                if let Some(item_type) = &child.item_type {
+                    if matches!(item_type, UIItemType::ActivityItemText { index, .. } if *index == target_index)
+                    {
+                        log::debug!(
+                            "Found matching activity item {} at child {}",
+                            target_index,
+                            i
+                        );
+                        return Some(child);
+                    }
+                }
+
+                // Recursively search in children
+                if let Some(found) = find_activity_item_element(child, target_index) {
+                    return Some(found);
+                }
+            }
+        }
+        _ => {}
+    }
+    None
+}
+
+/// Extract positions from a specific activity item element
+fn extract_positions_from_activity_item(
+    computed: &ComputedElement,
+    fonts: &crate::sidebar::SidebarFonts,
+    override_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
+) -> Option<PositionTree> {
+    let mut builder = PositionTreeBuilder::new();
+
+    // Determine the line height from the computed element
+    let line_height = extract_line_height(computed);
+
+    // Use override bounds if provided (for fallback case), otherwise use computed bounds
+    let bounds = override_bounds.unwrap_or(computed.bounds);
+
+    log::debug!(
+        "Extracting positions from activity item with bounds: {:?}, line_height: {}",
+        bounds,
+        line_height
+    );
+
+    // Create a root element to hold everything
+    builder.start_element(
+        ElementType::Paragraph {
+            line_height,
+            margin: 0.0,
+        },
+        Rect::new(
+            Point2D::new(0.0, 0.0),
+            Size2D::new(bounds.width(), bounds.height()),
+        ),
+    );
+
+    // Extract positions from the entire computed element tree
+    // This handles both simple text (Card wrapper) and complex markdown content
+    extract_positions_recursively(computed, &mut builder, Point2D::new(0.0, 0.0), fonts);
+
+    // Don't call end_element() here - the root element should remain as current_element
+    // so that build() can return it
+    let result = builder.build();
+
+    if let Some(ref tree) = result {
+        log::debug!(
+            "Successfully extracted position tree with {} text positions, bounds: {:?}",
+            tree.text_positions.len(),
+            tree.bounds
+        );
+    } else {
+        log::debug!("Failed to build position tree");
+    }
+
+    result
+}
+
+/// Extract line height from computed element or its children
+fn extract_line_height(computed: &ComputedElement) -> f32 {
+    match &computed.content {
+        ComputedElementContent::MultilineText { line_height, .. } => *line_height,
+        ComputedElementContent::Children(children) => {
+            // Search children for line height
+            for child in children {
+                if let ComputedElementContent::MultilineText { line_height, .. } = &child.content {
+                    return *line_height;
+                }
+            }
+            // Recursively search deeper
+            for child in children {
+                let height = extract_line_height(child);
+                if height != PARAGRAPH_LINE_HEIGHT {
+                    return height;
+                }
+            }
+            PARAGRAPH_LINE_HEIGHT
+        }
+        ComputedElementContent::Text(_) | ComputedElementContent::Poly { .. } => {
+            PARAGRAPH_LINE_HEIGHT
+        }
+    }
+}
+
+/// Recursively extract positions from all text content in the element tree
+fn extract_positions_recursively(
+    computed: &ComputedElement,
+    builder: &mut PositionTreeBuilder,
+    offset: Point2D<f32, PixelUnit>,
+    fonts: &crate::sidebar::SidebarFonts,
+) {
+    match &computed.content {
+        ComputedElementContent::Text(cells) => {
+            log::debug!(
+                "Found Text content with {} cells at offset {:?}",
+                cells.len(),
+                offset
+            );
+            // Extract positions at Element-relative coordinates (0,0)
+            // Per the 5-level coordinate system design, positions should be relative to
+            // the element origin, not include padding/border offsets.
+            // The padding will be added during the Element→Window transformation in rendering.
+            extract_positions_from_cells(cells, builder, Point2D::new(0.0, 0.0));
+        }
+        ComputedElementContent::MultilineText { lines, line_height, line_positions, line_info, .. } => {
+            log::debug!(
+                "Found MultilineText content with {} lines at offset {:?}",
+                lines.len(),
+                offset
+            );
+            // Extract positions at Element-relative coordinates
+            // Positions should be relative to element origin (0,0), not include padding
+            for (line_index, line) in lines.iter().enumerate() {
+                // Use line_positions if available, otherwise calculate based on line_height
+                // These are Element-relative Y positions
+                let y = line_positions
+                    .get(line_index)
+                    .copied()
+                    .unwrap_or_else(|| line_index as f32 * *line_height);
+
+                if let Some(wrapped_lines) = line_info {
+                    if let Some(wrapped_line) = wrapped_lines.get(line_index) {
+                        extract_positions_from_cells_with_wrapped_line(
+                            line,
+                            builder,
+                            Point2D::new(0.0, y),  // Element-relative coordinates
+                            line_index,
+                            wrapped_line,
+                        );
+                    } else {
+                        extract_positions_from_cells_with_line(
+                            line,
+                            builder,
+                            Point2D::new(0.0, y),  // Element-relative coordinates
+                            line_index,
+                        );
+                    }
+                } else {
+                    extract_positions_from_cells_with_line(
+                        line,
+                        builder,
+                        Point2D::new(0.0, y),  // Element-relative coordinates
+                        line_index,
+                    );
+                }
+            }
+        }
+        ComputedElementContent::Children(children) => {
+            log::debug!("Processing Children with {} elements", children.len());
+            
+            // IMPORTANT: To prevent duplicate position extraction in markdown,
+            // we should only extract positions from the leaf elements that contain
+            // actual text, not from every level of the tree.
+            // 
+            // Check if any child has actual text content (not just more Children)
+            let has_text_content = children.iter().any(|child| {
+                matches!(&child.content, 
+                    ComputedElementContent::Text(_) | 
+                    ComputedElementContent::MultilineText { .. })
+            });
+            
+            // If this element directly contains text, don't recurse into children
+            // as they would be duplicates of the same content
+            if has_text_content {
+                log::debug!("Children contain direct text content, processing only text elements");
+                for child in children {
+                    match &child.content {
+                        ComputedElementContent::Text(_) | 
+                        ComputedElementContent::MultilineText { .. } => {
+                            // Process text content directly
+                            extract_positions_recursively(child, builder, Point2D::new(0.0, 0.0), fonts);
+                        }
+                        _ => {
+                            // Skip non-text children to avoid duplicates
+                        }
+                    }
+                }
+                return;  // Don't process children recursively
+            }
+            
+            // Otherwise, process children normally for nested structures
+            let mut current_offset = offset;
+
+            // For Card structures, we need to search through all nested children
+            // to find the actual text content, even if they don't have semantic types
+            for (i, child) in children.iter().enumerate() {
+                log::debug!(
+                    "Processing child {} at offset {:?}, bounds: {:?}",
+                    i,
+                    current_offset,
+                    child.bounds
+                );
+
+                // For position extraction, we always work in element-relative coordinates
+                // Starting from (0,0) at the root element
+                // Child positions should be relative to their parent element
+                let child_offset: Point2D<f32, PixelUnit> = Point2D::new(0.0, 0.0);
+
+                // Debug log the child structure
+                log::debug!(
+                    "Child {} offset calculation: current_offset={:?}, child.bounds.origin={:?}, resulting child_offset={:?}",
+                    i, current_offset, child.bounds.origin, child_offset
+                );
+                
+                // Check if this child has semantic type (for markdown elements)
+                let mut started_element = false;
+                if let Some(semantic_type) = &child.semantic_type {
+                    // Handle specific markdown elements with proper element types
+                    match semantic_type {
+                        crate::termwindow::box_model::SemanticType::Heading(level) => {
+                            // Convert pulldown_cmark::HeadingLevel to u8
+                            let level_u8 = match level {
+                                pulldown_cmark::HeadingLevel::H1 => 1,
+                                pulldown_cmark::HeadingLevel::H2 => 2,
+                                pulldown_cmark::HeadingLevel::H3 => 3,
+                                pulldown_cmark::HeadingLevel::H4 => 4,
+                                pulldown_cmark::HeadingLevel::H5 => 5,
+                                pulldown_cmark::HeadingLevel::H6 => 6,
+                            };
+
+                            // Calculate font size based on level
+                            let font_size_multiplier = match level_u8 {
+                                1 => H1_FONT_SIZE_MULTIPLIER,
+                                2 => H2_FONT_SIZE_MULTIPLIER,
+                                3 => H3_FONT_SIZE_MULTIPLIER,
+                                4 => H4_FONT_SIZE_MULTIPLIER,
+                                5 => H5_FONT_SIZE_MULTIPLIER,
+                                6 => H6_FONT_SIZE_MULTIPLIER,
+                                _ => 1.0,
+                            };
+                            let font_size = fonts.body.metrics().cell_height.get() as f32
+                                * font_size_multiplier;
+
+                            builder.start_element(
+                                ElementType::Heading {
+                                    level: level_u8,
+                                    font_size,
+                                    margin: 0.0, // TODO: Add proper heading margin constant
+                                },
+                                Rect::new(
+                                    Point2D::new(0.0, 0.0),  // Element-relative coordinates
+                                    Size2D::new(child.bounds.width(), child.bounds.height()),
+                                ),
+                            );
+                            started_element = true;
+                        }
+                        crate::termwindow::box_model::SemanticType::CodeBlock { .. } => {
+                            builder.start_element(
+                                ElementType::CodeBlock {
+                                    line_height: CODE_LINE_HEIGHT,
+                                    padding: CODE_BLOCK_PADDING,
+                                    bg_color: CODE_BLOCK_BG,
+                                },
+                                Rect::new(
+                                    Point2D::new(0.0, 0.0),  // Element-relative coordinates
+                                    Size2D::new(child.bounds.width(), child.bounds.height()),
+                                ),
+                            );
+                            started_element = true;
+                        }
+                        _ => {
+                            // Other semantic types we don't create elements for
+                            log::debug!(
+                                "Child {} has semantic type {:?} but no element created",
+                                i,
+                                semantic_type
+                            );
+                        }
+                    }
+                } else {
+                    // No semantic type - this might be a Card wrapper or other container
+                    // We still need to process its children to find text content
+                    log::debug!(
+                        "Child {} has no semantic type, recursing to find text content",
+                        i
+                    );
+                }
+
+                // ALWAYS recursively process this child, whether it has semantic type or not
+                // This is crucial for Card wrappers where the text is nested inside
+                // Use (0,0) offset to keep positions element-relative
+                extract_positions_recursively(child, builder, Point2D::new(0.0, 0.0), fonts);
+
+                // End element ONLY if we actually started one
+                if started_element {
+                    log::debug!(
+                        "Ending semantic element after processing child {} of {}",
+                        i,
+                        children.len()
+                    );
+                    builder.end_element();
+                }
+
+                // Don't update current_offset.y here - use the actual child bounds for positioning
+            }
+        }
+        ComputedElementContent::Poly { .. } => {
+            // Poly content is for drawing shapes, not text - skip it
+        }
     }
 }
 
@@ -116,30 +447,8 @@ fn extract_positions_from_content(
             }
         }
         ComputedElementContent::Children(children) => {
-            for child in children {
-                let child_offset = offset + child.bounds.origin.to_vector();
-
-                // Check if this is a special markdown element
-                if let Some(element_type) = determine_element_type(child, fonts, parent_element) {
-                    builder.start_element(element_type, child.bounds);
-                    extract_positions_from_content(
-                        &child.content,
-                        builder,
-                        Point2D::new(0.0, 0.0),
-                        fonts,
-                        child,
-                    );
-                    builder.end_element();
-                } else {
-                    extract_positions_from_content(
-                        &child.content,
-                        builder,
-                        child_offset,
-                        fonts,
-                        child,
-                    );
-                }
-            }
+            // Don't process children here - let extract_positions_recursively handle them
+            // This prevents duplicate position extraction
         }
         _ => {} // Skip other content types
     }
@@ -163,15 +472,36 @@ fn extract_cell_positions_internal(
     cluster_to_byte: impl Fn(u32) -> usize,
 ) {
     let mut x_pos = offset.x;
+    let mut glyph_count = 0;
+    let mut cluster_count = 0;
 
-    for cell in cells {
+    log::debug!(
+        "extract_cell_positions_internal: Processing {} cells at offset {:?}",
+        cells.len(),
+        offset
+    );
+
+    for (i, cell) in cells.iter().enumerate() {
         match cell {
             ElementCell::GlyphWithCluster { glyph, cluster } => {
+                cluster_count += 1;
                 let x_start = x_pos;
                 let x_end = x_pos + glyph.x_advance.get() as f32;
 
                 // Convert cluster to byte offset using provided function
                 let byte_offset = cluster_to_byte(*cluster);
+
+                if i < 5 {
+                    // Log first few glyphs for debugging
+                    log::debug!(
+                        "GlyphWithCluster {}: cluster={}, byte_offset={}, x_start={}, x_end={}",
+                        i,
+                        cluster,
+                        byte_offset,
+                        x_start,
+                        x_end
+                    );
+                }
 
                 // Validate that the byte offset is on a character boundary
                 // Note: We can't validate against the actual text here since we don't have access to it,
@@ -185,11 +515,20 @@ fn extract_cell_positions_internal(
                     y: offset.y,
                     line_index,
                 });
+                
+                // Debug first few positions to understand coordinate system
+                if cluster_count <= 3 {
+                    log::debug!(
+                        "Added text position: byte_offset={}, x_start={:.1}, x_end={:.1}, y={:.1} (offset was x={:.1}, y={:.1})",
+                        byte_offset, x_start, x_end, offset.y, offset.x, offset.y
+                    );
+                }
 
                 x_pos = x_end;
             }
             ElementCell::Glyph(cached_glyph) => {
                 // Regular glyphs without cluster info - skip position tracking
+                glyph_count += 1;
                 x_pos += cached_glyph.x_advance.get() as f32;
             }
             ElementCell::Sprite(sprite) => {
@@ -197,6 +536,13 @@ fn extract_cell_positions_internal(
             }
         }
     }
+
+    log::debug!(
+        "Extracted positions from {} cells: {} with clusters, {} regular glyphs",
+        cells.len(),
+        cluster_count,
+        glyph_count
+    );
 }
 
 /// Extract positions from a line of cells with line index
@@ -426,6 +772,13 @@ pub fn store_activity_item_positions(
     position_tree: PositionTree,
     viewport_y: f32,
 ) {
+    log::debug!(
+        "Storing position tree for activity item {} with {} text positions at viewport_y={}",
+        item_index,
+        position_tree.text_positions.len(),
+        viewport_y
+    );
+
     let position_data = ItemPositionData {
         position_tree,
         viewport_y: Some(viewport_y),

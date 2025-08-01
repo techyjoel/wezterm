@@ -683,17 +683,18 @@ impl AiSidebar {
 
 ## Success Criteria
 
-1. **Click Accuracy**: Clicking on any character selects exactly that position ✅
-2. **Multi-line Selection**: Can select across multiple lines and paragraphs ✅ (within single item)
+1. **Click Accuracy**: Clicking on any character selects exactly that position ❌ (5-6 char offset)
+2. **Multi-line Selection**: Can select across multiple lines and paragraphs ⚠️ (works but with offset)
 3. **Deselection**: Single click deselects (when not dragging) ✅
-4. **Scrolling**: Selection rectangles stay aligned during scroll, including when items enter/leave the virtual scrolling buffer. ✅
-5. **Copy**: Selected text copies correctly with Cmd-C/Ctrl-C ✅
-6. **Performance**: No noticeable lag during selection ⚠️ (position extraction runs every frame)
+4. **Scrolling**: Selection rectangles stay aligned during scroll, including when items enter/leave the virtual scrolling buffer. ⚠️ (untested with offset issues)
+5. **Copy**: Selected text copies correctly with Cmd-C/Ctrl-C ⚠️ (copies offset text)
+6. **Performance**: No noticeable lag during selection ✅ (improved in Session 11)
 
-**Current Status:**
-- 5/6 criteria fully met for single-item selection
-- Multi-item selection (across activity log items) not yet implemented
-- Performance could be optimized with caching
+**Current Status (Session 11):**
+- 1/6 criteria fully met (deselection only)
+- Selection system functional but with significant coordinate offset issues
+- Markdown duplication mostly fixed
+- Coordinate system implementation needs architectural review
 
 ## Testing Strategy
 
@@ -736,9 +737,9 @@ if cfg!(debug_assertions) && std::env::var("WEZTERM_DEBUG_SELECTION").is_ok() {
 
 ## Implementation Status
 
-### Current Issues (As of troubleshooting session 5)
+### Current Issues (As of Session 11)
 
-After implementing Phases 1-4 and troubleshooting, we've made significant progress. The half-width rendering issue has been resolved, but core selection functionality remains broken. Here's a comprehensive status:
+After implementing Phases 1-4 and extensive troubleshooting, we've made significant progress. The markdown duplication issue is mostly fixed, but coordinate system inconsistencies cause selection offsets:
 
 #### ✅ FIXED: Text wrapping for command items
 - **Issue**: Command items didn't wrap and flowed off the side
@@ -746,10 +747,10 @@ After implementing Phases 1-4 and troubleshooting, we've made significant progre
 - **Fix applied**: Added width calculation and `.max_width(Some(Dimension::Pixels(content_width)))` to command items
 - **Status**: Working correctly
 
-#### ✅ PARTIAL: Click to deselect
+#### ✅ FIXED: Click to deselect
 - **Progress**: Clicking in activity log now deselects goal card selection
 - **Fix applied**: Added `ActivityLogBackground` UIItemType with click handler
-- **Status**: Deselection works, but selection still non-functional
+- **Status**: Deselection works correctly for all items
 
 #### ✅ FIXED: Half-width rendering (First user message only) - RESOLVED in session 5
 - **Issue**: First user message renders at half width, all other items render correctly
@@ -776,38 +777,96 @@ After implementing Phases 1-4 and troubleshooting, we've made significant progre
   4. Cleaned up all debug logging related to this issue
 - **Status**: ✅ FULLY RESOLVED - All messages now render at proper width
 
-#### ❌ CRITICAL: Selection completely non-functional
-- **Current state**:
-  - Cursor remains arrow on first command item and first user message
-  - Cursor changes to text selection cursor on first AI message
-  - Clicking and dragging does nothing (no visual selection)
-  - Cmd-C doesn't work (no selection to copy)
-  - Deselection of goal card selection works when clicking in activity log background
-  - **Key insight**: The cursor changing on the first AI message likely proves:
-    - UI item hit testing IS working correctly
-    - Mouse events are being dispatched to the right handlers
-    - Position extraction succeeds for markdown but fails for Card-wrapped content
+#### ✅ FIXED: Position extraction for all items - RESOLVED in session 7
+- **Issue**: Items 2 and 4 (AI messages with complex markdown) failed position extraction
+- **Root cause**: Unbalanced start/end element calls in `extract_positions_recursively()`
+  - We called `start_element()` only for Heading and CodeBlock semantic types
+  - But called `end_element()` for ALL semantic types
+  - This caused the root element to be lost after processing many children
+- **Fix applied**: Track `started_element` flag, only call `end_element()` if we actually started one
+- **Result**: ALL items now extract positions successfully:
+  - Item 0 (Command): 42 positions
+  - Item 1 (User chat): 218 positions  
+  - Item 2 (AI chat): 998 positions ✅
+  - Item 3 (User chat): 76 positions
+  - Item 4 (AI chat): 291 positions ✅
 
-- **Root cause analysis (from subagent investigation)**:
-  1. **Wrong element passed to position extraction (verify)**:
-     - `extract_activity_item_positions` receives the entire activity log element
-     - It should receive the specific activity item (Card) element (theory)
-     - The function doesn't search for the child with matching UIItemType
+#### ✅ FIXED: Coordinate transform configuration - RESOLVED in session 7
+- **Issue**: Coordinate transform used `0.0` for sidebar_y instead of `activity_bounds.origin.y`
+- **Impact**: Window to viewport transformation was incorrect
+- **Fix applied**: Updated `update_coordinate_transform()` call to use `activity_bounds.origin.y`
+- **Result**: Viewport coordinates now properly relative to activity log viewport
+
+#### ⚠️ PARTIALLY WORKING: Selection functionality
+- **Current state (Session 11)**:
+  - Hit testing works correctly (`in_range=true`) ✓ (fixed Session 8)
+  - Mouse drag events reach handlers ✓ (fixed Session 9)
+  - Deselection of goal card works when clicking in activity log ✓
+  - Markdown duplication mostly fixed ✓ (Session 11)
+  - **Item 1 (0-based) (simple text/user message)**:
+    - Selection and rendering are aligned with each other
+    - BUT both appear 5-6 characters RIGHT + 0.5 lines DOWN from click position
+    - Live dragging works (updates during drag)
+    - Cmd-C works but copies offset text (not what user intended)
+  - **Item 2 (markdown/AI message)**: 
+    - Selection appears 4-6 characters LEFT of click position
+    - Rendering appears ~4 characters RIGHT + 0.5 lines DOWN from click position
+    - Selection and rendering DISAGREE with each other (different offsets)
+    - Duplicate rectangles mostly eliminated (only one set now)
+
+- **Root cause analysis (Session 11 updated)**:
+  1. **Hit testing** ✅ FIXED in Session 8:
+     - Fixed by passing actual item bounds to position extraction
+     - Added `get_activity_item_bounds()` and passed bounds to `extract_activity_item_positions()`
+     - Result: `in_range=true` for all valid clicks
   
-  2. **Card wrapper structure may prevent position extraction (verify)**:
-     - Command/user messages use `Card::render()` which creates:
-       ```
-       Card (has UIItemType::ActivityItemText)
-       └── Content Wrapper
-           └── Actual Text (has cluster data)
-       ```
-     - UIItemType is on outer Card, but cluster data is in nested text
-     - Position extraction can't find the text content with cluster data
+  2. **Mouse event routing** ✅ FIXED in Session 9:
+     - **Original issue**: Activity log Move events had `mouse_buttons: NONE`
+     - **First root cause**: UI items cleared/rebuilt on paint, losing state
+     - **Second root cause**: Sidebar claimed all Move events when `is_dragging`
+     - **Fixes applied**:
+       - Added `text_selection_drag_active` flag to maintain state across UI rebuilds
+       - Added `MouseCapture::TextSelection` variant
+       - Modified sidebar to check selection type and return false for ActivityItem drags
+     - **Result**: Move events now properly reach handlers with correct state
   
-  3. **AI messages work because**:
-     - They don't use Card wrapper (flatter structure)
-     - UIItemType is closer to actual text content
-     - Markdown renderer creates individual elements that are processed correctly
+  3. **Selection rendering offset** (Session 9-11 comprehensive analysis):
+     - **Session 9**: Selection rectangles appeared ~6 characters to the right
+     - **Session 10 attempts and results**:
+       - Attempted fix: Subtract padding during position extraction → Made it WORSE (offset increased)
+       - Attempted fix: Add padding back during selection rendering → No improvement
+       - Attempted fix: Add content offset (border + padding) in calculate_selection_rectangles → No change
+       - **Session 10 state**: ~5 char horizontal offset, ~0.5 line vertical offset (NEW)
+     - **Session 11 findings**:
+       - Identified root cause: Double padding application (13px × 2 = 26px offset)
+       - Attempted fix: Changed position extraction to Element-relative (0,0)
+       - Attempted fix: Added proper Element→Window transformation with padding
+       - Result: Changed the nature of offsets but didn't eliminate them
+     - **Current manifestation (Session 11)**:
+       - Item 1: Selection/rendering aligned but BOTH offset 5-6 chars right + 0.5 lines down
+       - Item 2: Selection 4-6 chars LEFT, rendering 4 chars RIGHT + 0.5 lines down (they disagree!)
+     - **Root cause analysis**:
+       - Session 10: Positions extracted correctly (x=0.0 in logs), transformation chain appears correct
+       - Session 11: 5-level coordinate system not properly implemented, Element vs Text spaces conflated
+       - ComputedElement bounds may be border-box but treated as content-box
+       - Markdown has different rendering pipeline than plain text
+  
+  4. **Zero-width selections** ✅ Applied in Session 8:
+     - Modified `calculate_line_selection_rect()` to show 2px cursor for zero-width
+     - Helps visualize selection state even when start==end
+     - Debug only, should be removed soon
+  
+  5. **Markdown duplicate selection rendering** ✅ MOSTLY FIXED in Session 11:
+     - **Original issue**: NO selection rectangles for markdown items initially
+     - **Session 10 attempted fixes**:
+       - Added deduplication in PositionTreeBuilder → Partial improvement
+       - Prevented double processing in extract_positions_from_content → No effect
+       - **Session 10 state**: Multiple rectangles still appeared (deduplication not fully working)
+     - **Session 11 fix**: Added logic to detect when Children directly contain text, skip recursive processing
+     - **Current state**: Duplicate rectangles eliminated (only one set appears)
+     - **Root cause**: Markdown creates deeply nested element structures, same text processed multiple times
+     - **Evidence from logs**: Same byte_offset appeared with different child indices (Child 0, Child 1, etc.)
+     - **Remaining issue**: Selection/rendering have different offsets in markdown (see point 3)
 
 - **Historical attempts and learnings**:
   - **Coordinate translation attempt**: Added UI item coordinate translation in sidebar_render.rs:
@@ -829,38 +888,85 @@ After implementing Phases 1-4 and troubleshooting, we've made significant progre
     - **Current status**: Good change aligned with plan, but exposed the Card wrapper issue
   
   - **Virtual scrolling negative margin hypothesis**: Suspected the activity log's negative top margin wasn't accounted for
-    - **Current understanding**: Likely not the issue since deselection works correctly with current coordinates
+    - **Current understanding**: Potentially not the issue, should confirm
 
-- **Next steps**:
-  1. Fix `extract_activity_item_positions` to search for the correct child element
-  2. Handle Card wrapper structure to find nested text content
-  3. Ensure position extraction works for all content types (not just markdown)
+- **Session 6 attempts** (Partially successful):
+  1. **Fixed `find_activity_item_element()`**: Now checks current element for UIItemType first
+  2. **Enhanced `extract_positions_recursively()`**: Now processes ALL children, not just semantic types
+  3. **Added child offset calculation**: Uses actual bounds for positioning
+  4. **Result**: Improved but still had failures - unbalanced element calls were the root cause
+  
+- **Session 7 fixes** (Successful):
+  1. **Removed incorrect `builder.end_element()` call**: Was discarding root element
+  2. **Fixed coordinate transform**: Now uses `activity_bounds.origin.y` instead of `0.0`
+  3. **Fixed unbalanced start/end calls**: Only end elements we actually started
+  4. **Result**: All items now extract positions, but hit testing still fails due to viewport_y issue
+
+- **Session 8 attempts and findings**:
+  1. **Fixed position tree bounds** ✓: Passed actual item bounds to extraction
+  2. **Implemented zero-width selections** ✓: Modified `calculate_line_selection_rect()` to show 2px cursor
+  3. **Discovered mouse event routing issue**: Activity log drag events bypass normal UI resolution
+  4. **Found selection rendering asymmetry**: Works for simple text (item 1) but not markdown (item 2)
+  5. **Attempted mouse capture fix**: Added early `MouseCapture::UI` - NO EFFECT
+  6. **Key insight**: The issue was NOT in the sidebar code but in event routing
+
+- **Session 9 fixes and findings**:
+  1. **Fixed mouse button state persistence** ✓: Added `text_selection_drag_active` flag
+  2. **Fixed sidebar event claiming** ✓: Modified `handle_mouse_event` to check selection type
+  3. **Discovered rendering offset**: Selection appears ~6 chars right of actual position
+  4. **Found timing issue**: Selection only updates on mouse out, not during drag
+  5. **Confirmed copy works**: Despite visual offset, copy gets (offset) text
+
+- **Session 10 attempts and learnings**:
+  1. **5-coordinate system investigation**: Found we have a "4.5" system - ElementCoord exists but used inconsistently
+  2. **Attempted to complete 5-coordinate system**:
+     - Added padding subtraction during extraction → Made selection WORSE
+     - Added padding back during rendering → No improvement  
+     - Reverted these changes as they were based on incorrect assumptions
+  3. **Properly exported constants**: Moved CHAT_ITEM_PADDING etc to sidebar_constants.rs
+  4. **Added content offset calculation**: Added border+padding offset, but no visible improvement
+  5. **Key insight**: The coordinate system implementation has drifted from the original plan
+
+- **Session 11 critical findings and fixes**:
+  1. **Root cause identified**: Double application of padding offset (13px × 2 = 26px offset)
+     - Positions extracted at (13, 13) thinking that's where text renders
+     - Selection rendering adds padding again, creating double offset
+  2. **Coordinate system redesign attempt**:
+     - Changed extraction to Element-relative (0, 0)
+     - Added proper Element→Window transformation with padding during rendering
+  3. **Markdown duplication mostly fixed**:
+     - Added logic to detect and skip duplicate text processing
+     - Only process text elements once at leaf level
+  4. **Current state after fixes**:
+     - Item 1 (plain text): Selection/rendering aligned but BOTH 5-6 chars right + 0.5 lines down
+     - Item 2 (markdown): Selection 4-6 chars LEFT of click, rendering 4 chars RIGHT + 0.5 lines down
+  5. **Key insights**:
+     - The 5-level coordinate system is not cleanly implemented
+     - Element vs Text coordinate distinction is conflated  
+     - Different behavior for markdown suggests different code paths
 
 #### Technical Deep Dive: Theory Why Selection Doesn't Work
 
-**Position Extraction System Status**:
+**Position Extraction System Status** (Session 11 updated):
 - ✅ Cluster tracking is enabled for sidebar (`RenderSource::Sidebar`)
 - ✅ Text shaping creates `GlyphWithCluster` cells with position data
 - ✅ Position extraction logic handles all markdown elements correctly
-- ❌ Position extraction receives wrong computed element (entire activity log vs individual items)
-- ❌ Card wrapper structure prevents accessing nested text content
+- ✅ Position extraction now works for all items (fixed unbalanced calls)
+- ✅ Card wrapper handling works (only Command items use Card anyway)
+- ⚠️ Positions extracted at Element-relative (0,0) but coordinate space unclear
 
-**Coordinate System Implementation**:
-- ✅ All 5 coordinate types implemented as per plan (Window, Viewport, Item, Element, Selection)
+**Coordinate System Implementation** (Session 11 findings):
+- ⚠️ 5 coordinate types exist but not used consistently (have "4.5 level" system)
 - ✅ `CoordinateTransform` struct with transformation methods
-- ❌ Transformations not being applied correctly during hit testing
-- ❌ UI items retain relative coordinates instead of absolute
+- ✅ Window to viewport transformation now correct (uses activity_bounds.origin.y)
+- ❌ Element vs Text coordinate distinction is conflated
+- ❌ ComputedElement bounds interpretation inconsistent (border-box vs content-box)
 
-**Why Different Content Types Behave Differently**:
-- **AI Messages (working cursor change)**:
-  - Use `MarkdownRenderer` → creates `Children` structure
-  - Each child element processed individually
-  - Position data successfully extracted
-  
-- **Command/User Messages (broken)**:
-  - Use `Card::render()` → creates wrapper structure
-  - UIItemType attached to wrapper, not text
-  - Position extraction can't navigate to actual text content
+**Current Selection Issues** (Session 11 understanding):
+- **Item 1 offset**: Both selection and rendering 5-6 chars right + 0.5 lines down (consistent error)
+- **Item 2 offset**: Selection LEFT, rendering RIGHT of click (inconsistent = different code paths)
+- **Vertical offset**: Consistent 0.5 lines suggests baseline vs line-box-top issue
+- **Root theory**: Coordinate system implementation has drifted from design, needs architectural review
 
 #### Implementation History and Lessons Learned
 
@@ -868,14 +974,16 @@ After implementing Phases 1-4 and troubleshooting, we've made significant progre
 - ✅ Position infrastructure with all coordinate types and transformations
 - ✅ Glyph position extraction with cluster tracking
 - ✅ Semantic tagging for markdown elements
-- ✅ Mouse event architecture (partially working)
-- ✅ Selection rendering infrastructure (not yet functional)
+- ✅ Mouse event architecture (fully working as of Session 9)
+- ⚠️ Selection rendering infrastructure (functional but with offset issues)
 
-**Key Fixes Applied**:
-1. **Text wrapping fix**: Added `max_width` constraints to command items (WORKING)
-2. **ActivityLogBackground UIItemType**: Added for deselection functionality (WORKING)
-3. **Removed calculate_char_positions**: Replaced character estimation with position extraction
-4. **Added debug logging**: For width calculations and mouse events
+**Key Fixes Applied Successfully**:
+1. **Text wrapping fix**: Added `max_width` constraints to command items ✅
+2. **ActivityLogBackground UIItemType**: Added for deselection functionality ✅
+3. **Mouse button state persistence**: Added `text_selection_drag_active` flag ✅
+4. **Mouse event routing**: Fixed sidebar claiming all drag events ✅
+5. **Markdown duplication**: Added logic to prevent processing same text multiple times ✅
+6. **Constants centralization**: Moved all padding/margin values to sidebar_constants.rs ✅
 5. **Coordinate translation attempt**: Added then removed due to double-translation issue
 6. **Changed command output from Text to WrappedText**: Fixed text wrapping for command output
 7. **Half-width rendering fix (session 5)**: 
@@ -1053,18 +1161,65 @@ After implementing Phases 1-4 and troubleshooting, we've made significant progre
 
 ### Critical Bug Fixes Required
 
-Before proceeding with multi-item selection or enhancements, we must fix the fundamental issues:
-
 1. ~~**Fix text wrapping in activity log**~~ ✅ COMPLETED
-   - ~~Identify why `render_activity_item_static` is being used instead of `render_activity_item`~~
-   - ~~Ensure proper width constraints are applied to all content types~~
+2. ~~**Fix half-width rendering issue**~~ ✅ COMPLETED (Session 5)
+3. ~~**Fix position extraction failures**~~ ✅ COMPLETED (Session 7)
+4. ~~**Fix position tree bounds height calculation**~~ ✅ COMPLETED (Session 8)
+5. ~~**Fix mouse button state during drag**~~ ✅ COMPLETED (Session 9 Part 1)
+6. ~~**Fix mouse event routing for activity log drag**~~ ✅ COMPLETED (Session 9 Part 2)
 
-2. ~~**Fix half-width rendering issue**~~ ✅ COMPLETED (session 5)
-   - ~~Trace through the rendering pipeline from the very top to the very bottom to understand where width is being halved~~
-   - Root cause: StyledWrappedText content rect calculation bug
-   - Fixed by updating width calculation and removing StyledWrappedText usage
+7. **Fix selection rendering offset**
+   - **Status**: Selection rectangles appear but with complex offset issues:
+     - **Item 1 (simple text/user message)** (Session 11 state):
+       - Selection and rendering are aligned with each other
+       - BUT both are 5-6 characters right + 0.5 lines down from click position
+       - This suggests consistent coordinate space error
+     - **Item 2 (markdown/AI message)** (Session 11 state):
+       - Selection is 4-6 characters LEFT of click position
+       - Rendering is ~4 characters RIGHT + 0.5 lines down from click position
+       - Selection and rendering DISAGREE - suggests different code paths
+       - Duplicate rectangles mostly fixed (only one set now)
+   - **Attempted fixes that FAILED**:
+     - Session 10:
+       - ❌ Subtracting padding during position extraction (made it worse)
+       - ❌ Adding padding back during selection rendering
+       - ❌ Adding content offset calculation
+       - ❌ Deduplication in PositionTreeBuilder (partially worked)
+     - Session 11:
+       - ✅ Changed to Element-relative (0,0) extraction
+       - ✅ Added proper Element→Window transformation
+       - ⚠️ BUT offsets persist with different characteristics
+   - **Root cause hypothesis (Session 11)**:
+     - The 5-level coordinate system is not properly implemented
+     - Element vs Text coordinates are conflated
+     - ComputedElement bounds may be border-box but used as content-box
+     - Markdown has different rendering pipeline than plain text
+   - **Next steps**:
+     - Complete audit of coordinate transformation pipeline
+     - Verify what coordinate space ComputedElement bounds represent
+     - Debug why markdown has different selection vs rendering offsets
+     - Add debug visualization for coordinate boundaries
+     - Consider architectural simplification to 4-level system
+     - Investigate if text baseline vs line-box-top causes vertical offset
 
-3. **Fix selection hit testing**:
+8. ~~**Fix markdown duplicate selection rectangles**~~ ✅ MOSTLY FIXED (Session 11)
+   - **Status**: Duplicate rectangles eliminated, only one set appears now
+   - **Root cause**: Markdown's nested structure caused same text to be processed multiple times
+   - **Fix applied**: Added logic to detect when Children directly contain text, skip recursive processing
+   - **Remaining issue**: Selection/rendering offsets differ (see item 7)
+   - **Attempted fixes (Session 10)**:
+     - Added deduplication based on byte_offset and line_index → Partial improvement only
+     - Removed duplicate Children processing → No effect
+   - **Evidence**: Logs show same byte_offset in multiple Child elements (Child 0, 1, 2...)
+   - **Next steps**:
+     - Track which elements have been processed to prevent re-extraction
+     - Consider extracting positions only from leaf elements with actual text
+     - May need to restructure how markdown elements are traversed
+
+9. **Selection in command items**:
+   - **Status**: No selection rectangles for command items in the activity log (e.g. item 0)
+   - ** Next steps**:
+     - Begin troubleshooting
 
 
 ### Original Phase 4 Completion (Postponed)

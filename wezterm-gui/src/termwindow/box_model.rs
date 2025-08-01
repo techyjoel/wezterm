@@ -1700,7 +1700,7 @@ impl super::TermWindow {
         };
 
         let wrapped_lines = self.wrap_text_with_estimates(text, char_width, max_width);
-        
+
         // Clone wrapped_lines to return them along with the shaped content
         let wrapped_lines_for_return = wrapped_lines.clone();
 
@@ -1924,12 +1924,6 @@ impl super::TermWindow {
 
                 if track_cluster {
                     // For sidebar text, preserve the cluster information
-                    log::trace!(
-                        "Creating GlyphWithCluster: grapheme='{}', cluster={}, x_advance={}",
-                        grapheme,
-                        info.cluster,
-                        glyph.x_advance.get()
-                    );
                     cells.push(ElementCell::GlyphWithCluster {
                         glyph,
                         cluster: info.cluster,
@@ -2761,8 +2755,9 @@ impl super::TermWindow {
                 }
 
                 let pixel_height = num_lines * line_height;
-                let content_rect = euclid::rect(0., 0., max_line_width.max(min_width), pixel_height);
-                
+                let content_rect =
+                    euclid::rect(0., 0., max_line_width.max(min_width), pixel_height);
+
                 let rects = element.compute_rects(context, content_rect);
                 let clip_bounds = element.compute_clip_bounds(context, &rects);
 

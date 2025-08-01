@@ -49,3 +49,20 @@ pub const H6_FONT_SIZE_MULTIPLIER: f32 = 0.9;
 pub const HEADING_HEIGHT_RATIO_THRESHOLD: f32 = 1.3;
 pub const HEADING_H1_RATIO: f32 = 1.5;
 pub const HEADING_H2_RATIO: f32 = 1.4;
+
+/// Chat item layout constants
+pub const CHAT_ITEM_PADDING: f32 = 12.0; // Padding on all sides
+pub const CHAT_ITEM_BOTTOM_MARGIN: f32 = 8.0; // Bottom margin between chat items
+pub const CHAT_ITEM_BORDER: f32 = 1.0; // Border width
+pub const CHAT_ITEM_HORIZONTAL_MARGIN: f32 = 20.0; // Left/right margin for alignment
+
+/// Card component constants
+pub const CARD_CONTENT_PADDING: f32 = 12.0; // Default padding for Card content wrapper
+pub const CARD_BORDER: f32 = 1.0; // Border width for Card component
+pub const CARD_MARGIN: f32 = 8.0; // Default margin for Card component
+
+// Goal card constants
+pub const GOAL_CARD_PADDING: f32 = 8.0; // Padding for goal text content
+
+/// Scrollbar space allocation
+pub const SCROLLBAR_SPACE: f32 = 12.0; // Space reserved for scrollbar
