@@ -131,6 +131,9 @@ pub struct PositionTree {
     pub element_type: ElementType,
     /// Bounds of this element relative to parent
     pub bounds: Rect<f32, PixelUnit>,
+    /// Offset from element bounds to content area where text renders
+    /// This is the difference between content_rect and bounds (accounts for padding/border)
+    pub content_offset: Vector2D<f32, PixelUnit>,
     /// Text positions within this element (if it contains text)
     pub text_positions: Vec<TextPosition>,
     /// Child elements
@@ -469,6 +472,15 @@ impl PositionTreeBuilder {
     }
 
     pub fn start_element(&mut self, element_type: ElementType, bounds: Rect<f32, PixelUnit>) {
+        self.start_element_with_offset(element_type, bounds, Vector2D::zero())
+    }
+    
+    pub fn start_element_with_offset(
+        &mut self, 
+        element_type: ElementType, 
+        bounds: Rect<f32, PixelUnit>,
+        content_offset: Vector2D<f32, PixelUnit>
+    ) {
         if let Some(current) = self.current_element.take() {
             self.element_stack.push(current);
         }
@@ -476,6 +488,7 @@ impl PositionTreeBuilder {
         self.current_element = Some(PositionTree {
             element_type,
             bounds,
+            content_offset,
             text_positions: Vec::new(),
             children: Vec::new(),
         });

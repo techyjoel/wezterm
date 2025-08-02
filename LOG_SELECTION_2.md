@@ -23,13 +23,26 @@ Users should be able to interact in the sidebar activity log similar to how they
 - **Key insight**: Item positions are viewport-relative and change during scrolling
 
 ### 2. Coordinate Systems
-We actually have FIVE coordinate systems that must be carefully managed:
+
+~~We actually have FIVE coordinate systems that must be carefully managed:~~
+
+~~1. **Window Coordinates**: Absolute position from window origin (0,0)~~
+~~2. **Viewport Coordinates**: Position relative to the visible sidebar activity log area~~
+~~3. **Item Viewport Position**: Where the item appears in the viewport (changes with scroll)~~
+~~4. **Item-Relative Coordinates**: Position relative to an activity item's origin (stable)~~
+~~5. **Element-Relative Coordinates**: Position within nested markdown elements~~
+
+**UPDATED (Session 12)**: After deep analysis, we're simplifying to 4 coordinate systems that match implementation reality:
 
 1. **Window Coordinates**: Absolute position from window origin (0,0)
 2. **Viewport Coordinates**: Position relative to the visible sidebar activity log area
-3. **Item Viewport Position**: Where the item appears in the viewport (changes with scroll)
-4. **Item-Relative Coordinates**: Position relative to an activity item's origin (stable)
-5. **Element-Relative Coordinates**: Position within nested markdown elements
+3. **Item Coordinates**: Position relative to an activity item's origin (stable, accounts for scroll via viewport_y offset)
+4. **Content Coordinates**: Position where text actually renders (inside padding/borders of elements)
+
+**Key Changes**:
+- "Item Viewport Position" is not a coordinate space but a transformation parameter (viewport_y offset)
+- "Element-Relative" becomes "Content" - text renders at content_rect, not element bounds
+- This fixes the root cause: positions were stored at element origin (0,0) but text renders at content position
 
 **Why not Document Coordinates**: The activity log's dynamic nature (items added, virtual scrolling height changes) makes true document-relative coordinates impractical. Instead, we use item indices + item-relative positions for stable references.
 
@@ -38,7 +51,7 @@ We actually have FIVE coordinate systems that must be carefully managed:
 - New items get higher indices  
 - This provides natural stability (existing indices don't change when new items are added)
 
-**Critical**: Clear separation between these coordinate spaces is essential for correct hit testing and selection rendering. The current codebase confuses these (at the time of writing this plan), leading to selection bugs.
+**Critical**: Clear separation between these coordinate spaces is essential for correct hit testing and selection rendering. ~~The current codebase confuses these (at the time of writing this plan), leading to selection bugs.~~ **Session 12 Fix**: The coordinate confusion was identified as storing positions at element origin instead of content position where text actually renders.
 
 ### 3. Text Rendering Paths
 - **WrappedText**: Simple text, generates GlyphWithCluster cells (working for goal/chat)
@@ -253,6 +266,7 @@ Explicit coordinate space types and transformations:
 pub struct WindowCoord(Point2D<f32>);
 pub struct ViewportCoord(Point2D<f32>);
 pub struct ItemCoord(Point2D<f32>);
+pub struct ContentCoord(Point2D<f32>);  // UPDATED: Renamed from ElementCoord
 
 // Selection positions use stable references
 pub struct SelectionPosition {
@@ -274,15 +288,16 @@ pub struct SelectionState {
 
 impl CoordinateTransform {
     fn window_to_viewport(&self, w: WindowCoord) -> ViewportCoord {
-        ViewportCoord(w.0 - Vector2D::new(self.sidebar_x, 0.0))
+        ViewportCoord(w.0 - Vector2D::new(self.sidebar_x, self.sidebar_y))
     }
     
     fn viewport_to_item(&self, v: ViewportCoord, item_viewport_y: f32) -> ItemCoord {
         ItemCoord(v.0 - Vector2D::new(0.0, item_viewport_y))
     }
     
-    fn item_to_element(&self, i: ItemCoord, element_bounds: Rect) -> ElementCoord {
-        ElementCoord(i.0 - element_bounds.origin)
+    fn item_to_content(&self, i: ItemCoord, content_offset: Vector2D<f32>) -> ContentCoord {
+        // UPDATED: Transform to where text actually renders (content_rect)
+        ContentCoord(i.0 - content_offset)
     }
 }
 ```
@@ -1168,7 +1183,23 @@ After implementing Phases 1-4 and extensive troubleshooting, we've made signific
 5. ~~**Fix mouse button state during drag**~~ ✅ COMPLETED (Session 9 Part 1)
 6. ~~**Fix mouse event routing for activity log drag**~~ ✅ COMPLETED (Session 9 Part 2)
 
-7. **Fix selection rendering offset**
+7. **Fix coordinate system to use 4-space model** (Session 12)
+   - **Status**: IN PROGRESS
+   - **Root Cause Identified**: Positions stored at element origin (0,0) but text renders at content_rect position
+   - **Solution**: 
+     1. Calculate content_offset as `content_rect.origin - bounds.origin` in position extraction
+     2. Store positions where text actually renders (content coordinates)
+     3. Add content_offset field to PositionTree structure
+     4. Update coordinate types: ElementCoord → ContentCoord
+     5. Update all transformation methods atomically
+   - **Implementation Steps**:
+     - [ ] Fix position extraction to use content coordinates
+     - [ ] Add content_offset to PositionTree
+     - [ ] Update coordinate type names
+     - [ ] Update transformation methods
+     - [ ] Test with all content types
+
+8. **Fix selection rendering offset** (Now part of #7)
    - **Status**: Selection rectangles appear but with complex offset issues:
      - **Item 1 (simple text/user message)** (Session 11 state):
        - Selection and rendering are aligned with each other

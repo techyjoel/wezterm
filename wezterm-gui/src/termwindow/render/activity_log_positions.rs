@@ -107,15 +107,25 @@ fn extract_positions_from_activity_item(
 
     // Use override bounds if provided (for fallback case), otherwise use computed bounds
     let bounds = override_bounds.unwrap_or(computed.bounds);
+    
+    // Calculate the content offset - this is where text actually renders relative to bounds
+    // Text renders at content_rect position, not at element origin (0,0)
+    let content_offset = Point2D::new(
+        computed.content_rect.min_x() - computed.bounds.min_x(),
+        computed.content_rect.min_y() - computed.bounds.min_y()
+    );
 
     log::debug!(
-        "Extracting positions from activity item with bounds: {:?}, line_height: {}",
+        "Extracting positions from activity item with bounds: {:?}, content_rect: {:?}, content_offset: {:?}, line_height: {}",
         bounds,
+        computed.content_rect,
+        content_offset,
         line_height
     );
 
     // Create a root element to hold everything
-    builder.start_element(
+    // Store the content offset so we know where text actually renders relative to bounds
+    builder.start_element_with_offset(
         ElementType::Paragraph {
             line_height,
             margin: 0.0,
@@ -124,11 +134,12 @@ fn extract_positions_from_activity_item(
             Point2D::new(0.0, 0.0),
             Size2D::new(bounds.width(), bounds.height()),
         ),
+        euclid::Vector2D::new(content_offset.x, content_offset.y),
     );
 
     // Extract positions from the entire computed element tree
-    // This handles both simple text (Card wrapper) and complex markdown content
-    extract_positions_recursively(computed, &mut builder, Point2D::new(0.0, 0.0), fonts);
+    // Pass the content offset so positions are extracted where text actually renders
+    extract_positions_recursively(computed, &mut builder, content_offset, fonts);
 
     // Don't call end_element() here - the root element should remain as current_element
     // so that build() can return it
@@ -187,11 +198,8 @@ fn extract_positions_recursively(
                 cells.len(),
                 offset
             );
-            // Extract positions at Element-relative coordinates (0,0)
-            // Per the 5-level coordinate system design, positions should be relative to
-            // the element origin, not include padding/border offsets.
-            // The padding will be added during the Element→Window transformation in rendering.
-            extract_positions_from_cells(cells, builder, Point2D::new(0.0, 0.0));
+            // Extract positions at the actual text rendering position (content coordinates)
+            extract_positions_from_cells(cells, builder, offset);
         }
         ComputedElementContent::MultilineText { lines, line_height, line_positions, line_info, .. } => {
             log::debug!(
@@ -199,11 +207,10 @@ fn extract_positions_recursively(
                 lines.len(),
                 offset
             );
-            // Extract positions at Element-relative coordinates
-            // Positions should be relative to element origin (0,0), not include padding
+            // Extract positions at the actual text rendering position (content coordinates)
             for (line_index, line) in lines.iter().enumerate() {
                 // Use line_positions if available, otherwise calculate based on line_height
-                // These are Element-relative Y positions
+                // These Y positions are relative to the content area
                 let y = line_positions
                     .get(line_index)
                     .copied()
@@ -214,7 +221,7 @@ fn extract_positions_recursively(
                         extract_positions_from_cells_with_wrapped_line(
                             line,
                             builder,
-                            Point2D::new(0.0, y),  // Element-relative coordinates
+                            Point2D::new(offset.x, offset.y + y),  // Content coordinates
                             line_index,
                             wrapped_line,
                         );
@@ -222,7 +229,7 @@ fn extract_positions_recursively(
                         extract_positions_from_cells_with_line(
                             line,
                             builder,
-                            Point2D::new(0.0, y),  // Element-relative coordinates
+                            Point2D::new(offset.x, offset.y + y),  // Content coordinates
                             line_index,
                         );
                     }
@@ -230,7 +237,7 @@ fn extract_positions_recursively(
                     extract_positions_from_cells_with_line(
                         line,
                         builder,
-                        Point2D::new(0.0, y),  // Element-relative coordinates
+                        Point2D::new(offset.x, offset.y + y),  // Content coordinates
                         line_index,
                     );
                 }
@@ -282,15 +289,24 @@ fn extract_positions_recursively(
                     child.bounds
                 );
 
-                // For position extraction, we always work in element-relative coordinates
-                // Starting from (0,0) at the root element
-                // Child positions should be relative to their parent element
-                let child_offset: Point2D<f32, PixelUnit> = Point2D::new(0.0, 0.0);
+                // Calculate child's content offset relative to its own bounds
+                // Each child may have its own padding/border that affects where its text renders
+                let child_content_offset: Point2D<f32, PixelUnit> = Point2D::new(
+                    child.content_rect.min_x() - child.bounds.min_x(),
+                    child.content_rect.min_y() - child.bounds.min_y()
+                );
+                
+                // The child's content position is relative to the parent's content position
+                // plus the child's position within the parent
+                let child_absolute_offset = Point2D::new(
+                    current_offset.x + child.bounds.min_x() - computed.bounds.min_x() + child_content_offset.x,
+                    current_offset.y + child.bounds.min_y() - computed.bounds.min_y() + child_content_offset.y
+                );
 
                 // Debug log the child structure
                 log::debug!(
-                    "Child {} offset calculation: current_offset={:?}, child.bounds.origin={:?}, resulting child_offset={:?}",
-                    i, current_offset, child.bounds.origin, child_offset
+                    "Child {} offset: parent_offset={:?}, child.bounds={:?}, child.content_rect={:?}, child_content_offset={:?}, child_absolute_offset={:?}",
+                    i, current_offset, child.bounds, child.content_rect, child_content_offset, child_absolute_offset
                 );
                 
                 // Check if this child has semantic type (for markdown elements)
@@ -369,8 +385,8 @@ fn extract_positions_recursively(
 
                 // ALWAYS recursively process this child, whether it has semantic type or not
                 // This is crucial for Card wrappers where the text is nested inside
-                // Use (0,0) offset to keep positions element-relative
-                extract_positions_recursively(child, builder, Point2D::new(0.0, 0.0), fonts);
+                // Use the calculated child offset to position text where it actually renders
+                extract_positions_recursively(child, builder, child_absolute_offset, fonts);
 
                 // End element ONLY if we actually started one
                 if started_element {
