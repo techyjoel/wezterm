@@ -193,19 +193,33 @@ fn extract_positions_recursively(
 ) {
     match &computed.content {
         ComputedElementContent::Text(cells) => {
-            log::debug!(
-                "Found Text content with {} cells at offset {:?}",
-                cells.len(),
-                offset
+            // When we find text content, we need to add this element's content offset
+            // The offset parameter is relative to the root content area
+            // But this text renders at this element's content_rect
+            let text_offset: Point2D<f32, PixelUnit> = Point2D::new(
+                offset.x + (computed.content_rect.min_x() - computed.bounds.min_x()),
+                offset.y + (computed.content_rect.min_y() - computed.bounds.min_y())
             );
-            // Extract positions at the actual text rendering position (content coordinates)
-            extract_positions_from_cells(cells, builder, offset);
+            log::debug!(
+                "Found Text content with {} cells at offset {:?}, text_offset {:?}",
+                cells.len(),
+                offset,
+                text_offset
+            );
+            // Extract positions at the actual text rendering position
+            extract_positions_from_cells(cells, builder, text_offset);
         }
         ComputedElementContent::MultilineText { lines, line_height, line_positions, line_info, .. } => {
+            // When we find multiline text, we need to add this element's content offset
+            let text_offset: Point2D<f32, PixelUnit> = Point2D::new(
+                offset.x + (computed.content_rect.min_x() - computed.bounds.min_x()),
+                offset.y + (computed.content_rect.min_y() - computed.bounds.min_y())
+            );
             log::debug!(
-                "Found MultilineText content with {} lines at offset {:?}",
+                "Found MultilineText content with {} lines at offset {:?}, text_offset {:?}",
                 lines.len(),
-                offset
+                offset,
+                text_offset
             );
             // Extract positions at the actual text rendering position (content coordinates)
             for (line_index, line) in lines.iter().enumerate() {
@@ -221,7 +235,7 @@ fn extract_positions_recursively(
                         extract_positions_from_cells_with_wrapped_line(
                             line,
                             builder,
-                            Point2D::new(offset.x, offset.y + y),  // Content coordinates
+                            Point2D::new(text_offset.x, text_offset.y + y),  // Use text_offset
                             line_index,
                             wrapped_line,
                         );
@@ -229,7 +243,7 @@ fn extract_positions_recursively(
                         extract_positions_from_cells_with_line(
                             line,
                             builder,
-                            Point2D::new(offset.x, offset.y + y),  // Content coordinates
+                            Point2D::new(text_offset.x, text_offset.y + y),  // Use text_offset
                             line_index,
                         );
                     }
@@ -237,7 +251,7 @@ fn extract_positions_recursively(
                     extract_positions_from_cells_with_line(
                         line,
                         builder,
-                        Point2D::new(offset.x, offset.y + y),  // Content coordinates
+                        Point2D::new(text_offset.x, text_offset.y + y),  // Use text_offset
                         line_index,
                     );
                 }
@@ -289,24 +303,26 @@ fn extract_positions_recursively(
                     child.bounds
                 );
 
-                // Calculate child's content offset relative to its own bounds
-                // Each child may have its own padding/border that affects where its text renders
-                let child_content_offset: Point2D<f32, PixelUnit> = Point2D::new(
-                    child.content_rect.min_x() - child.bounds.min_x(),
-                    child.content_rect.min_y() - child.bounds.min_y()
+                // For nested children, we need to calculate the position relative to the root content area
+                // The current_offset already includes the root's content offset
+                // We just need to add this child's position relative to its parent
+                let child_position_in_parent: Point2D<f32, PixelUnit> = Point2D::new(
+                    child.bounds.min_x() - computed.content_rect.min_x(),
+                    child.bounds.min_y() - computed.content_rect.min_y()
                 );
                 
-                // The child's content position is relative to the parent's content position
-                // plus the child's position within the parent
+                // The child's offset for text extraction is the parent's offset plus child's position
+                // We don't add the child's own content offset here - that will be handled
+                // when we actually extract text from this child
                 let child_absolute_offset = Point2D::new(
-                    current_offset.x + child.bounds.min_x() - computed.bounds.min_x() + child_content_offset.x,
-                    current_offset.y + child.bounds.min_y() - computed.bounds.min_y() + child_content_offset.y
+                    current_offset.x + child_position_in_parent.x,
+                    current_offset.y + child_position_in_parent.y
                 );
 
                 // Debug log the child structure
                 log::debug!(
-                    "Child {} offset: parent_offset={:?}, child.bounds={:?}, child.content_rect={:?}, child_content_offset={:?}, child_absolute_offset={:?}",
-                    i, current_offset, child.bounds, child.content_rect, child_content_offset, child_absolute_offset
+                    "Child {} offset: parent_offset={:?}, child_position_in_parent={:?}, child_absolute_offset={:?}",
+                    i, current_offset, child_position_in_parent, child_absolute_offset
                 );
                 
                 // Check if this child has semantic type (for markdown elements)

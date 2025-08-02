@@ -2944,20 +2944,18 @@ This example demonstrates:
             return None;
         }
 
-        // Transform to element-relative coordinates
-        let element_point = self
-            .coordinate_transform
-            .item_to_element(point, &position_tree.bounds);
+        // Positions are now stored in content coordinates (where text actually renders)
+        // The stored positions already include padding/border offsets from extraction
+        // So we can directly compare item coordinates with stored positions
+        let content_point = point;
 
         // Handle different element types
-        // Note: Positions are now element-relative (padding already subtracted during extraction)
-        // So we no longer need to adjust for padding here
         match &position_tree.element_type {
             ElementType::CodeBlock { .. } => {
                 // Positions already relative to code block content area
                 self.hit_test_text_positions(
                     &position_tree.text_positions,
-                    element_point.0,
+                    content_point.0,
                     &position_tree.element_type,
                 )
             }
@@ -2968,7 +2966,8 @@ This example demonstrates:
             } => {
                 // For list items, we still need to account for indentation and marker
                 // as these affect the text start position within the element
-                let adjusted = element_point.0 - euclid::Vector2D::new(indent + marker_width, 0.0);
+                // List item positions already include indentation/marker offset from extraction
+                let adjusted = content_point.0;
                 // First check children (list item content)
                 for child in &position_tree.children {
                     if let Some(hit) = self.hit_test_item(child, point) {
@@ -2986,7 +2985,7 @@ This example demonstrates:
                 // Positions already relative to inline code content area
                 self.hit_test_text_positions(
                     &position_tree.text_positions,
-                    element_point.0,
+                    content_point.0,
                     &position_tree.element_type,
                 )
             }
@@ -3000,7 +2999,7 @@ This example demonstrates:
                 // Then check own text positions
                 self.hit_test_text_positions(
                     &position_tree.text_positions,
-                    element_point.0,
+                    content_point.0,
                     &position_tree.element_type,
                 )
             }
@@ -3185,32 +3184,9 @@ This example demonstrates:
                                 );
                             }
 
-                            // Element→Window coordinate transformation requires adding padding+border
-                            // Positions are Element-relative (0,0), but text renders at padding+border offset
-                            let content_offset = if let Some(item) = self.activity_log.get(*anchor_index) {
-                                match item {
-                                    ActivityItem::Chat { .. } => {
-                                        // Chat items have border + padding
-                                        CHAT_ITEM_BORDER + CHAT_ITEM_PADDING
-                                    },
-                                    ActivityItem::Command { .. } => {
-                                        // Commands use Card which has border + content padding
-                                        CARD_BORDER + CARD_CONTENT_PADDING
-                                    },
-                                    ActivityItem::Suggestion { .. } => {
-                                        // Suggestions use Card
-                                        CARD_BORDER + CARD_CONTENT_PADDING
-                                    },
-                                    ActivityItem::Goal { .. } => {
-                                        // Goal uses special padding
-                                        GOAL_CARD_PADDING
-                                    },
-                                }
-                            } else {
-                                0.0
-                            };
-                            
-                            log::debug!("Using content_offset={} for item {} (Element→Window transformation)", content_offset, anchor_index);
+                            // Positions are already stored in content coordinates (where text renders)
+                            // after the fix in extract_positions_from_activity_item which applies
+                            // content_offset during extraction. So we don't need to add it again here.
 
                             // Transform item-relative rectangles to absolute screen coordinates
                             for rect in item_rects {
@@ -3219,20 +3195,18 @@ This example demonstrates:
                                     // Draw position boundary in red
                                     let debug_rect = euclid::Rect::new(
                                         euclid::Point2D::new(
-                                            bounds.origin.x + rect.origin.x + content_offset,
-                                            bounds.origin.y + rect.origin.y + content_offset,
+                                            bounds.origin.x + rect.origin.x,
+                                            bounds.origin.y + rect.origin.y,
                                         ),
                                         euclid::Size2D::new(rect.size.width, 2.0), // Thin line
                                     );
                                     rects.push(debug_rect);
                                 }
-                                // The rect positions are relative to where text is rendered (inside padding/border)
-                                // We need to:
-                                // 1. Add content offset to account for padding/border
-                                // 2. Add the activity item's window position
+                                // The rect positions are already in content coordinates (where text renders)
+                                // We only need to add the activity item's window position
                                 let absolute_rect = euclid::rect(
-                                    bounds.origin.x + rect.origin.x + content_offset,
-                                    bounds.origin.y + rect.origin.y + content_offset,
+                                    bounds.origin.x + rect.origin.x,
+                                    bounds.origin.y + rect.origin.y,
                                     rect.size.width,
                                     rect.size.height,
                                 );

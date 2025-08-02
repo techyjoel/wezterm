@@ -333,7 +333,8 @@ pub struct ViewportCoord(pub Point2D<f32, PixelUnit>);
 pub struct ItemCoord(pub Point2D<f32, PixelUnit>);
 
 #[derive(Debug, Clone, Copy)]
-pub struct ElementCoord(pub Point2D<f32, PixelUnit>);
+/// Position where text actually renders (inside padding/borders)
+pub struct ContentCoord(pub Point2D<f32, PixelUnit>);
 
 /// Stable selection position using item index and byte offset
 #[derive(Debug, Clone, PartialEq)]
@@ -384,12 +385,15 @@ impl CoordinateTransform {
         ItemCoord(v.0 - Vector2D::new(0.0, item_viewport_y))
     }
 
-    pub fn item_to_element(
+    pub fn item_to_content(
         &self,
         i: ItemCoord,
-        element_bounds: &Rect<f32, PixelUnit>,
-    ) -> ElementCoord {
-        ElementCoord(i.0 - element_bounds.origin.to_vector())
+        content_offset: Vector2D<f32, PixelUnit>,
+    ) -> ContentCoord {
+        // Content coordinates are where text actually renders
+        // Since positions are now stored in content space (with offset applied during extraction),
+        // we don't need to subtract content_offset here - positions already account for it
+        ContentCoord(i.0)
     }
 }
 
