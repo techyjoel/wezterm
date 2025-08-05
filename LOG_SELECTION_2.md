@@ -24,14 +24,6 @@ Users should be able to interact in the sidebar activity log similar to how they
 
 ### 2. Coordinate Systems
 
-~~We actually have FIVE coordinate systems that must be carefully managed:~~
-
-~~1. **Window Coordinates**: Absolute position from window origin (0,0)~~
-~~2. **Viewport Coordinates**: Position relative to the visible sidebar activity log area~~
-~~3. **Item Viewport Position**: Where the item appears in the viewport (changes with scroll)~~
-~~4. **Item-Relative Coordinates**: Position relative to an activity item's origin (stable)~~
-~~5. **Element-Relative Coordinates**: Position within nested markdown elements~~
-
 **UPDATED (Session 12)**: After deep analysis, we're simplifying to 4 coordinate systems that match implementation reality:
 
 1. **Window Coordinates**: Absolute position from window origin (0,0)
@@ -39,10 +31,10 @@ Users should be able to interact in the sidebar activity log similar to how they
 3. **Item Coordinates**: Position relative to an activity item's origin (stable, accounts for scroll via viewport_y offset)
 4. **Content Coordinates**: Position where text actually renders (inside padding/borders of elements)
 
-**Key Changes**:
+**Key Changes from prior thought**:
 - "Item Viewport Position" is not a coordinate space but a transformation parameter (viewport_y offset)
 - "Element-Relative" becomes "Content" - text renders at content_rect, not element bounds
-- This fixes the root cause: positions were stored at element origin (0,0) but text renders at content position
+- This fixes a prior issue: positions were stored at element origin (0,0) but text renders at content position
 
 **Why not Document Coordinates**: The activity log's dynamic nature (items added, virtual scrolling height changes) makes true document-relative coordinates impractical. Instead, we use item indices + item-relative positions for stable references.
 
@@ -51,7 +43,8 @@ Users should be able to interact in the sidebar activity log similar to how they
 - New items get higher indices  
 - This provides natural stability (existing indices don't change when new items are added)
 
-**Critical**: Clear separation between these coordinate spaces is essential for correct hit testing and selection rendering. ~~The current codebase confuses these (at the time of writing this plan), leading to selection bugs.~~ **Session 12 Fix**: The coordinate confusion was identified as storing positions at element origin instead of content position where text actually renders.
+**Critical**: Clear separation between these coordinate spaces is essential for correct hit testing and selection rendering. 
+**Session 12 Fix**: The coordinate confusion was identified as storing positions at element origin instead of content position where text actually renders.
 
 ### 3. Text Rendering Paths
 - **WrappedText**: Simple text, generates GlyphWithCluster cells (working for goal/chat)
@@ -61,13 +54,6 @@ Users should be able to interact in the sidebar activity log similar to how they
 
 ## Architectural Analysis
 
-### Why Current Implementation Fails
-
-1. **Information Loss**: We use character width estimation (`calculate_char_positions`) instead of actual glyph positions from text shaping
-2. **Coordinate Confusion**: Mixing viewport-relative and document-relative positions
-3. **Incomplete Mouse Handling**: Selection drag breaks when cursor leaves UIItem bounds
-4. **No Markdown Support**: Complex content loses position information during rendering
-
 ### UI Best Practices We're Implementing
 
 1. **Pixel-Perfect Accuracy**: Professional text editors use exact glyph positions from text shaping
@@ -75,25 +61,10 @@ Users should be able to interact in the sidebar activity log similar to how they
 3. **Mouse Capture**: Proper drag handling requires capturing mouse events
 4. **Separation of Concerns**: Document model, layout model, and view model must be separate
 
-## Why Previous Attempts Failed
+## Learnings from previous work
 
-### Session 27-28: Cluster Tracking
-**What went wrong**: 
-- Tried to adjust cluster values by adding segment offsets
-- Assumed clusters should be document-absolute
-- Actually, clusters are segment-relative and that's correct
-- The adjustment broke the cluster→text mapping
-
-**Lesson**: Don't modify cluster values - use them as-is from HarfBuzz
-
-### Session 21-26: Coordinate Confusion
-**What went wrong**:
-- Mixed coordinate systems (viewport vs item-relative)
-- Double-transformed coordinates 
-- Incorrect Y position calculations
-- Assumed uniform line heights (they vary due to different fonts, font sizes, and padding)
-
-**Lesson**: Be explicit about coordinate spaces at every step and don't assume line heights nor assume they will be consistent
+* Don't modify cluster values - use them as-is from HarfBuzz
+* Be explicit about coordinate spaces at every step and don't assume line heights nor assume they will be consistent
 
 ### Core Architectural Constraints
 
@@ -698,10 +669,10 @@ impl AiSidebar {
 
 ## Success Criteria
 
-1. **Click Accuracy**: Clicking on any character selects exactly that position ❌ (4 char offset, improved from 5-6)
+1. **Click Accuracy**: Clicking on any character selects exactly that position ❌ (not correct yet, see detailed notes below)
 2. **Multi-line Selection**: Can select across multiple lines and paragraphs ⚠️ (works but with offset)
 3. **Deselection**: Single click deselects (when not dragging) ✅
-4. **Scrolling**: Selection rectangles stay aligned during scroll, including when items enter/leave the virtual scrolling buffer. ⚠️ (untested with offset issues)
+4. **Scrolling**: Selection rectangles stay aligned during scroll, including when items enter/leave the virtual scrolling buffer. ✅
 5. **Copy**: Selected text copies correctly with Cmd-C/Ctrl-C ⚠️ (copies offset text)
 6. **Performance**: No noticeable lag during selection ✅
 7. **Vertical Alignment**: Selection appears on correct line ✅ (FIXED in Session 12)
@@ -713,20 +684,6 @@ impl AiSidebar {
 - AI messages: Selection/rendering disagree by 7 chars total
 - Coordinate system needs final consistency fix
 
-## Testing Strategy
-
-### Manual Testing
-1. Test selection in each content type:
-   - Goal text (single element)
-   - User messages (simple text)
-   - AI messages (complex markdown)
-   - Code blocks within markdown
-   
-2. Test edge cases:
-   - Select across paragraph boundaries
-   - Select starting from middle of word
-   - Select backwards (right to left)
-   - Select while scrolling
 
 ### Debug Helpers
 ```rust
@@ -768,9 +725,9 @@ if cfg!(debug_assertions) && std::env::var("WEZTERM_DEBUG_SELECTION").is_ok() {
 
 6. **Double Transformations Are Common**: Many offset bugs come from applying the same transformation twice in the pipeline.
 
-### Current Issues (As of Session 12)
+### Current Issues (As of Session 13)
 
-After implementing Phases 1-4 and extensive troubleshooting, we've made significant progress. The markdown duplication issue is mostly fixed, but coordinate system inconsistencies cause selection offsets:
+After implementing Phases 1-4 and extensive troubleshooting across 13 sessions, we've made progress but also introduced regressions. The coordinate system remains fundamentally confused about what space positions are stored in:
 
 #### ✅ FIXED: Text wrapping for command items
 - **Issue**: Command items didn't wrap and flowed off the side
@@ -830,13 +787,19 @@ After implementing Phases 1-4 and extensive troubleshooting, we've made signific
 
 #### ⚠️ PARTIALLY WORKING: Selection functionality
 
-**Current state (Session 12)**:
+**Current state (Session 13 - Latest)**:
 - ✅ Coordinate system simplified to 4 spaces (Window→Viewport→Item→Content)
-- ✅ **Vertical offset FIXED**: Selection and rendering on correct line
-- ⚠️ Horizontal offset reduced but not eliminated:
-  - **User messages**: Selection/rendering aligned, both 4 chars right
-  - **AI messages**: Selection 4 chars left, rendering 3 chars right (7 char disagreement)
-- **Root cause**: Positions stored in content coordinates but compared with item coordinates
+- ✅ **Vertical offset**: Selection and rendering are properly aligned (on same row) as user click-and-drag
+- ⚠️ **Horizontal offset in user messages (plain text)**:
+  - Selection and rendering are aligned with each other
+  - They are both about 4 characters too far to the right of where the user clicks and drags (but are on the correct line)
+- ⚠️ **Horizontal offset in AI messages (markdown)**:
+  - Selection and rendering are not quite aligned with each other
+  - Selection is 1 character too far to the left of where the user clicks and drag, but is on the correct line
+  - Rendering is 3 character too far to the right of where the user clicks and drag, but on the correct line
+- **Root cause suspects**:
+  - Positions stored at item coords WITH content_offset applied (e.g., first char at x=33)
+  - Hit testing uses item coords directly without accounting for this
 
 **Historical attempts and learnings**:
 
@@ -921,7 +884,7 @@ After implementing Phases 1-4 and extensive troubleshooting, we've made signific
   - Different behavior for markdown suggests different code paths
   - Same byte_offset appeared with different child indices (Child 0, Child 1, etc.) in logs
 
-**Session 12**: 4-coordinate system implementation
+**Session 12-13**: 4-coordinate system implementation and debugging
 - Simplified from 5 to 4 coordinate spaces:
   - Merged "Item Viewport Position" into Item transformation (just viewport_y offset)
   - Renamed ElementCoord → ContentCoord to reflect actual purpose
@@ -936,59 +899,52 @@ After implementing Phases 1-4 and extensive troubleshooting, we've made signific
   - Child positions calculated relative to parent's content_rect, not bounds
   - Prevents accumulation of padding through nested elements
   - Added text_offset calculation for Text and MultilineText content
-- **Result**: Vertical offset FIXED (text on correct line), horizontal reduced from 5-6 to 4 chars
+- **Session 12 result**: Vertical offset FIXED (text on correct line), horizontal reduced from 5-6 to 4 chars
+
+**Session 13 continued debugging**:
+- Explored root cause analysis with subagent help:
+  - Asymmetric margins create different content offsets (user: 33px, AI: 13px)
+  - Double coordinate transformation was occurring
+- Tested potential fixes without concrete progress:
+  1. Removed double-application of content_offset in position extraction (passed 0,0 instead)
+  2. Moved UIItemType from inner to outer element with padding
+  3. Added content_offset to selection rectangle calculation
+  4. Changed hit testing to ADD content_offset (positions stored WITH offset)
 
 
-
-
-
-- **Session 12 critical findings and fixes**:
+- **Session 12-13 critical findings and fixes**:
   1. **Simplified to 4-coordinate system** ✅:
      - Merged "Item Viewport Position" into Item transformation
      - Renamed ElementCoord → ContentCoord to reflect actual purpose
      - Updated LOG_SELECTION_2.md documentation
-  2. **Fixed position extraction** ✅:
-     - Positions now extracted at content_rect position where text renders
-     - Added content_offset to PositionTree structure
-     - Handles nested markdown elements properly
-  3. **Removed double content offset** ✅:
-     - Selection rendering no longer adds content_offset twice
-     - Positions already include offset from extraction
-  4. **Fixed nested markdown padding** ✅:
-     - Child positions calculated relative to parent's content_rect
-     - Prevents accumulation of padding through nested elements
-  5. **Fixed vertical offset** ✅:
-     - Text now renders at correct Y position
-     - Likely fixed by proper content offset calculation
-  6. **Remaining issue**:
-     - Coordinate space inconsistency between storage and usage
-     - Positions stored in content space but compared with item space
-     - Causes 4-char offset in user messages, disagreement in AI messages
+  2. **Identified nested element structure issue** (Session 13, did not keep changes, however they may be helpful):
+     - Chat messages have parent element with padding, child with UIItemType
+     - Position extraction found child (no padding), missing parent's 12px padding
+     - Moved UIItemType to parent element to capture correct content_offset
+  3. **Tried addressing asymmetric margin handling** (Session 13, did not keep changes, however they may be helpful)
+     - User messages: 33px content_offset (20px left margin + 13px padding/border)
+     - AI messages: 13px content_offset (0px left margin + 13px padding/border)
+  4. **Coordinate space confusion** (Session 13) ⚠️:
+     - Positions stored at item coords WITH content_offset pre-applied
+     - Hit testing tried multiple approaches:
+       - Direct item coords → 4 char offset
+       - Subtracting content_offset → different offsets
+       - Adding content_offset → 6-7 char offset
+     - Core issue: Inconsistent understanding of what coordinate space positions are in
 
 
 #### Technical Deep Dive: Current Coordinate System Status
 
-**Position Extraction System Status** (Session 12):
-- ✅ Cluster tracking enabled for sidebar (`RenderSource::Sidebar`)
+**Position Extraction System Status** (Session 13 - Latest):
 - ✅ Text shaping creates `GlyphWithCluster` cells with position data
-- ✅ Position extraction handles all markdown elements correctly
-- ✅ Positions extracted at content_rect position (where text renders)
-- ✅ Content offset properly calculated and stored in PositionTree
 - ⚠️ Positions stored in content space but compared with item space
 
-**Coordinate System Implementation** (Session 12 - 4-space model):
-- ✅ Simplified to 4 coordinate types (Window→Viewport→Item→Content)
-- ✅ `CoordinateTransform` struct with transformation methods
-- ✅ Window to viewport transformation correct
-- ✅ Viewport to item transformation uses viewport_y offset
-- ❌ Item to content transformation not properly used in hit testing
-- ⚠️ Coordinate space mismatch between storage and comparison
-
-**Current Selection Issues** (Session 12):
-- **Item 1 (user)**: Selection/rendering aligned, both 4 chars right
-- **Item 2 (AI)**: Selection 4 chars left, rendering 3 chars right (7 char disagreement)
-- **Vertical offset**: FIXED - proper content offset calculation resolved this
-- **Root cause**: Positions stored in content coordinates but hit testing compares with item coordinates
+**Coordinate System Implementation** (Session 13 - 4-space model with confusion):
+- ✅ Tested simplifying to 4 coordinate types (Window→Viewport→Item→Content)
+- ✅ Viewport to item transformation use viewport_y offset
+- ❌ Item to content transformation confused - tried both adding and subtracting offset
+- ❌ Positions stored at item coords WITH content_offset pre-applied (x=33 for first char)
+- ❌ Hit testing didn't know how to compensate for this
 
 #### Implementation History and Lessons Learned
 
@@ -1064,6 +1020,7 @@ After implementing Phases 1-4 and extensive troubleshooting, we've made signific
 - ✅ Using actual line positions from `line_positions` Vec when available
 - ✅ Converting cluster positions to document byte offsets via `WrappedLine::cluster_to_byte_offset()`
 - ✅ Full integration with glyph position tracking from POSITION_TRACKING.md
+- ❌ BUT: Positions extracted at wrong coordinates (item + content_offset instead of pure item coords)
 
 **Font Size Improvements:**
 - Heading font sizes now use multipliers relative to user's configured sidebar font size
@@ -1121,7 +1078,7 @@ After implementing Phases 1-4 and extensive troubleshooting, we've made signific
 - This approach is simpler and consistent with WezTerm's existing patterns
 - Drag-outside-bounds works correctly with the current implementation
 
-### Phase 4: Selection Rendering ✅ COMPLETED (with limitations)
+### Phase 4: Selection Rendering ⚠️ PARTIALLY WORKING (with regressions)
 
 **What was built:**
 - ✅ `calculate_selection_rectangles()` now uses actual glyph positions from `PositionTree`
@@ -1129,8 +1086,9 @@ After implementing Phases 1-4 and extensive troubleshooting, we've made signific
 - ✅ Position-based rectangle calculation fully implemented with coordinate transformations
 - ✅ Proper integration with rendering pipeline via `render_sidebar_selection_overlays()`
 - ✅ Z-index layering working correctly (z-index 14, sub-layer 0 for selection behind text)
-- ✅ Visual feedback now renders correctly for single-item selection
-- ✅ Fallback to character approximation when position data unavailable
+- ⚠️ Visual feedback renders but with offsets (6-7 chars right, 1 line down for user messages)
+- ✅ Selection and rendering now aligned after Session 13 fixes
+- ❌ Both are in wrong position relative to mouse clicks
 
 **Implementation aligned with plan:**
 - ✅ Uses cached `PositionTree` data exactly as designed
@@ -1162,12 +1120,13 @@ After implementing Phases 1-4 and extensive troubleshooting, we've made signific
 
 3. **Performance**: Position extraction happens on every render frame without caching
 
-### 📝 Remaining TODOs:
+### 📝 Remaining TODOs (Updated Session 13):
 
-1. **Multi-item selection** (Phase 4 requirement not met):
-   - Need to iterate through all items from anchor_index to current_index
-   - Calculate rectangles for partial selections at start/end items
-   - Handle full selection for middle items
+1. **Fix coordinate space confusion** (CRITICAL - Session 13):
+   - Determine if positions are stored in item or content coordinates
+   - Fix hit testing to match storage space
+   - Fix horizontal offsets (varies)
+   - Fix 1 line vertical offset (too far down)
 
 2. **Performance optimization**:
    - Position extraction runs on every render frame
@@ -1190,36 +1149,28 @@ After implementing Phases 1-4 and extensive troubleshooting, we've made signific
 5. ~~**Fix mouse button state during drag**~~ ✅ COMPLETED (Session 9 Part 1)
 6. ~~**Fix mouse event routing for activity log drag**~~ ✅ COMPLETED (Session 9 Part 2)
 
-7. **Fix coordinate system to use 4-space model** (Session 12)
-   - **Status**: PARTIALLY COMPLETE
-   - **Completed**:
-     - [x] Simplified to 4-coordinate system (Window→Viewport→Item→Content)
-     - [x] Fixed position extraction to use content coordinates
-     - [x] Added content_offset to PositionTree
-     - [x] Updated coordinate type names (ElementCoord → ContentCoord)
-     - [x] Removed double content offset in selection rendering
-     - [x] Fixed nested markdown padding accumulation
-     - [x] **FIXED vertical offset** - selection and rendering now on correct line
-   - **Remaining Issues**:
-     - [ ] Coordinate space mismatch: positions stored in content space but compared with item space
-     - [ ] User messages: 4 characters right offset (selection and rendering aligned)
-     - [ ] AI messages: Selection 4 left, rendering 3 right (7 char disagreement)
-   - **Next Steps**:
-     - Fix coordinate space consistency - either store in item space OR properly transform
-     - Add proper content coordinate transformation in hit testing
+7. **Fix coordinate system consistency** (Session 13 - CRITICAL)
+   - **Status**: Still broken: have horizontal offsets in selection and rendering of rectangles
+   - **Attempted fixes that failed**:
+     - [x] Moved UIItemType to parent element with padding
+     - [x] Added content_offset to selection rectangle calculation
+     - [x] Tried subtracting content_offset in hit testing → wrong direction
+     - [x] Tried adding content_offset in hit testing → made offset worse
+     - [x] Fixed double-application of content_offset → helped initially
+   - **Next Steps (Session 14)**:
+     1. **CRITICAL**: Determine exact coordinate space of stored positions
+        - Trace a single glyph from extraction to storage
+        - Log exact x,y values at each step
+     2. **Fix hit testing transformation**:
+        - If positions are item-relative WITH offset, hit test should use item coords directly
+        - If positions are content-relative, hit test needs proper transformation
+     3. **Fix vertical offset**:
+        - Investigate why line_height is 30 not 20. Base line heights on glyph position tracking and/or configured font (since font size will vary)
+        - Check baseline calculations
+        - Verify Y position extraction and storage
      - Verify all coordinate transformations are consistent
 
 8. **Fix remaining horizontal offset** (Session 13 TODO)
-   - **Status**: Selection rectangles appear but with complex offset issues:
-     - **Item 1 (simple text/user message)** (Session 11 state):
-       - Selection and rendering are aligned with each other
-       - BUT both are 5-6 characters right + 0.5 lines down from click position
-       - This suggests consistent coordinate space error
-     - **Item 2 (markdown/AI message)** (Session 11 state):
-       - Selection is 4-6 characters LEFT of click position
-       - Rendering is ~4 characters RIGHT + 0.5 lines down from click position
-       - Selection and rendering DISAGREE - suggests different code paths
-       - Duplicate rectangles mostly fixed (only one set now)
    - **Attempted fixes that FAILED**:
      - Session 10:
        - ❌ Subtracting padding during position extraction (made it worse)
@@ -1230,17 +1181,11 @@ After implementing Phases 1-4 and extensive troubleshooting, we've made signific
        - ✅ Changed to Element-relative (0,0) extraction
        - ✅ Added proper Element→Window transformation
        - ⚠️ BUT offsets persist with different characteristics
-   - **Root cause hypothesis (Session 11)**:
-     - The 5-level coordinate system is not properly implemented
-     - Element vs Text coordinates are conflated
-     - ComputedElement bounds may be border-box but used as content-box
-     - Markdown has different rendering pipeline than plain text
    - **Next steps**:
      - Complete audit of coordinate transformation pipeline
      - Verify what coordinate space ComputedElement bounds represent
      - Debug why markdown has different selection vs rendering offsets
      - Add debug visualization for coordinate boundaries
-     - Consider architectural simplification to 4-level system
      - Investigate if text baseline vs line-box-top causes vertical offset
 
 8. ~~**Fix markdown duplicate selection rectangles**~~ ✅ MOSTLY FIXED (Session 11)
