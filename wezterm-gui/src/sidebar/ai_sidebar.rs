@@ -2944,10 +2944,11 @@ This example demonstrates:
             return None;
         }
 
-        // Positions are now stored in content coordinates (where text actually renders)
-        // The stored positions already include padding/border offsets from extraction
-        // So we can directly compare item coordinates with stored positions
-        let content_point = point;
+        // Positions are stored at their actual render location (including content_offset)
+        // We need to transform item coordinates to match by adding the content_offset
+        let content_point = crate::sidebar::position_cache::ItemCoord(
+            point.0 + position_tree.content_offset
+        );
 
         // Handle different element types
         match &position_tree.element_type {
