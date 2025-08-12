@@ -720,9 +720,9 @@ if cfg!(debug_assertions) && std::env::var("WEZTERM_DEBUG_SELECTION").is_ok() {
 
 6. **Double Transformations Are Common**: Many offset bugs come from applying the same transformation twice in the pipeline.
 
-### Current Issues (As of Session 13)
+### Current Issues (As of Session 15)
 
-After implementing Phases 1-4 and extensive troubleshooting across 13 sessions, we've made progress but also introduced regressions. The coordinate system remains fundamentally confused about what space positions are stored in:
+After implementing Phases 1-4 and extensive troubleshooting across 15 sessions, significant progress has been made with user message selection now fully working:
 
 #### ✅ FIXED: Text wrapping for command items
 - **Issue**: Command items didn't wrap and flowed off the side
@@ -780,19 +780,22 @@ After implementing Phases 1-4 and extensive troubleshooting across 13 sessions, 
 - **Fix applied**: Updated `update_coordinate_transform()` call to use `activity_bounds.origin.y`
 - **Result**: Viewport coordinates now properly relative to activity log viewport
 
-#### ⚠️ PARTIALLY WORKING: Selection functionality
+#### ✅ WORKING: User message selection (Session 15)
+- **Status**: Fully functional - selection perfectly aligned with clicks
+- **Key fixes**:
+  - Fixed Children processing bug passing (0,0) instead of accumulated offset
+  - Added viewport_x tracking for horizontal item positions
+  - Updated hit testing to account for both X and Y item positions
 
-**Current state (Session 14 - Post Implementation 1B)**:
-- ✅ Coordinate system simplified to 3 spaces (Window→Viewport→Item)
-- ✅ **ContentCoord removed entirely** - positions stored at render location in item coordinates
-- ✅ **Vertical offset**: Selection and rendering are properly aligned (on same row) as user click-and-drag
-- ✅ **Coordinate transformations eliminated**: Hit testing uses item coordinates directly
-- ⚠️ **Horizontal offset persists but improved**:
-  - User messages: Selection/rendering aligned, both ~3 chars right of click (improved from 4)
-  - AI messages: Selection 3 chars left, rendering 1 char right of click (improved from 1 left/3 right)
-  - **Root cause identified**: Viewport transform using wrong origin (sidebar_x vs sidebar_x + 16px padding)
-  - **Fix applied**: Updated coordinate transform to use `sidebar_x + activity_log_left` 
-  - **Remaining issue**: Still ~3 char offset, likely due to positions stored at x=0 (content-relative) not x=9 (item-relative with padding)
+#### ⚠️ PARTIALLY WORKING: AI message selection  
+- **Status**: Selection 4 chars left of click position
+- **Attempted fix (Session 15)**: Moved UIItemType to outer padded element - no effect
+- **Root cause**: Unknown - position extraction may not be finding correct element
+
+#### ❌ NOT WORKING: Other selection types
+- **Command items**: Selection and rendering misaligned
+- **Code blocks**: No selection functionality at all
+- **Long AI messages**: Only first section/chunk works
 
 **Historical attempts and learnings**:
 
@@ -877,29 +880,19 @@ After implementing Phases 1-4 and extensive troubleshooting across 13 sessions, 
   - Different behavior for markdown suggests different code paths
   - Same byte_offset appeared with different child indices (Child 0, Child 1, etc.) in logs
 
-**Session 12-13**: Coordinate system implementation and debugging
-- Initially simplified from 5 to 4 coordinate spaces:
-  - Merged "Item Viewport Position" into Item transformation (just viewport_y offset)
-  - Renamed ElementCoord → ContentCoord to reflect actual purpose
+**Session 12-14**: Coordinate system simplification
+- Progressively simplified from 5 to 4 to 3 coordinate spaces
+- **Session 14 Implementation 1B**:
+  - Removed ContentCoord entirely per 1B_PLAN.md
+  - Store positions at render location in item coordinates
+  - Hit testing uses item coordinates directly without transformation
+  - Fixed viewport transform to use `sidebar_x + activity_log_left`
+  - Result: Vertical offset FIXED, horizontal reduced to ~3 chars
 
-**Session 14**: Implementation 1B - Further simplified to 3 coordinate spaces:
-- Removed ContentCoord entirely per 1B_PLAN.md
-- Store positions at render location in item coordinates
-- Added comprehensive debug logging to trace coordinate issues
-- Found critical bug: viewport transform used sidebar_x instead of sidebar_x + 16px
-- Discovered positions stored at x=0 despite 9px content_offset in extraction
-- Fixed position extraction:
-  - Calculate content_offset as `content_rect.origin - bounds.origin`
-  - Pass content_offset to extract_positions_recursively instead of (0,0)
-  - Store positions where text actually renders (content coordinates)
-- Removed double content offset in selection rendering:
-  - Positions already include offset from extraction
-  - Removed redundant `content_offset` addition in `calculate_selection_rectangles`
-- Fixed nested markdown padding accumulation:
-  - Child positions calculated relative to parent's content_rect, not bounds
-  - Prevents accumulation of padding through nested elements
-  - Added text_offset calculation for Text and MultilineText content
-- **Session 12 result**: Vertical offset FIXED (text on correct line), horizontal reduced from 5-6 to 4 chars
+**Session 15**: Major breakthrough
+- Fixed Children processing bug (line 304) - was passing (0,0) instead of offset
+- Added viewport_x tracking to ItemPositionData
+- Result: User messages now work perfectly, AI messages still broken
 
 **Session 13 continued debugging**:
 - Explored root cause analysis with subagent help:
@@ -933,18 +926,6 @@ After implementing Phases 1-4 and extensive troubleshooting across 13 sessions, 
      - Core issue: Inconsistent understanding of what coordinate space positions are in
 
 
-#### Technical Deep Dive: Current Coordinate System Status
-
-**Position Extraction System Status** (Session 13 - Latest):
-- ✅ Text shaping creates `GlyphWithCluster` cells with position data
-- ⚠️ Positions stored in content space but compared with item space
-
-**Coordinate System Implementation** (Session 14 - 3-space model):
-- ✅ Simplified to 3 coordinate types (Window→Viewport→Item)
-- ✅ Viewport to item transformation uses viewport_y offset
-- ✅ Removed content transformation entirely
-- ✅ Positions stored at item coords at render location (x=33 for first char includes padding)
-- ✅ Hit testing uses item coordinates directly without transformation
 
 #### Implementation History and Lessons Learned
 
@@ -1120,90 +1101,33 @@ After implementing Phases 1-4 and extensive troubleshooting across 13 sessions, 
 
 3. **Performance**: Position extraction happens on every render frame without caching
 
-### 📝 Remaining TODOs (Updated Session 14 Post-Implementation 1B):
-
-1. **Fix final ~3 character horizontal offset** (CRITICAL):
-   - Positions appear to be stored at x=0 (content-relative) not item-relative
-   - Need to ensure positions include the 9px padding offset (verify offset.x at line 506 in activity_log_positions.rs)
-   - User messages: offset.x should start at 33 (20px margin + 13px padding)
-   - AI messages: offset.x should start at 13 (0px margin + 13px padding)
-   - **List item coordinate handling issue**: Around lines 2971-2982 in ai_sidebar.rs, parent uses transformed coordinates but children may use original - need to verify all use hit_point consistently
-   - AI message selection/rendering disagree (investigate coordinate mismatch)
-
-2. **Performance optimization**:
-   - Position extraction runs on every render frame
-   - Should implement incremental updates or smarter caching
-   - Consider caching rendered selection rectangles
-
-3. **Element-specific selection rendering**:
-   - Code blocks should include background in selection
-   - Inline code needs special handling
-   - Lists need proper indentation handling
-
-4. **Selection in command items**:
-   - Currently no selection rectangles appear for command items
-   - Need to investigate why position extraction or rendering fails
-
 ## Next Steps
 
 ### Critical Bug Fixes Required
 
-1. ~~**Fix text wrapping in activity log**~~ ✅ COMPLETED
-2. ~~**Fix half-width rendering issue**~~ ✅ COMPLETED (Session 5)
-3. ~~**Fix position extraction failures**~~ ✅ COMPLETED (Session 7)
-4. ~~**Fix position tree bounds height calculation**~~ ✅ COMPLETED (Session 8)
-5. ~~**Fix mouse button state during drag**~~ ✅ COMPLETED (Session 9 Part 1)
-6. ~~**Fix mouse event routing for activity log drag**~~ ✅ COMPLETED (Session 9 Part 2)
-
-7. **Fix coordinate system consistency** ✅ COMPLETED (Session 14 - Implementation 1B)
-   - **Status**: FIXED by removing ContentCoord and coordinate transformations
-   - **Solution implemented**:
-     - Removed ContentCoord type entirely
-     - Removed item_to_content transformation function
-     - Store positions at render location in item coordinates
-     - Hit testing uses item coordinates directly without transformation
-   - **Result**: Eliminated entire class of coordinate transformation bugs
-
-8. **Fix remaining horizontal offset** ⚠️ PARTIALLY FIXED (Session 14 - Implementation 1B)
-   - **Progress**: Offset reduced from 4-6 chars to ~3 chars
-   - **Previous failed attempts**:
-     - Session 10: Various padding adjustments made offsets worse
-     - Session 11: Element-relative extraction helped but didn't fully fix
-     - Session 13: Multiple coordinate transformation attempts
-   - **Session 14 Implementation 1B**:
-     - Removed ContentCoord type and item_to_content function
-     - Hit testing uses item coordinates directly without transformation
-     - Fixed viewport transform origin (sidebar_x → sidebar_x + activity_log_left)
-   - **Debug findings**:
-     - Positions stored at x=0.0 with content_offset=(0.0, 0.0) in hit test logs
-     - But extraction shows content_offset=(9.0, 9.0) during rendering
-     - Mismatch suggests positions not properly stored at item-relative coordinates
-   - **Remaining issues**:
-     - User messages: 3 char offset (20px margin not accounted for?)
-     - AI messages: Selection/rendering disagree (different padding handling?)
+1. **Fix AI message selection offset**
+   - **Status**: Selection 4 chars left of click position
+   - **Session 15 attempt**: Moved UIItemType to outer element - no effect
    - **Next steps**:
-     - Fix position storage to include content_offset (9px padding)
-     - Account for user message's 20px left margin
-     - Verify selection rectangle calculation uses same coordinates as hit testing
+     - Verify position extraction finds correct element
+     - Check if markdown renderer creates additional wrappers
+     - May need to explicitly pass padding offset
 
-8. ~~**Fix markdown duplicate selection rectangles**~~ ✅ MOSTLY FIXED (Session 11)
-   - **Status**: Duplicate rectangles eliminated, only one set appears now
-   - **Root cause**: Markdown's nested structure caused same text to be processed multiple times
-   - **Fix applied**: Added logic to detect when Children directly contain text, skip recursive processing
-   - **Remaining issue**: Selection/rendering offsets differ (see item 7)
-   - **Attempted fixes (Session 10)**:
-     - Added deduplication based on byte_offset and line_index → Partial improvement only
-     - Removed duplicate Children processing → No effect
-   - **Evidence**: Logs show same byte_offset in multiple Child elements (Child 0, 1, 2...)
-   - **Next steps**:
-     - Track which elements have been processed to prevent re-extraction
-     - Consider extracting positions only from leaf elements with actual text
-     - May need to restructure how markdown elements are traversed
+2. **Fix selection z-index/sub-layer**
+   - **Status**: Overlaying on top of text.
+   - **Next steps**: Check goal card configuration for sub-layer usage, match activity log text z-index
 
-9. **Selection in command items**:
-   - **Status**: No selection rectangles for command items in the activity log (e.g. item 0)
-   - ** Next steps**:
-     - Begin troubleshooting
+3. **Fix selection in markdown code blocks**
+   - **Status**: No selection functionality at all
+   - **Next steps**: Verify position extraction and UIItemType
+
+4. **Fix command item selection alignment**
+   - **Status**: Selection and rendering misaligned
+   - **Next steps**: Similar investigation as AI messages
+
+5. **Fix long AI message selection**
+   - **Status**: Only first chunk works
+   - **Next steps**: Check position extraction handles all chunks
 
 
 ### Original Phase 4 Completion (Postponed)
@@ -1228,28 +1152,4 @@ After implementing Phases 1-4 and extensive troubleshooting across 13 sessions, 
    - Shift+click for range selection
    - Keyboard navigation of selection
 
-### Session 14: Simplification to 3-Level System (Implementation 1B)
-- **Decision**: Remove ContentCoord and store positions at render location per 1B_PLAN.md
-- **Rationale**: Coordinate transformations proved error-prone over 13 sessions
-- **Key Principle from 1B_PLAN**: "Text positions are stored in item coordinates at the exact pixel offset where the text renders"
-- **Implementation completed**:
-  1. Removed ContentCoord type from position_cache.rs (lines 275-280)
-  2. Removed item_to_content transformation function (lines 388-397)
-  3. Updated hit testing to use item coordinates directly (line 2947-2951)
-  4. Fixed viewport transform origin to account for 16px activity log padding
-- **Troubleshooting findings**:
-  - Debug logs revealed positions stored at x=0.0 (content-relative) not item-relative
-  - content_offset shown as (0.0, 0.0) in hit test but (9.0, 9.0) during extraction
-  - User messages have 20px left margin (CHAT_ITEM_HORIZONTAL_MARGIN), AI messages have 0px
-  - Coordinate spaces: Window → Sidebar → Activity Log Viewport → Items → Content
-  - List items may have inconsistent coordinate handling (parent vs children)
-- **Results**:
-  - Offset improved from 4-6 chars to ~3 chars
-  - Vertical alignment remains correct
-  - Selection/rendering aligned for user messages but not AI messages
-- **Remaining work**:
-  - Fix position storage to properly include padding offsets (verify offset.x includes padding at line 506)
-  - Account for per-message-type margins in coordinate transforms
-  - Verify list item coordinate handling consistency (children should use hit_point not original point)
-  - Clean up any remaining ContentCoord references in codebase
 

@@ -53,12 +53,12 @@ pub const HEADING_H2_RATIO: f32 = 1.4;
 /// Chat item layout constants
 pub const CHAT_ITEM_PADDING: f32 = 12.0; // Padding on all sides
 pub const CHAT_ITEM_BOTTOM_MARGIN: f32 = 8.0; // Bottom margin between chat items
-pub const CHAT_ITEM_BORDER: f32 = 1.0; // Border width
-pub const CHAT_ITEM_HORIZONTAL_MARGIN: f32 = 20.0; // Left/right margin for alignment
+pub const CHAT_ITEM_BORDER: f32 = 0.0; // No border for cleaner look
+pub const CHAT_ITEM_HORIZONTAL_MARGIN: f32 = 20.0; // Left margin for user messages (AI has 0)
 
 /// Card component constants
 pub const CARD_CONTENT_PADDING: f32 = 12.0; // Default padding for Card content wrapper
-pub const CARD_BORDER: f32 = 1.0; // Border width for Card component
+pub const CARD_BORDER: f32 = 0.0; // No border for cleaner look
 pub const CARD_MARGIN: f32 = 8.0; // Default margin for Card component
 
 // Goal card constants

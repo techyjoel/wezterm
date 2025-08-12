@@ -124,15 +124,6 @@ impl Card {
                 .colors(ElementColors {
                     bg: LinearRgba::with_components(0.15, 0.15, 0.17, 1.0).into(),
                     ..Default::default()
-                })
-                .border(BoxDimension {
-                    bottom: Dimension::Pixels(1.0),
-                    ..Default::default()
-                })
-                .colors(ElementColors {
-                    border: BorderColor::new(LinearRgba::with_components(0.3, 0.3, 0.35, 1.0)),
-                    bg: LinearRgba::with_components(0.15, 0.15, 0.17, 1.0).into(),
-                    ..Default::default()
                 });
 
             children.push(header);
@@ -152,34 +143,23 @@ impl Card {
             let actions_wrapper =
                 Element::new(font, ElementContent::Children(self.actions.clone()))
                     .display(DisplayType::Block)
-                    .padding(BoxDimension::new(Dimension::Pixels(8.0)))
-                    .border(BoxDimension {
-                        top: Dimension::Pixels(1.0),
-                        ..Default::default()
-                    })
-                    .colors(ElementColors {
-                        border: BorderColor::new(LinearRgba::with_components(0.3, 0.3, 0.35, 1.0)),
-                        ..Default::default()
-                    });
+                    .padding(BoxDimension::new(Dimension::Pixels(8.0)));
             children.push(actions_wrapper);
         }
 
         // Create the card container
         let mut card = Element::new(font, ElementContent::Children(children))
             .display(DisplayType::Block)
-            .border(BoxDimension::new(Dimension::Pixels(CARD_BORDER)))
             .margin(BoxDimension::new(Dimension::Pixels(CARD_MARGIN)))
             .colors(ElementColors {
-                border: BorderColor::new(LinearRgba::with_components(0.3, 0.3, 0.35, 1.0)),
-                bg: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0).into(),
+                bg: LinearRgba::with_components(0.15, 0.15, 0.17, 1.0).into(), // Gray background like AI messages
                 ..Default::default()
             });
 
         // Add hover colors if in hover state
         if self.hover_state {
             card = card.hover_colors(Some(ElementColors {
-                border: BorderColor::new(LinearRgba::with_components(0.4, 0.4, 0.45, 1.0)),
-                bg: LinearRgba::with_components(0.13, 0.13, 0.15, 1.0).into(),
+                bg: LinearRgba::with_components(0.18, 0.18, 0.2, 1.0).into(), // Slightly lighter on hover
                 ..Default::default()
             }));
         }

@@ -320,6 +320,8 @@ pub struct ItemPositionData {
     pub position_tree: PositionTree,
     /// Current viewport Y position (changes with scroll)
     pub viewport_y: Option<f32>,
+    /// Current viewport X position (accounts for margins)
+    pub viewport_x: Option<f32>,
 }
 
 /// Coordinate types for explicit transformation tracking

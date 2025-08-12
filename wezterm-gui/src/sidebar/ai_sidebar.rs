@@ -1711,7 +1711,7 @@ This example demonstrates:
                     - SCROLLBAR_SPACE;
 
                 let bg_color = if *is_user {
-                    LinearRgba::with_components(0.1, 0.3, 0.5, 0.3)
+                    LinearRgba::with_components(0.05, 0.15, 0.25, 1.0) // 50% darker, full opacity
                 } else {
                     LinearRgba::with_components(0.15, 0.15, 0.17, 1.0)
                 };
@@ -1764,10 +1764,6 @@ This example demonstrates:
                     // User messages - use WrappedText for proper width calculation
                     // Selection is now rendered as an overlay, not inline styles
                     Element::new(&fonts.body, ElementContent::WrappedText(message.clone()))
-                        .item_type(UIItemType::ActivityItemText {
-                            index: item_index,
-                            char_positions: Vec::new(), // Position data extracted after rendering
-                        })
                         .colors(ElementColors {
                             text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
                             ..Default::default()
@@ -1779,17 +1775,11 @@ This example demonstrates:
                     if selection.is_some() {
                         // When there's a selection, we still use markdown but the selection
                         // will be rendered as an overlay
-                        let elem = MarkdownRenderer::render_with_fonts(
+                        MarkdownRenderer::render_with_fonts(
                             message,
                             fonts,
                             Some(content_width),
-                        );
-
-                        // Add item type for click handling
-                        elem.item_type(UIItemType::ActivityItemText {
-                            index: item_index,
-                            char_positions: Vec::new(), // Position data extracted after rendering
-                        })
+                        )
                     } else {
                         // AI messages use markdown rendering with code font support
                         // Need to add width constraint for proper text wrapping
@@ -1812,7 +1802,7 @@ This example demonstrates:
                         );
 
                         // Use registry if available for horizontal scrolling support
-                        let mut elem = if let Some(ref registry) = self.code_block_registry {
+                        if let Some(ref registry) = self.code_block_registry {
                             MarkdownRenderer::render_with_fonts_registry_and_palette(
                                 message,
                                 fonts,
@@ -1823,14 +1813,7 @@ This example demonstrates:
                             )
                         } else {
                             MarkdownRenderer::render_with_fonts(message, fonts, Some(content_width))
-                        };
-
-                        // Add item type for click handling
-                        elem = elem.item_type(UIItemType::ActivityItemText {
-                            index: item_index,
-                            char_positions: Vec::new(), // Position data extracted after rendering
-                        });
-                        elem
+                        }
                     }
                 };
 
@@ -1847,19 +1830,13 @@ This example demonstrates:
                         } else {
                             Dimension::Pixels(0.0)
                         },
-                        right: if *is_user {
-                            Dimension::Pixels(0.0)
-                        } else {
-                            Dimension::Pixels(CHAT_ITEM_HORIZONTAL_MARGIN)
-                        },
+                        right: Dimension::Pixels(0.0), // No right margin for either
                         bottom: Dimension::Pixels(CHAT_ITEM_BOTTOM_MARGIN),
                         ..Default::default()
                     })
-                    .border(BoxDimension::new(Dimension::Pixels(CHAT_ITEM_BORDER)))
-                    .colors(ElementColors {
-                        border: BorderColor::new(LinearRgba::with_components(0.3, 0.3, 0.35, 0.5)),
-                        bg: bg_color.into(),
-                        ..Default::default()
+                    .item_type(UIItemType::ActivityItemText {
+                        index: item_index,
+                        char_positions: Vec::new(), // Position data extracted after rendering
                     })
             }
             ActivityItem::Suggestion { title, content, .. } => {
@@ -2830,6 +2807,7 @@ This example demonstrates:
         window_point: euclid::Point2D<f32, window::PixelUnit>,
     ) -> Option<crate::sidebar::position_cache::HitResult> {
         use crate::sidebar::position_cache::{ItemCoord, ViewportCoord, WindowCoord};
+        use euclid::Point2D;
 
         log::debug!("hit_test_activity_log: window_point={:?}", window_point);
 
@@ -2867,28 +2845,36 @@ This example demonstrates:
         }
 
         for (index, item_data) in &self.item_positions {
-            if let Some(item_viewport_y) = item_data.viewport_y {
-                // Check if point is within item bounds vertically
+            if let (Some(item_viewport_y), Some(item_viewport_x)) = (item_data.viewport_y, item_data.viewport_x) {
+                // Check if point is within item bounds
+                let item_width = item_data.position_tree.bounds.size.width;
                 let item_height = item_data.position_tree.bounds.size.height;
                 log::debug!(
-                    "Item {}: viewport_y={}, height={}, point.y={}",
+                    "Item {}: viewport_x={}, viewport_y={}, width={}, height={}, point=({}, {})",
                     index,
+                    item_viewport_x,
                     item_viewport_y,
+                    item_width,
                     item_height,
+                    viewport_point.0.x,
                     viewport_point.0.y
                 );
 
-                if viewport_point.0.y >= item_viewport_y
+                if viewport_point.0.x >= item_viewport_x
+                    && viewport_point.0.x < item_viewport_x + item_width
+                    && viewport_point.0.y >= item_viewport_y
                     && viewport_point.0.y < item_viewport_y + item_height
                 {
                     // 3. Viewport → Item transformation
-                    let item_point = self
-                        .coordinate_transform
-                        .viewport_to_item(viewport_point, item_viewport_y);
+                    // Adjust for both X and Y position of the item
+                    let item_point = ItemCoord(Point2D::new(
+                        viewport_point.0.x - item_viewport_x,
+                        viewport_point.0.y - item_viewport_y,
+                    ));
 
                     log::debug!(
-                        "Item {} hit! viewport x={:.1} → item x={:.1} (viewport_y={:.1})",
-                        index, viewport_point.0.x, item_point.0.x, item_viewport_y
+                        "Item {} hit! viewport ({:.1}, {:.1}) → item ({:.1}, {:.1})",
+                        index, viewport_point.0.x, viewport_point.0.y, item_point.0.x, item_point.0.y
                     );
 
                     // 4. Hit test within item (item-relative coordinates)

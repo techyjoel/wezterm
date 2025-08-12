@@ -194,17 +194,21 @@ fn extract_positions_recursively(
 ) {
     match &computed.content {
         ComputedElementContent::Text(cells) => {
-            // When we find text content, we need to add this element's content offset
-            // The offset parameter is relative to the root content area
-            // But this text renders at this element's content_rect
+            // For text content, we always need to account for this element's padding
+            // The offset parameter tells us where this element is relative to the root
+            let element_padding: Point2D<f32, PixelUnit> = Point2D::new(
+                computed.content_rect.min_x() - computed.bounds.min_x(),
+                computed.content_rect.min_y() - computed.bounds.min_y(),
+            );
             let text_offset: Point2D<f32, PixelUnit> = Point2D::new(
-                offset.x + (computed.content_rect.min_x() - computed.bounds.min_x()),
-                offset.y + (computed.content_rect.min_y() - computed.bounds.min_y()),
+                offset.x + element_padding.x,
+                offset.y + element_padding.y,
             );
             log::debug!(
-                "Found Text content with {} cells at offset {:?}, text_offset {:?}",
+                "Found Text content with {} cells at offset {:?}, element_padding {:?}, text_offset {:?}",
                 cells.len(),
                 offset,
+                element_padding,
                 text_offset
             );
             // Extract positions at the actual text rendering position
@@ -217,18 +221,24 @@ fn extract_positions_recursively(
             line_info,
             ..
         } => {
-            // When we find multiline text, we need to add this element's content offset
+            // For multiline text, we always need to account for this element's padding
+            // The offset parameter tells us where this element is relative to the root
+            let element_padding: Point2D<f32, PixelUnit> = Point2D::new(
+                computed.content_rect.min_x() - computed.bounds.min_x(),
+                computed.content_rect.min_y() - computed.bounds.min_y(),
+            );
             let text_offset: Point2D<f32, PixelUnit> = Point2D::new(
-                offset.x + (computed.content_rect.min_x() - computed.bounds.min_x()),
-                offset.y + (computed.content_rect.min_y() - computed.bounds.min_y()),
+                offset.x + element_padding.x,
+                offset.y + element_padding.y,
             );
             log::debug!(
-                "Found MultilineText content with {} lines at offset {:?}, text_offset {:?}",
+                "Found MultilineText content with {} lines at offset {:?}, element_padding {:?}, text_offset {:?}",
                 lines.len(),
                 offset,
+                element_padding,
                 text_offset
             );
-            // Extract positions at the actual text rendering position (content coordinates)
+            // Extract positions at the actual text rendering position
             for (line_index, line) in lines.iter().enumerate() {
                 // Use line_positions if available, otherwise calculate based on line_height
                 // These Y positions are relative to the content area
@@ -242,7 +252,7 @@ fn extract_positions_recursively(
                         extract_positions_from_cells_with_wrapped_line(
                             line,
                             builder,
-                            Point2D::new(text_offset.x, text_offset.y + y), // Use text_offset
+                            Point2D::new(text_offset.x, text_offset.y + y),
                             line_index,
                             wrapped_line,
                         );
@@ -250,7 +260,7 @@ fn extract_positions_recursively(
                         extract_positions_from_cells_with_line(
                             line,
                             builder,
-                            Point2D::new(text_offset.x, text_offset.y + y), // Use text_offset
+                            Point2D::new(text_offset.x, text_offset.y + y),
                             line_index,
                         );
                     }
@@ -287,11 +297,20 @@ fn extract_positions_recursively(
                     match &child.content {
                         ComputedElementContent::Text(_)
                         | ComputedElementContent::MultilineText { .. } => {
-                            // Process text content directly
+                            // Process text content directly with the correct offset
+                            // Calculate child's position relative to parent
+                            let child_position: Point2D<f32, PixelUnit> = Point2D::new(
+                                child.bounds.min_x() - computed.content_rect.min_x(),
+                                child.bounds.min_y() - computed.content_rect.min_y(),
+                            );
+                            let child_offset = Point2D::new(
+                                offset.x + child_position.x,
+                                offset.y + child_position.y,
+                            );
                             extract_positions_recursively(
                                 child,
                                 builder,
-                                Point2D::new(0.0, 0.0),
+                                child_offset,
                                 fonts,
                             );
                         }
@@ -790,10 +809,16 @@ pub fn extract_markdown_positions(
         ),
     );
 
+    // For the fallback case, we need to account for content offset
+    let content_offset: Point2D<f32, PixelUnit> = Point2D::new(
+        computed.content_rect.min_x() - computed.bounds.min_x(),
+        computed.content_rect.min_y() - computed.bounds.min_y(),
+    );
+    
     extract_positions_from_content(
         &computed.content,
         &mut builder,
-        Point2D::new(0.0, 0.0),
+        content_offset,
         fonts,
         computed,
     );
@@ -816,17 +841,20 @@ pub fn store_activity_item_positions(
     item_index: usize,
     position_tree: PositionTree,
     viewport_y: f32,
+    viewport_x: f32,
 ) {
     log::debug!(
-        "Storing position tree for activity item {} with {} text positions at viewport_y={}",
+        "Storing position tree for activity item {} with {} text positions at viewport_y={}, viewport_x={}",
         item_index,
         position_tree.text_positions.len(),
-        viewport_y
+        viewport_y,
+        viewport_x
     );
 
     let position_data = ItemPositionData {
         position_tree,
         viewport_y: Some(viewport_y),
+        viewport_x: Some(viewport_x),
     };
 
     sidebar.store_item_positions(item_index, position_data);

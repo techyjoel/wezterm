@@ -658,16 +658,16 @@ impl crate::TermWindow {
                                 &fonts,
                                 item_bounds,
                             ) {
-                                // Calculate viewport_y: the item's position relative to the visible viewport
-                                // ui_item.y is in window coordinates
-                                // activity_bounds.origin.y is the top of the activity log viewport in window coordinates
-                                // We need to subtract these to get viewport-relative coordinates
+                                // Calculate viewport coordinates: the item's position relative to the visible viewport
+                                // ui_item.x and ui_item.y are in window coordinates
+                                // We need to subtract the viewport origin to get viewport-relative coordinates
                                 let viewport_y = ui_item.y as f32 - activity_bounds.origin.y;
+                                let viewport_x = ui_item.x as f32 - (sidebar_x + activity_log_left);
 
                                 // Debug logging to understand the values
                                 log::debug!(
-                                    "Item {} viewport_y calculation: ui_item.y={}, activity_bounds.origin.y={}, viewport_y={}",
-                                    index, ui_item.y, activity_bounds.origin.y, viewport_y
+                                    "Item {} viewport calculation: ui_item.x={}, ui_item.y={}, viewport_x={}, viewport_y={}",
+                                    index, ui_item.x, ui_item.y, viewport_x, viewport_y
                                 );
 
                                 crate::termwindow::render::activity_log_positions::store_activity_item_positions(
@@ -675,6 +675,7 @@ impl crate::TermWindow {
                                     *index,
                                     position_tree,
                                     viewport_y,
+                                    viewport_x,
                                 );
                             } else {
                                 log::debug!("Failed to extract positions for activity item {}", index);
