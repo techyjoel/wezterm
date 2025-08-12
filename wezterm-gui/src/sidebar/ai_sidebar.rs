@@ -19,8 +19,8 @@ use super::{Sidebar, SidebarConfig, SidebarFonts, SidebarPosition};
 use crate::color::LinearRgba;
 use crate::sidebar::position_cache::ElementType;
 use crate::sidebar::sidebar_constants::{
-    CARD_BORDER, CARD_CONTENT_PADDING, CHAT_ITEM_PADDING, CHAT_ITEM_BOTTOM_MARGIN, 
-    CHAT_ITEM_BORDER, CHAT_ITEM_HORIZONTAL_MARGIN, GOAL_CARD_PADDING, SCROLLBAR_SPACE,
+    CARD_BORDER, CARD_CONTENT_PADDING, CHAT_ITEM_BORDER, CHAT_ITEM_BOTTOM_MARGIN,
+    CHAT_ITEM_HORIZONTAL_MARGIN, CHAT_ITEM_PADDING, GOAL_CARD_PADDING, SCROLLBAR_SPACE,
 };
 use crate::termwindow::box_model::{
     BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent, Float,
@@ -2838,7 +2838,10 @@ This example demonstrates:
             .coordinate_transform
             .window_to_viewport(WindowCoord(window_point));
 
-        log::debug!("Viewport point: {:?}", viewport_point);
+        log::debug!(
+            "Coordinate transform: window x={:.1} → viewport x={:.1} (sidebar_x={:.1})",
+            window_point.x, viewport_point.0.x, self.coordinate_transform.sidebar_x
+        );
 
         // 2. Find which item was hit
         log::debug!("Checking {} item positions", self.item_positions.len());
@@ -2883,7 +2886,10 @@ This example demonstrates:
                         .coordinate_transform
                         .viewport_to_item(viewport_point, item_viewport_y);
 
-                    log::debug!("Item {} hit! Item-relative point: {:?}", index, item_point);
+                    log::debug!(
+                        "Item {} hit! viewport x={:.1} → item x={:.1} (viewport_y={:.1})",
+                        index, viewport_point.0.x, item_point.0.x, item_viewport_y
+                    );
 
                     // 4. Hit test within item (item-relative coordinates)
                     if let Some(position) = self.hit_test_item(&item_data.position_tree, item_point)
@@ -2944,11 +2950,18 @@ This example demonstrates:
             return None;
         }
 
-        // Positions are stored at their actual render location (including content_offset)
-        // We need to transform item coordinates to match by adding the content_offset
-        let content_point = crate::sidebar::position_cache::ItemCoord(
-            point.0 + position_tree.content_offset
-        );
+        // Positions are stored in item coordinates at their actual render location
+        // No transformation needed - compare item coordinates directly
+        let hit_point = point;
+        
+        // Debug logging to understand coordinate issues
+        if !position_tree.text_positions.is_empty() {
+            let first_pos = &position_tree.text_positions[0];
+            log::debug!(
+                "Hit test: click at item x={:.1}, first char stored at x={:.1}, content_offset={:?}",
+                hit_point.0.x, first_pos.x_start, position_tree.content_offset
+            );
+        }
 
         // Handle different element types
         match &position_tree.element_type {
@@ -2956,7 +2969,7 @@ This example demonstrates:
                 // Positions already relative to code block content area
                 self.hit_test_text_positions(
                     &position_tree.text_positions,
-                    content_point.0,
+                    hit_point.0,
                     &position_tree.element_type,
                 )
             }
@@ -2968,10 +2981,10 @@ This example demonstrates:
                 // For list items, we still need to account for indentation and marker
                 // as these affect the text start position within the element
                 // List item positions already include indentation/marker offset from extraction
-                let adjusted = content_point.0;
+                let adjusted = hit_point.0;
                 // First check children (list item content)
                 for child in &position_tree.children {
-                    if let Some(hit) = self.hit_test_item(child, point) {
+                    if let Some(hit) = self.hit_test_item(child, hit_point) {
                         return Some(hit);
                     }
                 }
@@ -2986,21 +2999,21 @@ This example demonstrates:
                 // Positions already relative to inline code content area
                 self.hit_test_text_positions(
                     &position_tree.text_positions,
-                    content_point.0,
+                    hit_point.0,
                     &position_tree.element_type,
                 )
             }
             _ => {
                 // For other elements, check children first
                 for child in &position_tree.children {
-                    if let Some(hit) = self.hit_test_item(child, point) {
+                    if let Some(hit) = self.hit_test_item(child, hit_point) {
                         return Some(hit);
                     }
                 }
                 // Then check own text positions
                 self.hit_test_text_positions(
                     &position_tree.text_positions,
-                    content_point.0,
+                    hit_point.0,
                     &position_tree.element_type,
                 )
             }
@@ -3171,7 +3184,7 @@ This example demonstrates:
                                     *end_byte,
                                     euclid::Vector2D::new(0.0, 0.0), // Element-relative coordinates
                                 );
-                            
+
                             // Debug log to understand the rectangles
                             log::debug!(
                                 "Item {} position tree returned {} rectangles",
@@ -3181,7 +3194,11 @@ This example demonstrates:
                             for (i, rect) in item_rects.iter().enumerate() {
                                 log::debug!(
                                     "  Rect {}: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
-                                    i, rect.origin.x, rect.origin.y, rect.size.width, rect.size.height
+                                    i,
+                                    rect.origin.x,
+                                    rect.origin.y,
+                                    rect.size.width,
+                                    rect.size.height
                                 );
                             }
 
@@ -3230,11 +3247,13 @@ This example demonstrates:
                             "No position data for activity item {} - using character approximation",
                             anchor_index
                         );
-                        
+
                         // Debug: Check what items we have position data for
-                        log::debug!("Available position data for items: {:?}", 
-                                   self.item_positions.keys().collect::<Vec<_>>());
-                        
+                        log::debug!(
+                            "Available position data for items: {:?}",
+                            self.item_positions.keys().collect::<Vec<_>>()
+                        );
+
                         log::warn!(
                             "No position data available for activity item {}, using fallback",
                             anchor_index
@@ -4367,7 +4386,9 @@ impl Sidebar for AiSidebar {
             if self.selection_state.is_dragging {
                 // For activity item selection, don't claim to handle the event
                 // The drag handling needs to be done by mouse_event_activity_item_text
-                if let Some(SelectionTarget::ActivityItem { .. }) = &self.selection_state.active_selection {
+                if let Some(SelectionTarget::ActivityItem { .. }) =
+                    &self.selection_state.active_selection
+                {
                     log::debug!("AiSidebar: Not claiming activity item drag Move event - letting UI item handler process it");
                     return Ok(false);
                 }

@@ -9,14 +9,15 @@ use crate::sidebar::position_cache::{
     TextStyle,
 };
 use crate::sidebar::sidebar_constants::*;
-use crate::termwindow::box_model::{ComputedElement, ComputedElementContent, ElementCell, WrappedLine};
+use crate::termwindow::box_model::{
+    ComputedElement, ComputedElementContent, ElementCell, WrappedLine,
+};
 use crate::termwindow::UIItemType;
 use euclid::{Point2D, Rect, Size2D};
 use std::collections::HashMap;
 use std::rc::Rc;
 use wezterm_font::LoadedFont;
 use window::PixelUnit;
-
 
 /// Extract position data from a computed element representing an activity log item
 pub fn extract_activity_item_positions(
@@ -107,12 +108,12 @@ fn extract_positions_from_activity_item(
 
     // Use override bounds if provided (for fallback case), otherwise use computed bounds
     let bounds = override_bounds.unwrap_or(computed.bounds);
-    
-    // Calculate the content offset - this is where text actually renders relative to bounds
-    // Text renders at content_rect position, not at element origin (0,0)
+
+    // Calculate where text actually renders in item coordinates
+    // This includes padding and margins - positions will be stored at their actual render location
     let content_offset = Point2D::new(
         computed.content_rect.min_x() - computed.bounds.min_x(),
-        computed.content_rect.min_y() - computed.bounds.min_y()
+        computed.content_rect.min_y() - computed.bounds.min_y(),
     );
 
     log::debug!(
@@ -138,7 +139,7 @@ fn extract_positions_from_activity_item(
     );
 
     // Extract positions from the entire computed element tree
-    // Pass the content offset so positions are extracted where text actually renders
+    // Pass the content offset so positions are stored at their actual render location in item coordinates
     extract_positions_recursively(computed, &mut builder, content_offset, fonts);
 
     // Don't call end_element() here - the root element should remain as current_element
@@ -198,7 +199,7 @@ fn extract_positions_recursively(
             // But this text renders at this element's content_rect
             let text_offset: Point2D<f32, PixelUnit> = Point2D::new(
                 offset.x + (computed.content_rect.min_x() - computed.bounds.min_x()),
-                offset.y + (computed.content_rect.min_y() - computed.bounds.min_y())
+                offset.y + (computed.content_rect.min_y() - computed.bounds.min_y()),
             );
             log::debug!(
                 "Found Text content with {} cells at offset {:?}, text_offset {:?}",
@@ -209,11 +210,17 @@ fn extract_positions_recursively(
             // Extract positions at the actual text rendering position
             extract_positions_from_cells(cells, builder, text_offset);
         }
-        ComputedElementContent::MultilineText { lines, line_height, line_positions, line_info, .. } => {
+        ComputedElementContent::MultilineText {
+            lines,
+            line_height,
+            line_positions,
+            line_info,
+            ..
+        } => {
             // When we find multiline text, we need to add this element's content offset
             let text_offset: Point2D<f32, PixelUnit> = Point2D::new(
                 offset.x + (computed.content_rect.min_x() - computed.bounds.min_x()),
-                offset.y + (computed.content_rect.min_y() - computed.bounds.min_y())
+                offset.y + (computed.content_rect.min_y() - computed.bounds.min_y()),
             );
             log::debug!(
                 "Found MultilineText content with {} lines at offset {:?}, text_offset {:?}",
@@ -235,7 +242,7 @@ fn extract_positions_recursively(
                         extract_positions_from_cells_with_wrapped_line(
                             line,
                             builder,
-                            Point2D::new(text_offset.x, text_offset.y + y),  // Use text_offset
+                            Point2D::new(text_offset.x, text_offset.y + y), // Use text_offset
                             line_index,
                             wrapped_line,
                         );
@@ -243,7 +250,7 @@ fn extract_positions_recursively(
                         extract_positions_from_cells_with_line(
                             line,
                             builder,
-                            Point2D::new(text_offset.x, text_offset.y + y),  // Use text_offset
+                            Point2D::new(text_offset.x, text_offset.y + y), // Use text_offset
                             line_index,
                         );
                     }
@@ -251,7 +258,7 @@ fn extract_positions_recursively(
                     extract_positions_from_cells_with_line(
                         line,
                         builder,
-                        Point2D::new(text_offset.x, text_offset.y + y),  // Use text_offset
+                        Point2D::new(text_offset.x, text_offset.y + y), // Use text_offset
                         line_index,
                     );
                 }
@@ -259,37 +266,43 @@ fn extract_positions_recursively(
         }
         ComputedElementContent::Children(children) => {
             log::debug!("Processing Children with {} elements", children.len());
-            
+
             // IMPORTANT: To prevent duplicate position extraction in markdown,
             // we should only extract positions from the leaf elements that contain
             // actual text, not from every level of the tree.
-            // 
+            //
             // Check if any child has actual text content (not just more Children)
             let has_text_content = children.iter().any(|child| {
-                matches!(&child.content, 
-                    ComputedElementContent::Text(_) | 
-                    ComputedElementContent::MultilineText { .. })
+                matches!(
+                    &child.content,
+                    ComputedElementContent::Text(_) | ComputedElementContent::MultilineText { .. }
+                )
             });
-            
+
             // If this element directly contains text, don't recurse into children
             // as they would be duplicates of the same content
             if has_text_content {
                 log::debug!("Children contain direct text content, processing only text elements");
                 for child in children {
                     match &child.content {
-                        ComputedElementContent::Text(_) | 
-                        ComputedElementContent::MultilineText { .. } => {
+                        ComputedElementContent::Text(_)
+                        | ComputedElementContent::MultilineText { .. } => {
                             // Process text content directly
-                            extract_positions_recursively(child, builder, Point2D::new(0.0, 0.0), fonts);
+                            extract_positions_recursively(
+                                child,
+                                builder,
+                                Point2D::new(0.0, 0.0),
+                                fonts,
+                            );
                         }
                         _ => {
                             // Skip non-text children to avoid duplicates
                         }
                     }
                 }
-                return;  // Don't process children recursively
+                return; // Don't process children recursively
             }
-            
+
             // Otherwise, process children normally for nested structures
             let mut current_offset = offset;
 
@@ -308,15 +321,15 @@ fn extract_positions_recursively(
                 // We just need to add this child's position relative to its parent
                 let child_position_in_parent: Point2D<f32, PixelUnit> = Point2D::new(
                     child.bounds.min_x() - computed.content_rect.min_x(),
-                    child.bounds.min_y() - computed.content_rect.min_y()
+                    child.bounds.min_y() - computed.content_rect.min_y(),
                 );
-                
+
                 // The child's offset for text extraction is the parent's offset plus child's position
                 // We don't add the child's own content offset here - that will be handled
                 // when we actually extract text from this child
                 let child_absolute_offset = Point2D::new(
                     current_offset.x + child_position_in_parent.x,
-                    current_offset.y + child_position_in_parent.y
+                    current_offset.y + child_position_in_parent.y,
                 );
 
                 // Debug log the child structure
@@ -324,7 +337,7 @@ fn extract_positions_recursively(
                     "Child {} offset: parent_offset={:?}, child_position_in_parent={:?}, child_absolute_offset={:?}",
                     i, current_offset, child_position_in_parent, child_absolute_offset
                 );
-                
+
                 // Check if this child has semantic type (for markdown elements)
                 let mut started_element = false;
                 if let Some(semantic_type) = &child.semantic_type {
@@ -361,7 +374,7 @@ fn extract_positions_recursively(
                                     margin: 0.0, // TODO: Add proper heading margin constant
                                 },
                                 Rect::new(
-                                    Point2D::new(0.0, 0.0),  // Element-relative coordinates
+                                    Point2D::new(0.0, 0.0), // Element-relative coordinates
                                     Size2D::new(child.bounds.width(), child.bounds.height()),
                                 ),
                             );
@@ -375,7 +388,7 @@ fn extract_positions_recursively(
                                     bg_color: CODE_BLOCK_BG,
                                 },
                                 Rect::new(
-                                    Point2D::new(0.0, 0.0),  // Element-relative coordinates
+                                    Point2D::new(0.0, 0.0), // Element-relative coordinates
                                     Size2D::new(child.bounds.width(), child.bounds.height()),
                                 ),
                             );
@@ -547,7 +560,7 @@ fn extract_cell_positions_internal(
                     y: offset.y,
                     line_index,
                 });
-                
+
                 // Debug first few positions to understand coordinate system
                 if cluster_count <= 3 {
                     log::debug!(

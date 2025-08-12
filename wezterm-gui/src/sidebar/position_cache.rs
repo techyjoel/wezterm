@@ -332,10 +332,6 @@ pub struct ViewportCoord(pub Point2D<f32, PixelUnit>);
 #[derive(Debug, Clone, Copy)]
 pub struct ItemCoord(pub Point2D<f32, PixelUnit>);
 
-#[derive(Debug, Clone, Copy)]
-/// Position where text actually renders (inside padding/borders)
-pub struct ContentCoord(pub Point2D<f32, PixelUnit>);
-
 /// Stable selection position using item index and byte offset
 #[derive(Debug, Clone, PartialEq)]
 pub struct SelectionPosition {
@@ -383,17 +379,6 @@ impl CoordinateTransform {
 
     pub fn viewport_to_item(&self, v: ViewportCoord, item_viewport_y: f32) -> ItemCoord {
         ItemCoord(v.0 - Vector2D::new(0.0, item_viewport_y))
-    }
-
-    pub fn item_to_content(
-        &self,
-        i: ItemCoord,
-        content_offset: Vector2D<f32, PixelUnit>,
-    ) -> ContentCoord {
-        // Content coordinates are where text actually renders
-        // Since positions are now stored in content space (with offset applied during extraction),
-        // we don't need to subtract content_offset here - positions already account for it
-        ContentCoord(i.0)
     }
 }
 
@@ -478,12 +463,12 @@ impl PositionTreeBuilder {
     pub fn start_element(&mut self, element_type: ElementType, bounds: Rect<f32, PixelUnit>) {
         self.start_element_with_offset(element_type, bounds, Vector2D::zero())
     }
-    
+
     pub fn start_element_with_offset(
-        &mut self, 
-        element_type: ElementType, 
+        &mut self,
+        element_type: ElementType,
         bounds: Rect<f32, PixelUnit>,
-        content_offset: Vector2D<f32, PixelUnit>
+        content_offset: Vector2D<f32, PixelUnit>,
     ) {
         if let Some(current) = self.current_element.take() {
             self.element_stack.push(current);
@@ -517,7 +502,7 @@ impl PositionTreeBuilder {
                 }
                 false
             });
-            
+
             if !is_duplicate {
                 current.text_positions.push(position);
             } else {

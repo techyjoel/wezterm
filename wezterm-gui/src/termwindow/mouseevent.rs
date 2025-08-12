@@ -216,8 +216,12 @@ impl super::TermWindow {
     /// 3. UI items (via hit testing)
     /// 4. Terminal pane content
     pub fn mouse_event_impl(&mut self, event: MouseEvent, context: &dyn WindowOps) {
-        log::debug!("mouse_event_impl: event.kind={:?}, mouse_buttons={:?}, text_selection_drag_active={}", 
-                   event.kind, event.mouse_buttons, self.text_selection_drag_active);
+        log::debug!(
+            "mouse_event_impl: event.kind={:?}, mouse_buttons={:?}, text_selection_drag_active={}",
+            event.kind,
+            event.mouse_buttons,
+            self.text_selection_drag_active
+        );
         log::trace!("{:?}", event);
         let pane = match self.get_active_pane_or_overlay() {
             Some(pane) => pane,
@@ -415,7 +419,10 @@ impl super::TermWindow {
             log::debug!("About to resolve_ui_item - event.kind: {:?}, mouse_buttons: {:?}, text_selection_drag: {}", 
                       event.kind, event.mouse_buttons, self.text_selection_drag_active);
             let ui_item = self.resolve_ui_item(&event);
-            log::debug!("resolve_ui_item returned: {:?}", ui_item.as_ref().map(|item| &item.item_type));
+            log::debug!(
+                "resolve_ui_item returned: {:?}",
+                ui_item.as_ref().map(|item| &item.item_type)
+            );
 
             match (self.last_ui_item.take(), &ui_item) {
                 (Some(prior), Some(item)) => {
@@ -1901,7 +1908,10 @@ impl super::TermWindow {
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
-        log::debug!("mouse_event_activity_item_text called with event.kind: {:?}", event.kind);
+        log::debug!(
+            "mouse_event_activity_item_text called with event.kind: {:?}",
+            event.kind
+        );
         context.set_cursor(Some(MouseCursor::Text));
 
         // Set mouse capture on press to ensure drag events work properly
@@ -2049,7 +2059,7 @@ impl super::TermWindow {
                                 hit.position_in_item.byte_offset,
                             );
                         });
-                        context.invalidate();  // Ensure UI updates during drag
+                        context.invalidate(); // Ensure UI updates during drag
                     } else {
                         // If hit testing fails during drag, we're likely outside the activity log
                         // Continue with the last valid position
@@ -2061,7 +2071,10 @@ impl super::TermWindow {
             }
             WMEK::Release(MousePress::Left) => {
                 // End selection
-                log::debug!("ActivityItem Release: clearing text_selection_drag_active (was {})", self.text_selection_drag_active);
+                log::debug!(
+                    "ActivityItem Release: clearing text_selection_drag_active (was {})",
+                    self.text_selection_drag_active
+                );
                 self.text_selection_drag_active = false;
                 with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
                     ai_sidebar.end_selection();

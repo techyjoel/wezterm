@@ -615,10 +615,10 @@ impl crate::TermWindow {
                         .update_activity_log_height_cache(&activity_log_computed, viewport_height);
 
                     // Update coordinate transform for the sidebar
-                    // Use activity_bounds.origin.y instead of 0.0 to properly transform
-                    // window coordinates to activity log viewport coordinates
+                    // The activity log content area starts at sidebar_x + activity_log_left (16px padding)
+                    // Use this as the viewport origin for correct coordinate transformation
                     ai_sidebar.update_coordinate_transform(
-                        sidebar_x,
+                        sidebar_x + activity_log_left,
                         activity_bounds.origin.y,
                         visible_width,
                         self.dimensions.pixel_height as f32,
