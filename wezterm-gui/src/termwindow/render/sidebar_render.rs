@@ -664,11 +664,6 @@ impl crate::TermWindow {
                                 let viewport_y = ui_item.y as f32 - activity_bounds.origin.y;
                                 let viewport_x = ui_item.x as f32 - (sidebar_x + activity_log_left);
 
-                                // Debug logging to understand the values
-                                log::debug!(
-                                    "Item {} viewport calculation: ui_item.x={}, ui_item.y={}, viewport_x={}, viewport_y={}",
-                                    index, ui_item.x, ui_item.y, viewport_x, viewport_y
-                                );
 
                                 crate::termwindow::render::activity_log_positions::store_activity_item_positions(
                                     ai_sidebar,
@@ -1054,9 +1049,9 @@ impl crate::TermWindow {
             .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
         {
             let gl_state = self.render_state.as_ref().unwrap();
-            // Use z-index 14 (same as content) with sub-layer 0 for selection rectangles
+            // Use z-index 12 (same as activity log content) with sub-layer 0 for selection rectangles
             // Sub-layer 0 renders behind text (which uses sub-layer 1), following terminal selection pattern
-            let layer = gl_state.layer_for_zindex(14)?;
+            let layer = gl_state.layer_for_zindex(12)?;
             let mut layers = layer.quad_allocator();
 
             // Get selection state

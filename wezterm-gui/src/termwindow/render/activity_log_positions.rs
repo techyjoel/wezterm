@@ -580,13 +580,6 @@ fn extract_cell_positions_internal(
                     line_index,
                 });
 
-                // Debug first few positions to understand coordinate system
-                if cluster_count <= 3 {
-                    log::debug!(
-                        "Added text position: byte_offset={}, x_start={:.1}, x_end={:.1}, y={:.1} (offset was x={:.1}, y={:.1})",
-                        byte_offset, x_start, x_end, offset.y, offset.x, offset.y
-                    );
-                }
 
                 x_pos = x_end;
             }

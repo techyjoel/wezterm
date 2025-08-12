@@ -152,7 +152,7 @@ impl SelectionState {
                     if anchor_index == current_index {
                         // Single item selection
                         sidebar.activity_log.get(*anchor_index).and_then(|item| {
-                            let text = get_item_text(item);
+                            let text = get_item_text_for_selection(item);
                             let start = anchor_byte.min(current_byte);
                             let end = anchor_byte.max(current_byte);
                             text.get(*start..*end).map(|s| s.to_string())
@@ -165,7 +165,7 @@ impl SelectionState {
 
                         for index in *start_index..=*end_index {
                             if let Some(item) = sidebar.activity_log.get(index) {
-                                let text = get_item_text(item);
+                                let text = get_item_text_for_selection(item);
 
                                 if index == *start_index && index == *anchor_index {
                                     // First item, from anchor_byte to end
@@ -189,7 +189,7 @@ impl SelectionState {
                                     }
                                 } else {
                                     // Middle items, entire text
-                                    selected_text.push_str(text);
+                                    selected_text.push_str(&text);
                                 }
 
                                 // Add newline between items
@@ -315,6 +315,70 @@ fn get_item_text(item: &ActivityItem) -> &str {
         } => output.as_deref().unwrap_or(command),
         ActivityItem::Suggestion { content, .. } => content,
         ActivityItem::Goal { text, .. } => text,
+    }
+}
+
+/// Extract plain text from markdown, stripping formatting
+fn get_rendered_text_from_markdown(markdown: &str) -> String {
+    use pulldown_cmark::{Event, Parser, Tag};
+    
+    let parser = Parser::new(markdown);
+    let mut plain_text = String::new();
+    let mut in_link = false;
+    
+    for event in parser {
+        match event {
+            Event::Text(text) | Event::Code(text) => {
+                plain_text.push_str(&text);
+            }
+            Event::SoftBreak => {
+                plain_text.push(' ');
+            }
+            Event::HardBreak => {
+                plain_text.push('\n');
+            }
+            Event::Start(Tag::Link(..)) => {
+                in_link = true;
+            }
+            Event::End(Tag::Link(..)) => {
+                in_link = false;
+            }
+            Event::Start(Tag::Item) => {
+                // Add bullet point for list items
+                plain_text.push_str("• ");
+            }
+            Event::Start(Tag::Paragraph) if !plain_text.is_empty() => {
+                // Add newline before paragraphs (except the first)
+                if !plain_text.ends_with('\n') {
+                    plain_text.push('\n');
+                }
+            }
+            _ => {}
+        }
+    }
+    
+    plain_text
+}
+
+/// Get the text to use for selection extraction
+/// For AI messages (which use markdown), returns the rendered text
+/// For user messages, returns the original text
+fn get_item_text_for_selection(item: &ActivityItem) -> String {
+    match item {
+        ActivityItem::Chat { message, is_user, .. } => {
+            if !is_user {
+                // AI messages use markdown, extract plain text
+                get_rendered_text_from_markdown(message)
+            } else {
+                // User messages are plain text
+                message.clone()
+            }
+        }
+        ActivityItem::Command { command, output, .. } => {
+            output.as_deref().unwrap_or(command).to_string()
+        }
+        ActivityItem::Suggestion { content, .. } => content.clone(),
+        ActivityItem::Goal { text, .. } => text.clone(),
     }
 }
 
@@ -2872,10 +2936,6 @@ This example demonstrates:
                         viewport_point.0.y - item_viewport_y,
                     ));
 
-                    log::debug!(
-                        "Item {} hit! viewport ({:.1}, {:.1}) → item ({:.1}, {:.1})",
-                        index, viewport_point.0.x, viewport_point.0.y, item_point.0.x, item_point.0.y
-                    );
 
                     // 4. Hit test within item (item-relative coordinates)
                     if let Some(position) = self.hit_test_item(&item_data.position_tree, item_point)
@@ -2943,10 +3003,6 @@ This example demonstrates:
         // Debug logging to understand coordinate issues
         if !position_tree.text_positions.is_empty() {
             let first_pos = &position_tree.text_positions[0];
-            log::debug!(
-                "Hit test: click at item x={:.1}, first char stored at x={:.1}, content_offset={:?}",
-                hit_point.0.x, first_pos.x_start, position_tree.content_offset
-            );
         }
 
         // Handle different element types
