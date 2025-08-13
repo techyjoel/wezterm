@@ -14,7 +14,7 @@
 //! - Modal overlays: z-indices 20-23
 
 use crate::quad::{QuadTrait, TripleLayerQuadAllocator, TripleLayerQuadAllocatorTrait};
-use crate::sidebar::{AiSidebar, SidebarScrollbars};
+use crate::sidebar::{AiSidebar, SidebarFonts, SidebarScrollbars};
 use crate::termwindow::box_model::{
     set_width_correction_factor, ComputedElement, ComputedElementContent, Element, ElementCell,
     ElementColors, ElementContent, LayoutContext, RenderSource,
@@ -624,59 +624,16 @@ impl crate::TermWindow {
                         self.dimensions.pixel_height as f32,
                     );
 
-                    // CRITICAL: Update activity item bounds for selection rendering
-                    // Extract bounds from the computed UI items
-                    for ui_item in activity_log_computed.ui_items() {
-                        if let UIItemType::ActivityItemText { index, .. } = &ui_item.item_type {
-                            let item_bounds = euclid::rect(
-                                ui_item.x as f32,
-                                ui_item.y as f32,
-                                ui_item.width as f32,
-                                ui_item.height as f32,
-                            );
-                            ai_sidebar.set_activity_item_bounds(*index, item_bounds);
-                            log::debug!(
-                                "Set activity item {} bounds: x={}, y={}, w={}, h={} (activity_bounds.y={})",
-                                index,
-                                item_bounds.origin.x,
-                                item_bounds.origin.y,
-                                item_bounds.size.width,
-                                item_bounds.size.height,
-                                activity_bounds.origin.y
-                            );
-
-                            // Extract position data for this activity item
-                            log::debug!(
-                                "Attempting to extract positions for activity item {}",
-                                index
-                            );
-                            // Get the actual item bounds to pass to position extraction
-                            let item_bounds = ai_sidebar.get_activity_item_bounds(*index);
-                            if let Some(position_tree) = crate::termwindow::render::activity_log_positions::extract_activity_item_positions(
-                                &activity_log_computed,
-                                &ui_item.item_type,
-                                &fonts,
-                                item_bounds,
-                            ) {
-                                // Calculate viewport coordinates: the item's position relative to the visible viewport
-                                // ui_item.x and ui_item.y are in window coordinates
-                                // We need to subtract the viewport origin to get viewport-relative coordinates
-                                let viewport_y = ui_item.y as f32 - activity_bounds.origin.y;
-                                let viewport_x = ui_item.x as f32 - (sidebar_x + activity_log_left);
-
-
-                                crate::termwindow::render::activity_log_positions::store_activity_item_positions(
-                                    ai_sidebar,
-                                    *index,
-                                    position_tree,
-                                    viewport_y,
-                                    viewport_x,
-                                );
-                            } else {
-                                log::debug!("Failed to extract positions for activity item {}", index);
-                            }
-                        }
-                    }
+                    // CRITICAL: Extract activity item positions with UNCLAMPED bounds
+                    // We need to walk the computed element tree directly to get unclamped bounds
+                    // before UIItem creation clamps negative y-values to 0
+                    self.extract_activity_item_positions_with_unclamped_bounds(
+                        &activity_log_computed,
+                        ai_sidebar,
+                        &fonts,
+                        activity_bounds,
+                        sidebar_x + activity_log_left,
+                    );
                 }
             }
 
@@ -1769,5 +1726,128 @@ impl crate::TermWindow {
         }
 
         None
+    }
+    
+    /// Extract activity item positions using unclamped bounds from computed elements
+    /// This avoids the UIItem y-coordinate clamping issue
+    fn extract_activity_item_positions_with_unclamped_bounds(
+        &self,
+        computed: &ComputedElement,
+        ai_sidebar: &mut crate::sidebar::ai_sidebar::AiSidebar,
+        fonts: &SidebarFonts,
+        activity_bounds: euclid::Rect<f32, window::PixelUnit>,
+        sidebar_x: f32,
+    ) {
+        // Maximum recursion depth to prevent stack overflow
+        const MAX_TREE_DEPTH: usize = 50;
+        
+        // Walk through the computed element tree to find activity items
+        self.walk_computed_for_activity_items_with_depth(
+            computed,
+            ai_sidebar,
+            fonts,
+            activity_bounds,
+            sidebar_x,
+            computed, // root_computed for position extraction
+            0, // initial depth
+            MAX_TREE_DEPTH,
+        );
+    }
+    
+    /// Recursively walk computed elements to find and process activity items with depth limiting
+    fn walk_computed_for_activity_items_with_depth(
+        &self,
+        computed: &ComputedElement,
+        ai_sidebar: &mut crate::sidebar::ai_sidebar::AiSidebar,
+        fonts: &SidebarFonts,
+        activity_bounds: euclid::Rect<f32, window::PixelUnit>,
+        sidebar_x: f32,
+        root_computed: &ComputedElement,
+        depth: usize,
+        max_depth: usize,
+    ) {
+        // Prevent stack overflow from deeply nested elements
+        if depth >= max_depth {
+            log::warn!("Computed element tree depth exceeded {}, stopping traversal", max_depth);
+            return;
+        }
+        // Check if this element has an ActivityItemText UIItemType
+        if let Some(ref item_type) = computed.item_type {
+            if let UIItemType::ActivityItemText { index, .. } = item_type {
+                // We have found an activity item! Use the UNCLAMPED bounds
+                let unclamped_bounds = computed.bounds;
+                
+                // Validate bounds before using them
+                if !unclamped_bounds.min_x().is_finite() || !unclamped_bounds.min_y().is_finite() ||
+                   !unclamped_bounds.width().is_finite() || !unclamped_bounds.height().is_finite() {
+                    log::warn!("Invalid bounds for activity item {}: {:?}", index, unclamped_bounds);
+                    return;
+                }
+                
+                // Store the UNCLAMPED bounds for selection rendering
+                // This is critical - selection rectangles need the real position for transformation
+                ai_sidebar.set_activity_item_bounds(*index, unclamped_bounds);
+                
+                log::debug!(
+                    "Activity item {} - unclamped bounds: y={:.1}, height={:.1}, activity_bounds.y={:.1}",
+                    index,
+                    unclamped_bounds.min_y(),
+                    unclamped_bounds.height(),
+                    activity_bounds.origin.y
+                );
+                
+                // Extract position data for this activity item
+                if let Some(position_tree) = crate::termwindow::render::activity_log_positions::extract_activity_item_positions(
+                    root_computed,
+                    item_type,
+                    fonts,
+                    Some(unclamped_bounds),
+                ) {
+                    // Calculate viewport_y using UNCLAMPED bounds
+                    // This is the critical fix - use the real y-coordinate, not the clamped one
+                    let viewport_y = if activity_bounds.origin.y.is_finite() {
+                        unclamped_bounds.min_y() - activity_bounds.origin.y
+                    } else {
+                        log::warn!("Invalid activity_bounds.origin.y for item {}", index);
+                        0.0
+                    };
+                    let viewport_x = unclamped_bounds.min_x() - sidebar_x;
+                    
+                    log::debug!(
+                        "Storing positions for item {} with viewport_y={:.1} (unclamped={:.1}, activity_y={:.1})",
+                        index,
+                        viewport_y,
+                        unclamped_bounds.min_y(),
+                        activity_bounds.origin.y
+                    );
+                    
+                    crate::termwindow::render::activity_log_positions::store_activity_item_positions(
+                        ai_sidebar,
+                        *index,
+                        position_tree,
+                        viewport_y,
+                        viewport_x,
+                    );
+                } else {
+                    log::debug!("Failed to extract positions for activity item {}", index);
+                }
+            }
+        }
+        
+        // Recursively process children
+        if let ComputedElementContent::Children(children) = &computed.content {
+            for child in children {
+                self.walk_computed_for_activity_items_with_depth(
+                    child,
+                    ai_sidebar,
+                    fonts,
+                    activity_bounds,
+                    sidebar_x,
+                    root_computed,
+                    depth + 1,
+                    max_depth,
+                );
+            }
+        }
     }
 }

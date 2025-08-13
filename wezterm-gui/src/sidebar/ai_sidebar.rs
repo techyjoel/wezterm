@@ -2897,10 +2897,25 @@ This example demonstrates:
         index: usize,
         position_data: crate::sidebar::position_cache::ItemPositionData,
     ) {
+        // Check if we already have positions for this item
+        if let Some(existing) = self.item_positions.get(&index) {
+            if let (Some(old_y), Some(new_y)) = (existing.viewport_y, position_data.viewport_y) {
+                if (old_y - new_y).abs() > 1.0 {
+                    log::debug!(
+                        "Item {} viewport_y changed: {:.1} → {:.1} (positions being replaced)",
+                        index,
+                        old_y,
+                        new_y
+                    );
+                }
+            }
+        }
+        
         log::debug!(
-            "Storing item positions for index {}, viewport_y={:?}",
+            "Storing item positions for index {}, viewport_y={:?}, {} positions",
             index,
-            position_data.viewport_y
+            position_data.viewport_y,
+            position_data.position_tree.text_positions.len()
         );
         self.item_positions.insert(index, position_data);
         log::debug!("Total item positions stored: {}", self.item_positions.len());
@@ -2948,9 +2963,11 @@ This example demonstrates:
             .window_to_viewport(WindowCoord(window_point));
 
         log::debug!(
-            "Coordinate transform: window x={:.1} → viewport x={:.1} (sidebar_x={:.1})",
+            "Coordinate transform: window ({:.1}, {:.1}) → viewport ({:.1}, {:.1}) (sidebar_x={:.1})",
             window_point.x,
+            window_point.y,
             viewport_point.0.x,
+            viewport_point.0.y,
             self.coordinate_transform.sidebar_x
         );
 
@@ -2985,7 +3002,7 @@ This example demonstrates:
                 let item_width = item_data.position_tree.bounds.size.width;
                 let item_height = item_data.position_tree.bounds.size.height;
                 log::debug!(
-                    "Item {}: viewport_x={}, viewport_y={}, width={}, height={}, point=({}, {})",
+                    "Item {}: viewport pos=({:.1}, {:.1}), size=({:.1}, {:.1}), click viewport=({:.1}, {:.1})",
                     index,
                     item_viewport_x,
                     item_viewport_y,
@@ -2994,6 +3011,15 @@ This example demonstrates:
                     viewport_point.0.x,
                     viewport_point.0.y
                 );
+                
+                // For tall items that are partially scrolled, viewport_y might be negative
+                if item_viewport_y < 0.0 && item_height > 1000.0 {
+                    log::debug!(
+                        "  Item {} is scrolled: viewport_y={:.1} (negative means top is above viewport)",
+                        index,
+                        item_viewport_y
+                    );
+                }
 
                 if viewport_point.0.x >= item_viewport_x
                     && viewport_point.0.x < item_viewport_x + item_width
@@ -3056,6 +3082,7 @@ This example demonstrates:
 
         // Check if point is within this element's bounds
         if !position_tree.bounds.contains(point.0) {
+            log::debug!("Point {:?} not in bounds {:?}", point.0, position_tree.bounds);
             return None;
         }
 
@@ -3066,6 +3093,13 @@ This example demonstrates:
         // Debug logging to understand coordinate issues
         if !position_tree.text_positions.is_empty() {
             let first_pos = &position_tree.text_positions[0];
+            let last_pos = position_tree.text_positions.last().unwrap();
+            log::debug!(
+                "Hit testing in element with {} positions, byte range {} to {}",
+                position_tree.text_positions.len(),
+                first_pos.byte_offset,
+                last_pos.byte_offset
+            );
         }
 
         // Handle different element types
@@ -3110,12 +3144,16 @@ This example demonstrates:
             }
             _ => {
                 // For other elements, check children first
-                for child in &position_tree.children {
+                log::debug!("Checking {} children for hit test", position_tree.children.len());
+                for (i, child) in position_tree.children.iter().enumerate() {
+                    log::debug!("  Checking child {} with element type {:?}", i, child.element_type);
                     if let Some(hit) = self.hit_test_item(child, hit_point) {
+                        log::debug!("  Found hit in child {}", i);
                         return Some(hit);
                     }
                 }
                 // Then check own text positions
+                log::debug!("No hit in children, checking {} own positions", position_tree.text_positions.len());
                 self.hit_test_text_positions(
                     &position_tree.text_positions,
                     hit_point.0,
@@ -3133,6 +3171,46 @@ This example demonstrates:
         element_type: &crate::sidebar::position_cache::ElementType,
     ) -> Option<crate::sidebar::position_cache::ItemPosition> {
         use crate::sidebar::position_cache::{ItemPosition, TextAffinity};
+        
+        log::debug!(
+            "hit_test_text_positions: Testing point ({:.1}, {:.1}) against {} positions",
+            point.x,
+            point.y,
+            positions.len()
+        );
+        
+        // Debug: Log the y-coordinate range of positions
+        if !positions.is_empty() {
+            let min_y = positions.iter().map(|p| p.y).min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+            let max_y = positions.iter().map(|p| p.y).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+            log::debug!("  Position y-range: {:.1} to {:.1}, click y: {:.1}", min_y, max_y, point.y);
+            if point.y > max_y + 20.0 {
+                log::warn!("  Click y={:.1} is beyond max position y={:.1}! This item may be taller than the viewport.", point.y, max_y);
+            }
+            
+            // Find the nearest positions above and below the click point
+            let positions_before: Vec<_> = positions.iter().filter(|p| p.y <= point.y).collect();
+            let positions_after: Vec<_> = positions.iter().filter(|p| p.y > point.y).collect();
+            
+            if !positions_before.is_empty() && !positions_after.is_empty() {
+                let nearest_before = positions_before.iter().max_by(|a, b| a.y.partial_cmp(&b.y).unwrap()).unwrap();
+                let nearest_after = positions_after.iter().min_by(|a, b| a.y.partial_cmp(&b.y).unwrap()).unwrap();
+                let gap = nearest_after.y - nearest_before.y;
+                if gap > 25.0 {  // More than typical line height
+                    log::debug!("  Large gap detected: y={:.1} to {:.1} (gap={:.1}px)", nearest_before.y, nearest_after.y, gap);
+                    log::debug!("  Gap is between byte offsets {} and {}", nearest_before.byte_offset, nearest_after.byte_offset);
+                }
+            }
+            
+            // Debug: Find where specific byte offsets are located
+            // "Detailed Troubleshooting" is at byte offset 877
+            if let Some(pos_877) = positions.iter().find(|p| p.byte_offset == 877) {
+                log::debug!("  'Detailed Troubleshooting' (offset 877) is at y={:.1}", pos_877.y);
+            }
+            if let Some(pos_402) = positions.iter().find(|p| p.byte_offset == 402) {
+                log::debug!("  'brew install openssl' (offset 402) is at y={:.1}", pos_402.y);
+            }
+        }
 
         // Find the line containing the y coordinate
         let line_positions: Vec<_> = positions
@@ -3151,6 +3229,7 @@ This example demonstrates:
             .collect();
 
         if line_positions.is_empty() {
+            log::debug!("  No positions found on line at y={:.1}", point.y);
             return None;
         }
 

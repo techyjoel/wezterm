@@ -4,7 +4,7 @@
 
 This document provides the complete implementation guide for fixing and refactoring the text selection system in WezTerm's AI sidebar activity log. The system enables pixel-perfect text selection using glyph position tracking from HarfBuzz clusters.
 
-## Implementation Status (Updated Session 18)
+## Implementation Status (Updated Session 21)
 
 ### Completed Work ✅
 
@@ -28,91 +28,169 @@ This document provides the complete implementation guide for fixing and refactor
   - Ensured WrappedLine info is always present (added error logging when missing)
   - Improved cluster_to_byte_offset usage in position extraction
 
+#### Session 19: Cluster Fix & Long Message Selection Investigation
+- **Implemented cluster adjustment fix**: Added `shape_text_to_cells_with_offset` helper in box_model.rs
+  - Tracks segment byte positions within line text
+  - Adjusts clusters by segment start position to maintain continuous numbering
+  - Result: Clusters now represent byte positions within full line, not segment-local
+- **Testing revealed partial improvement**: 
+  - Can now select inline markdown styles (e.g. italic text)
+  - Code blocks still have offset issues
+- **Root cause of long message selection failure discovered**:
+  - Positions stored with viewport/window y-coordinates instead of item-relative
+  - When scrolling or clicking far down, y-coordinates don't match stored positions
+  - Hit test fails with "No positions found on line at y=784.0"
+- **Added comprehensive debug logging**:
+  - Fallback path detection
+  - Cumulative byte offset tracking with corruption detection
+  - Code block processing visualization
+  - Hit test recursion tracking
+
+#### Session 20: Deep Investigation of Y-Coordinate Bug
+- **Identified the REAL root cause**: UIItem y-coordinates are clamped to 0 in `box_model.rs`
+  - When items scroll above viewport (negative y), UIItem.y gets clamped to 0
+  - This makes viewport_y calculation wrong: `ui_item.y - activity_bounds.origin.y`
+  - Result: viewport_y stops updating at -577px even when scrolled further
+- **Why -577px limit**: That's when the item's y-coordinate gets clamped to 0
+- **Discovery through debug analysis**:
+  - "Detailed Troubleshooting" is at item-relative y=1515
+  - When clicking at y=740, we're ~775px above where it actually is
+  - Visual rendering doesn't match stored positions
+- **Attempted fix**: Modified viewport_y calculation to use virtual scrolling data
+  - Added `calculate_item_top_position` and `get_activity_log_scroll_offset` methods
+  - Tried to calculate correct viewport_y when UIItem.y is clamped
+  - **Result**: Fix didn't work as expected, viewport_y still behaves the same
+
+#### Session 21: Successful Fix for Long Message Selection
+- **Root Cause Analysis**: Through debug logs, identified that the issue wasn't just UIItem clamping, but that clamped bounds were being used to transform selection rectangles from item to window coordinates
+- **Solution Implemented**: "Solution A" - Direct unclamped bounds tracking
+  - Created `extract_activity_item_positions_with_unclamped_bounds()` that walks ComputedElement tree directly
+  - Captures unclamped bounds BEFORE UIItem creation (which clamps negative y to 0)
+  - Stores unclamped bounds for both position extraction AND selection rectangle transformation
+- **Key Discovery**: The bug had TWO parts:
+  1. viewport_y calculation was using clamped UIItem.y (partially addressed in Session 20)
+  2. Selection rectangle transformation was ALSO using clamped bounds (the critical missing piece)
+- **Safety Improvements Added**:
+  - Recursion depth limiting (MAX_TREE_DEPTH = 50) to prevent stack overflow
+  - Bounds validation to prevent NaN/infinity issues
+  - Removed unused code from failed virtual scrolling attempt
+- **Result**: **SUCCESSFULLY FIXED** - Text selection now works at any scroll position in long messages
+
 ### What's Working ✅
+- **Long message selection**: **NOW WORKING** - Can select text at any scroll position
 - **User message selection**: Perfectly aligned
 - **AI message first paragraph**: Selection works correctly
 - **Position extraction infrastructure**: Successfully extracts 200+ positions per message
 - **Deselection on single click**: Working
 - **Selection scrolling alignment**: Working
 - **3-coordinate system**: (Window → Viewport → Item) - stable and correct
-- **Position extraction**: Now processes ALL paragraphs (confirmed with logging)
+- **Position extraction**: processes ALL paragraphs
 - **Command item rendering**: Fixed display issues
 - **Cluster information**: All sidebar text has GlyphWithCluster (no missing clusters)
+- **Coordinate transformation**: Unclamped bounds properly used for selection rendering
 
 ### Partially Working 🚧
 - **Multi-paragraph AI messages with styled text**: 
   - First plain paragraph: Works perfectly ✅
-  - Headings with bold text: Off by 1 character to the right
-  - Code blocks: Selection and rendered rectangle both severely misaligned, unusable
-  - Issue correlates with styled text segments (bold, italic, code)
-  - Can select beyond first paragraph but with increasing offset errors
+  - First headings with bold text: rendered rectangle is aligned, cmd-c selection is 1 character off to the right
+  - Code blocks: 
+    - Rectangle renders 1/2 line too high
+    - Selection is 2 characters off to the left
+  - Styled text segments now have continuous clusters (partial fix applied)
 
 ### Remaining Bugs 🔧
 1. ~~**AI Message Selection**: 4-character LEFT offset~~ **FIXED in Session 16**
 2. ~~**Selection Z-Index**~~ **FIXED in Session 16**
-3. **Styled Text Cluster Issue**: Each style segment (bold, italic) gets shaped independently with clusters restarting from 0
-4. **Command Items**: Selection and rendering misaligned with the content
-5. **Markdown Code Blocks**: Selection severely misaligned due to styled text issue
-6. **Long AI Messages**: Progressive offset accumulation, and possibly other issues, makes lower sections unusable
-7. ~~**0-width selections**~~ **FIXED in Session 17**
+3. ~~**Styled Text Cluster Issue**: Each style segment gets shaped independently~~ **PARTIALLY FIXED in Session 19**
+   - Cluster adjustment implemented but small offsets remain
+4. ~~**Long Message Selection Failure**~~ **FIXED in Session 21**
+5. **Heading Selection**: 1 character offset to the right (cmd-c copies 1 char off, visual rect is correct)
+6. **Code Block Rendering**: Rectangle renders 1/2 line too high  
+7. **Code Block Selection**: 2 characters offset to the left
+8. **Command Items**: Selection and rendering misaligned with the content
+9. ~~**0-width selections**~~ **FIXED in Session 17**
 
-### Critical Implementation Details (Session 18)
+### Critical Implementation Details (Session 21)
 
-#### The Styled Text Segment Problem (ROOT CAUSE)
-**Discovery**: Found the actual root cause through detailed logging
-- When markdown has styled text (bold, italic), each style segment is shaped INDEPENDENTLY
-- Example: "Hello **world**" becomes two segments:
-  - Segment 1: "Hello " with clusters [0, 1, 2, 3, 4, 5]
-  - Segment 2: "world" with clusters [0, 1, 2, 3, 4] (RESTARTS from 0!)
-- The position extraction code sees: [0,1,2,3,4,5,0,1,2,3,4] and misinterprets the byte offsets
+#### The Complete Fix for Long Message Selection
 
-**Evidence from logs**:
-```
-byte_offset=418, 419, 420, 421 (first segment)
-byte_offset=423, 424, 423, 423, 424 (second segment - WRONG! Clusters were 0,1,0,0,1)
-```
+**The Two-Part Bug**:
+1. **Part 1**: UIItem.y gets clamped to 0 when items scroll above viewport (because UIItem uses `usize`)
+2. **Part 2**: Selection rectangle transformation was using these clamped bounds to convert from item to window coordinates
 
-**Why this happens**:
-1. `StyledWrappedText` in box_model.rs shapes each style span separately
-2. Each shaped segment has its own cluster numbering starting from 0
-3. The `WrappedLine::cluster_to_byte_offset()` method expects continuous clusters
-4. Position extraction doesn't know about segment boundaries
+**Why Previous Attempts Failed**:
+- Session 20's virtual scrolling approach failed because it tried to reconstruct the unclamped y-coordinate after the fact
+- The calculation used hardcoded defaults (line_height=20.0, width=400.0) that didn't match actual rendering
+- Even if viewport_y was calculated correctly, selection rectangles would still be mispositioned due to using clamped bounds for transformation
 
-#### Session 18 Fixes Applied
+**The Successful Solution**:
 ```rust
-// Fixed paragraph separator consistency
-if !is_first_text_element {
-    *cumulative_byte_offset += 1; // Single \n between paragraphs
+// In sidebar_render.rs - Walk the ComputedElement tree BEFORE UIItem creation
+fn extract_activity_item_positions_with_unclamped_bounds() {
+    // Captures unclamped bounds directly from ComputedElement
+    let unclamped_bounds = computed.bounds; // Can be negative!
+    
+    // Store unclamped bounds for selection rectangle transformation
+    ai_sidebar.set_activity_item_bounds(*index, unclamped_bounds);
+    
+    // Use unclamped bounds for viewport_y calculation
+    let viewport_y = unclamped_bounds.min_y() - activity_bounds.origin.y;
 }
-
-// Added comprehensive logging
-log::debug!("📊 MultilineText: {} glyphs with clusters, {} bytes, starts at byte offset {}", ...);
-
-// Improved WrappedLine usage (attempted fix, didn't solve styled text issue)
-extract_cell_positions_internal(cells, builder, offset, line_index, |cluster| {
-    let line_byte_offset = wrapped_line.cluster_to_byte_offset(cluster);
-    let result = line_byte_offset + byte_offset_adjustment;
-    // ...
-});
 ```
 
-#### Remaining TODOs and Workarounds
+**Safety Measures Added**:
+- **Stack overflow prevention**: MAX_TREE_DEPTH = 50 with recursion limiting
+- **Bounds validation**: Check for NaN/infinity before using floating point values
+- **Code cleanup**: Removed failed virtual scrolling methods
+
+**Performance Consideration**:
+- Walking the ComputedElement tree adds minimal overhead as it happens during the same render pass
+- The tree walk is bounded by MAX_TREE_DEPTH to prevent pathological cases
+
+### Critical Implementation Details (Session 19)
+
+#### The Styled Text Segment Problem (PARTIALLY RESOLVED)
+**Original Issue**: Each style segment was shaped independently with clusters restarting from 0
+- Example: "Hello **world**" became two segments with clusters [0,1,2,3,4,5] and [0,1,2,3,4]
+
+**Fix Applied in Session 19**:
 ```rust
-// MAJOR TODO: Handle styled text segments properly
-// The extract_cell_positions_internal function needs to know about segment boundaries
-// OR the cells need to maintain continuous cluster numbering across segments
-
-// Workaround attempt (not implemented): Track cluster restarts
-if *cluster < last_cluster {
-    // Detected segment boundary, adjust byte offset
-    segment_byte_offset += last_cluster + 1;
+// In box_model.rs - Added helper to adjust clusters
+fn shape_text_to_cells_with_offset(..., cluster_offset: u32) {
+    // Adjusts clusters by segment start position
+    cluster + cluster_offset
 }
 
-// Still using approximation fallback when WrappedLine missing
-fn calculate_text_byte_length_from_cells(cells: &[ElementCell]) -> usize {
-    // This is still an approximation and logs warnings
-    log::warn!("⚠️ FALLBACK: Estimating text length from clusters");
-}
+// In shape_line_with_styles - Track segment positions
+let cluster_offset = start as u32; // Byte position within line_text
+```
+
+**Result**: Clusters now continuous, but small offsets remain (1-2 chars) suggesting additional issues
+
+#### Long Message Selection Failure (NEW ROOT CAUSE)
+**Discovery through debug logging**:
+- Positions ARE extracted correctly (2673 positions for long message)
+- "Detailed Troubleshooting" at byte offset 877-881
+- "brew install openssl" at byte offset 402-406
+- Hit test reports: "No positions found on line at y=784.0"
+
+**Root Cause**: Y-coordinate mismatch
+1. Positions stored with viewport/window y-coordinates at extraction time
+2. When item scrolls or user clicks far down, stored y-coordinates invalid
+3. Hit test checks y=784 but no positions have that y-value
+4. System falls back to wrong position (earlier code block)
+
+#### Debug Logging Added in Session 19
+```rust
+// In activity_log_positions.rs
+log::warn!("⚠️ FALLBACK PATH: Failed to find activity item {} in computed element", index);
+log::debug!("🔲 FOUND CODE BLOCK at child {} with cumulative offset {}", i, cumulative_byte_offset);
+log::error!("⚠️ CORRUPTION: Byte offset went backwards! {} → {}", old_offset, cumulative_byte_offset);
+
+// In ai_sidebar.rs - Hit test debugging
+log::debug!("Hit testing in element with {} positions, byte range {} to {}", ...);
+log::debug!("Checking {} children for hit test", position_tree.children.len());
+log::debug!("No positions found on line at y={:.1}", point.y);
 ```
 
 ### Architecture Overview
@@ -152,34 +230,104 @@ Positions are stored at their render location in item coordinates, eliminating t
 
 ## Next Steps for Resolution
 
-### The Core Problem to Solve
-**Styled text segments have independent cluster numbering**. When markdown contains bold, italic, or other styled text, each segment is shaped separately with clusters starting from 0. The position extraction code doesn't know about these segment boundaries.
+### Remaining Secondary Issues to Address
 
-### Solution Approaches
+#### 1. Remaining Cluster Offset Issues
+The cluster fix helped but didn't fully resolve offsets. Investigation needed:
+- First Heading: 1 char right offset of cmd-c selection may be due to markdown processing
+- Code blocks: 2 char left offset of cmd-c selection suggests over-correction or padding issue
+- Consider: The cluster offset might need to account for styled text differently
 
-#### Option 1: Fix at Text Shaping Level (Recommended)
-Modify how `StyledWrappedText` handles clusters to maintain continuous numbering:
-- In `shape_line_with_styles()` in box_model.rs
-- Track the byte position as segments are shaped
-- Adjust cluster values to be continuous across segments
-- This fixes the issue at its source
+### Critical Debugging Information
 
-#### Option 2: Fix at Position Extraction Level
-Teach position extraction about segment boundaries:
-- Detect when clusters restart (cluster < previous_cluster)
-- Track cumulative byte offset per segment
-- More complex and error-prone
+#### How to Debug the UIItem Clamping Issue:
+```bash
+# Watch viewport_y values to see clamping at -577:
+WEZTERM_LOG=debug ./target/release/wezterm 2>&1 | grep -E "Storing item positions|viewport_y"
 
-#### Option 3: Store Segment Information
-Include segment boundary information with cells:
-- Add segment_start_byte to ElementCell::GlyphWithCluster
-- Use this to calculate correct byte offsets
-- Requires changes throughout the rendering pipeline
+# See the mismatch between click position and stored positions:
+WEZTERM_LOG=debug ./target/release/wezterm 2>&1 | grep -E "Detailed Troubleshooting|click y:|Position y-range"
 
-### Debugging Next Session
-1. **Add logging to text shaping**: Log in `shape_line_with_styles()` to see how segments are created
-2. **Track cluster values**: Log cluster values as each segment is shaped
-3. **Verify the fix**: Ensure clusters are continuous or segment info is preserved
+# Track coordinate transformations:
+WEZTERM_LOG=debug ./target/release/wezterm 2>&1 | grep -E "Coordinate transform|Item.*viewport pos"
+```
+
+#### Key Observations:
+1. **viewport_y stops at -577** even when scrolled much further
+2. **"Detailed Troubleshooting" at y=1515** in item coordinates (correct)
+3. **Click at y=740** looks for positions at that y-value (correct)
+4. **But the visual position doesn't match** because viewport_y is wrong
+
+### The Virtual Scrolling System (Working Correctly)
+
+The virtual scrolling correctly tracks positions with:
+- `margin_top = -self.activity_log_scroll_offset + y_offset_before_visible`
+- `y_offset_before_visible` = cumulative height of items before first visible
+
+This system works perfectly for rendering, but the position storage uses the clamped UIItem values.
+
+### Why the Attempted Fix Failed
+
+The Session 20 fix attempted to use `calculate_item_top_position` to compute the correct viewport_y when UIItem.y was clamped. However, the fix still resulted in the same behavior. Possible reasons:
+1. The calculation might not match exactly how virtual scrolling positions items
+2. The line height and width defaults (20.0, 400.0) might not match actual values
+3. The logic to detect when clamping occurred (`if ui_item.y == 0`) might be insufficient
+
+#### 2. Code Block Vertical Alignment
+Rectangle renders 1/2 line too high:
+- Check `CODE_LINE_HEIGHT` constant vs actual rendering
+- May need to adjust y-position calculation in position extraction
+- Verify line height matches between extraction and rendering
+- Verify margin and padding are accounted for
+
+#### 3. Selection Rectangle Scrolling
+Once coordinate issue fixed, scrolling should work. If not:
+- Ensure selection rectangles use viewport coordinates for rendering
+- But position data uses item-relative for storage
+
+### Implementation Guide for Next Engineer
+
+#### Remaining Issues to Fix
+
+1. **Heading Selection Offset (1 char right)**:
+   - Visual rectangle is correct but cmd-c copies 1 character off
+   - Likely issue in cluster-to-byte mapping for styled text
+   - Check `shape_text_to_cells_with_offset` cluster adjustment logic
+   - May need to account for markdown processing differences
+
+2. **Code Block Alignment (1/2 line high)**:
+   - Selection rectangle renders slightly above the text
+   - Check `CODE_LINE_HEIGHT` constant vs actual rendered line height
+   - Verify padding/margin calculations in position extraction
+   - Compare with how code blocks are rendered in `markdown.rs`
+
+3. **Code Block Selection Offset (2 chars left)**:
+   - Selection extracts wrong text from code blocks
+   - May be over-correcting cluster offsets
+   - Check if code blocks have different cluster numbering pattern
+
+4. **Command Item Selection**:
+   - Both visual and text selection misaligned
+   - Check if command items use different coordinate system
+   - Verify UIItemType assignment for command output
+
+#### Debugging Approach
+
+```rust
+// Add targeted logging for specific issues:
+
+// For heading offset:
+log::debug!("Heading cluster: orig={}, adjusted={}, byte={}", 
+    original_cluster, adjusted_cluster, byte_offset);
+
+// For code block alignment:
+log::debug!("Code block y: line_y={}, offset.y={}, padding={}", 
+    line_y, offset.y, computed.padding.origin.y);
+
+// For command items:
+log::debug!("Command item bounds: {:?}, UIType: {:?}", 
+    computed.bounds, computed.item_type);
+```
 
 ## Bug Fix Implementation
 
@@ -222,7 +370,7 @@ These issues also need fixing:
 
 ### Key Learnings
 
-1. **The 4-character offset mystery**: Caused by `**` markers on each side of bold text being stripped during rendering
+1. **Character offset mystery**: Caused by `**` markers on each side of bold text being stripped during rendering
 2. **Position tracking works correctly**: The infrastructure accurately tracks rendered text positions
 3. **Text extraction was the issue**: Not position calculation - just extracting from wrong text representation
 4. **WYSIWYG is preferred**: Users expect to copy what they see, not underlying markup
@@ -775,24 +923,18 @@ fn test_position_extraction_markdown() {
 
 ### Current Implementation Limitations
 
-1. **Styled Text Segments**: Each bold/italic segment resets cluster numbering, causing selection offset
-2. **No Markdown in Clipboard**: Users copy plain text, not markdown formatting (by design)
-3. **Command Output Selection**: Still misaligned (not addressed)
-4. **Code Block Selection**: Severely broken due to styled text segment issue
-5. **Progressive Offset Accumulation**: Errors compound in long messages with many styled segments
+1. ~~**Y-Coordinate Storage Bug**: Positions use viewport coordinates, breaking selection for scrolled content~~ **FIXED in Session 21**
+2. **Partial Cluster Fix**: Styled segments now have continuous clusters but small offsets remain (1-2 chars)
+3. **No Markdown in Clipboard**: Users copy plain text, not markdown formatting (by design - WYSIWYG approach)
+4. **Command Output Selection**: Still misaligned (not addressed)
+5. **Position Tree Structure**: All positions stored flat (0 children) instead of hierarchical
+6. **Double Tree Walking**: Currently walks ComputedElement tree twice - once for UIItems, once for unclamped bounds (minor performance impact)
 
 ### Future Work
 
 1. **Complete Markdown Support**: Add nested lists, blockquotes
-2. **Command/Code Block Selection**: Investigate and fix remaining selection issues
-3. **Performance Optimization**: Cache rendered text if needed
+2. **Hierarchical Position Tree**: Store positions in proper tree structure with children
+3. **Performance Optimization**: Cache position data to avoid re-extraction
 4. **Code Organization**: Extract selection module as planned for better maintainability
-5. **Testing**: Add unit tests for markdown extraction and selection logic
+5. **Testing**: Add unit tests for coordinate transformations and position extraction
 
-## Final Notes
-
-The implementation successfully fixes the critical AI message selection bug using a pragmatic WYSIWYG approach. While this deviates from the original offset mapping plan, it provides a simpler, more maintainable solution that aligns with user expectations.
-
-The position tracking infrastructure remains sound and correctly tracks rendered text positions. The fix was isolated to text extraction during selection operations, demonstrating that the underlying architecture is robust.
-
-Remember: We're building a first-class Rust UI. The current solution is clean, works correctly, and can be enhanced incrementally as needed.

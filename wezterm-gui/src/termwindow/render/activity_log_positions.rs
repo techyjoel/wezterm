@@ -19,6 +19,15 @@ use std::rc::Rc;
 use wezterm_font::LoadedFont;
 use window::PixelUnit;
 
+/// Helper to count total positions in a tree
+fn count_total_positions(tree: &PositionTree) -> usize {
+    let mut count = tree.text_positions.len();
+    for child in &tree.children {
+        count += count_total_positions(child);
+    }
+    count
+}
+
 /// Extract position data from a computed element representing an activity log item
 pub fn extract_activity_item_positions(
     computed: &ComputedElement,
@@ -39,12 +48,22 @@ pub fn extract_activity_item_positions(
             // This is necessary because we receive the entire activity log computed element
             // but need to extract positions from the specific activity item
             if let Some(activity_item_element) = find_activity_item_element(computed, *index) {
-                log::debug!("Found activity item {} element, starting extraction", index);
+                log::debug!("✅ Found activity item {} element, starting extraction", index);
                 extract_positions_from_activity_item(activity_item_element, fonts, None)
             } else {
                 // Fallback: if we can't find the specific item, try to extract from the whole element
                 // This path is less accurate but maintains backward compatibility
-                log::debug!("Failed to find activity item {} in computed element, using fallback extraction with bounds: {:?}", index, item_bounds);
+                log::warn!("⚠️ FALLBACK PATH: Failed to find activity item {} in computed element", index);
+                log::warn!("  This may cause incorrect position extraction for long messages!");
+                log::debug!("  Using fallback extraction with bounds: {:?}", item_bounds);
+                log::debug!("  Computed element bounds: {:?}", computed.bounds);
+                
+                // Check if the computed element itself might be the activity item
+                // This can happen if the entire computed element IS the activity item
+                if computed.bounds == item_bounds.unwrap_or(computed.bounds) {
+                    log::debug!("  Computed element bounds match item bounds - this might be the item itself");
+                }
+                
                 // Pass the actual item bounds to ensure correct position tree bounds
                 extract_positions_from_activity_item(computed, fonts, item_bounds)
             }
@@ -58,46 +77,77 @@ fn find_activity_item_element(
     computed: &ComputedElement,
     target_index: usize,
 ) -> Option<&ComputedElement> {
-    // First check if this element itself has the matching UIItemType
-    if let Some(item_type) = &computed.item_type {
-        if matches!(item_type, UIItemType::ActivityItemText { index, .. } if *index == target_index)
-        {
-            log::debug!("Found activity item {} at current element", target_index);
-            return Some(computed);
-        }
-    }
-
-    // Then search through children
-    match &computed.content {
-        ComputedElementContent::Children(children) => {
-            log::debug!(
-                "Searching {} children for activity item {}",
-                children.len(),
-                target_index
-            );
-            for (i, child) in children.iter().enumerate() {
-                // Check if this child has the matching UIItemType
-                if let Some(item_type) = &child.item_type {
-                    if matches!(item_type, UIItemType::ActivityItemText { index, .. } if *index == target_index)
-                    {
-                        log::debug!(
-                            "Found matching activity item {} at child {}",
-                            target_index,
-                            i
-                        );
-                        return Some(child);
-                    }
-                }
-
-                // Recursively search in children
-                if let Some(found) = find_activity_item_element(child, target_index) {
-                    return Some(found);
-                }
+    // Track search depth for debugging
+    fn find_with_depth(
+        computed: &ComputedElement,
+        target_index: usize,
+        depth: usize,
+    ) -> Option<&ComputedElement> {
+        // First check if this element itself has the matching UIItemType
+        if let Some(item_type) = &computed.item_type {
+            if matches!(item_type, UIItemType::ActivityItemText { index, .. } if *index == target_index)
+            {
+                log::debug!("Found activity item {} at depth {}", target_index, depth);
+                return Some(computed);
             }
         }
-        _ => {}
+
+        // Then search through children
+        match &computed.content {
+            ComputedElementContent::Children(children) => {
+                if depth == 0 {
+                    log::debug!(
+                        "Searching {} top-level children for activity item {}",
+                        children.len(),
+                        target_index
+                    );
+                    
+                    // Log what UIItemTypes we see at top level
+                    let mut item_types_found = Vec::new();
+                    for (i, child) in children.iter().enumerate() {
+                        if let Some(item_type) = &child.item_type {
+                            match item_type {
+                                UIItemType::ActivityItemText { index, .. } => {
+                                    item_types_found.push(format!("ActivityItem({})", index));
+                                }
+                                other => {
+                                    item_types_found.push(format!("{:?}", other));
+                                }
+                            }
+                        }
+                    }
+                    if !item_types_found.is_empty() {
+                        log::debug!("  UIItemTypes found at top level: {:?}", item_types_found);
+                    }
+                }
+                for (i, child) in children.iter().enumerate() {
+                    // Check if this child has the matching UIItemType
+                    if let Some(item_type) = &child.item_type {
+                        if matches!(item_type, UIItemType::ActivityItemText { index, .. } if *index == target_index)
+                        {
+                            log::debug!(
+                                "Found activity item {} at child {} of depth {}",
+                                target_index,
+                                i,
+                                depth
+                            );
+                            return Some(child);
+                        }
+                    }
+
+                    // Recursively search in children
+                    if let Some(found) = find_with_depth(child, target_index, depth + 1) {
+                        return Some(found);
+                    }
+                }
+            }
+            _ => {}
+        }
+        None
     }
-    None
+    
+    // Start search from depth 0
+    find_with_depth(computed, target_index, 0)
 }
 
 /// Extract positions from a specific activity item element
@@ -106,6 +156,13 @@ fn extract_positions_from_activity_item(
     fonts: &crate::sidebar::SidebarFonts,
     override_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
 ) -> Option<PositionTree> {
+    // Log what we're extracting from
+    if override_bounds.is_some() {
+        log::warn!("⚠️ Using override bounds - this is the FALLBACK extraction path");
+        log::warn!("  Element bounds: {:?}", computed.bounds);
+        log::warn!("  Override bounds: {:?}", override_bounds);
+    }
+    
     let mut builder = PositionTreeBuilder::new();
 
     // Determine the line height from the computed element
@@ -381,17 +438,44 @@ fn extract_positions_recursively_with_offset(
             }
 
             // Update cumulative offset with this paragraph's text length
+            let old_offset = *cumulative_byte_offset;
             *cumulative_byte_offset += paragraph_byte_length;
 
             log::debug!(
-                "  ✅ MultilineText complete: cumulative offset advanced to {}",
-                cumulative_byte_offset
+                "  ✅ MultilineText complete: offset {} → {} (+{})",
+                old_offset,
+                cumulative_byte_offset,
+                paragraph_byte_length
             );
+            
+            // Detect potential corruption
+            if paragraph_byte_length == 0 && expected_glyph_count > 0 {
+                log::error!("⚠️ CORRUPTION: Paragraph has {} glyphs but 0 byte length!", expected_glyph_count);
+            }
+            if *cumulative_byte_offset < old_offset {
+                log::error!("⚠️ CORRUPTION: Byte offset went backwards! {} → {}", old_offset, cumulative_byte_offset);
+            }
+            
+            // Check for suspiciously large offsets that might indicate overflow
+            if *cumulative_byte_offset > 100000 {
+                log::warn!("⚠️ LARGE OFFSET: Cumulative byte offset is very large: {}", cumulative_byte_offset);
+            }
         }
         ComputedElementContent::Children(children) => {
             log::debug!("Processing Children with {} elements", children.len());
+            
+            // Log what types of children we have for debugging
+            for (i, child) in children.iter().enumerate() {
+                if let Some(semantic) = &child.semantic_type {
+                    log::debug!("  Child {}: Has semantic type: {:?}", i, semantic);
+                    
+                    // Special logging for code blocks
+                    if matches!(semantic, crate::termwindow::box_model::SemanticType::CodeBlock { .. }) {
+                        log::debug!("🔲 FOUND CODE BLOCK at child {} with cumulative offset {}", i, cumulative_byte_offset);
+                    }
+                }
+            }
 
-            // Log what types of children we have
             for (i, child) in children.iter().enumerate() {
                 let child_type = match &child.content {
                     ComputedElementContent::Text(_) => "Text",
@@ -569,7 +653,8 @@ fn extract_positions_recursively_with_offset(
                             started_element = true;
                         }
                         crate::termwindow::box_model::SemanticType::CodeBlock { language } => {
-                            log::debug!("Found CodeBlock with language: {:?}", language);
+                            log::debug!("🔲 Found CodeBlock with language: {:?}", language);
+                            log::debug!("  CodeBlock at cumulative offset: {}", cumulative_byte_offset);
                             builder.start_element(
                                 ElementType::CodeBlock {
                                     line_height: CODE_LINE_HEIGHT,
