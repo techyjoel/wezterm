@@ -1871,6 +1871,50 @@ impl super::TermWindow {
         }
     }
 
+    /// Helper to convert shaped text to ElementCells with cluster offset adjustment
+    fn shape_text_to_cells_with_offset(
+        &self,
+        text: &str,
+        infos: &[GlyphInfo],
+        font: &Rc<LoadedFont>,
+        context: &LayoutContext,
+        style: &config::TextStyle,
+        track_cluster: bool,
+        cluster_offset: u32,
+    ) -> anyhow::Result<Vec<ElementCell>> {
+        let cells = self.shape_text_to_cells(text, infos, font, context, style, track_cluster)?;
+        
+        // Adjust clusters for styled text segments to maintain continuous numbering
+        if cluster_offset > 0 && track_cluster {
+            // Debug: Show cluster adjustment for first few glyphs
+            let adjusted_cells: Vec<ElementCell> = cells
+                .into_iter()
+                .enumerate()
+                .map(|(idx, cell)| match cell {
+                    ElementCell::GlyphWithCluster { glyph, cluster } => {
+                        let adjusted_cluster = cluster + cluster_offset;
+                        if idx < 3 {
+                            log::debug!(
+                                "  📍 Adjusting cluster: {} + {} = {}",
+                                cluster,
+                                cluster_offset,
+                                adjusted_cluster
+                            );
+                        }
+                        ElementCell::GlyphWithCluster {
+                            glyph,
+                            cluster: adjusted_cluster,
+                        }
+                    }
+                    other => other,
+                })
+                .collect();
+            Ok(adjusted_cells)
+        } else {
+            Ok(cells)
+        }
+    }
+
     /// Helper to convert shaped text to ElementCells
     fn shape_text_to_cells(
         &self,
@@ -2238,16 +2282,32 @@ impl super::TermWindow {
                 None,
             )?;
 
-            // Convert to cells
+            // Convert to cells with cluster offset adjustment for continuous numbering
             let track_cluster = context.source == RenderSource::Sidebar;
+            
+            // The 'start' value is the byte position within line_text where this segment begins.
+            // We use it as the cluster offset to ensure clusters represent positions in the full line.
+            let cluster_offset = start as u32;
+            
+            // Debug logging for cluster adjustment verification
+            if track_cluster && style_span.is_some() {
+                log::debug!(
+                    "🔧 Styled segment: text='{}', start={}, end={}, cluster_offset={}",
+                    segment_text,
+                    start,
+                    end,
+                    cluster_offset
+                );
+            }
 
-            let segment_cells = match self.shape_text_to_cells(
+            let segment_cells = match self.shape_text_to_cells_with_offset(
                 segment_text,
                 &infos,
                 font,
                 context,
                 style,
                 track_cluster,
+                cluster_offset,
             ) {
                 Ok(cells) => cells,
                 Err(e) => {
@@ -2274,13 +2334,14 @@ impl super::TermWindow {
                             None,
                             None,
                         )?;
-                        match self.shape_text_to_cells(
+                        match self.shape_text_to_cells_with_offset(
                             segment_text,
                             &fallback_infos,
                             default_font,
                             context,
                             style,
                             track_cluster,
+                            cluster_offset,
                         ) {
                             Ok(cells) => cells,
                             Err(e2) => {

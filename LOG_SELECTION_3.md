@@ -43,7 +43,7 @@ This document provides the complete implementation guide for fixing and refactor
 - **Multi-paragraph AI messages with styled text**: 
   - First plain paragraph: Works perfectly ✅
   - Headings with bold text: Off by 1 character to the right
-  - Code blocks: Severely misaligned, almost unusable
+  - Code blocks: Selection and rendered rectangle both severely misaligned, unusable
   - Issue correlates with styled text segments (bold, italic, code)
   - Can select beyond first paragraph but with increasing offset errors
 
@@ -53,7 +53,7 @@ This document provides the complete implementation guide for fixing and refactor
 3. **Styled Text Cluster Issue**: Each style segment (bold, italic) gets shaped independently with clusters restarting from 0
 4. **Command Items**: Selection and rendering misaligned with the content
 5. **Markdown Code Blocks**: Selection severely misaligned due to styled text issue
-6. **Long AI Messages**: Progressive offset accumulation makes lower sections unusable
+6. **Long AI Messages**: Progressive offset accumulation, and possibly other issues, makes lower sections unusable
 7. ~~**0-width selections**~~ **FIXED in Session 17**
 
 ### Critical Implementation Details (Session 18)
