@@ -486,7 +486,6 @@ impl PositionTreeBuilder {
         self.current_y = 0.0;
     }
 
-
     pub fn add_text_position(&mut self, position: TextPosition) {
         if let Some(ref mut current) = self.current_element {
             // Check for duplicate or overlapping positions

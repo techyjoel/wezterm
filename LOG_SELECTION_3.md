@@ -4,36 +4,116 @@
 
 This document provides the complete implementation guide for fixing and refactoring the text selection system in WezTerm's AI sidebar activity log. The system enables pixel-perfect text selection using glyph position tracking from HarfBuzz clusters.
 
-## Implementation Status (Updated Session 15)
+## Implementation Status (Updated Session 18)
 
 ### Completed Work ✅
 
-#### Markdown Selection Fix (Session 15)
+#### Session 16: Markdown Selection Fix
 - **Root Cause Identified**: Markdown rendering strips formatting (e.g., `**bold**` → `bold`), but positions were extracted for rendered text while selection extracted from original markdown
 - **Solution Implemented**: Extract plain text from markdown during selection operations
 - **Approach**: WYSIWYG behavior - users copy what they see (rendered text without markdown formatting)
-- **Key Changes**:
-  - Added `get_rendered_text_from_markdown()` to extract plain text from markdown
-  - Added `get_item_text_for_selection()` that returns rendered text for AI messages
-  - Enhanced markdown parsing to handle links, lists, and paragraphs
-  - Fixed z-index to 12 (same as activity log content layer)
+
+#### Session 17: Multi-Paragraph & Command Items
+- **Zero-width selections**: Fixed - no longer shows cursor for single clicks
+- **Command item rendering**: Fixed half-width issue by reverting from StyledWrappedText to separate elements
+- **Multi-paragraph investigation**: Identified root cause of selection issues
+- **Cumulative byte offset tracking**: Partially implemented for multi-paragraph messages
+
+#### Session 18: Deep Dive into Cluster Issues
+- **Enhanced debug logging**: Added comprehensive logging with visual indicators (boxes, emojis) to trace byte offsets
+- **Position extraction confirmed working**: All glyphs have cluster information, positions ARE being extracted
+- **Root cause identified**: Styled text segments (bold, italic) are shaped independently with clusters restarting from 0
+- **Attempted fixes**: 
+  - Fixed paragraph separator consistency (adding `\n` between text elements)
+  - Ensured WrappedLine info is always present (added error logging when missing)
+  - Improved cluster_to_byte_offset usage in position extraction
 
 ### What's Working ✅
-- **User message selection**: Perfectly aligned (fixed Children bug in previous session)
-- **AI message selection**: NOW WORKING - markdown formatting correctly handled
+- **User message selection**: Perfectly aligned
+- **AI message first paragraph**: Selection works correctly
+- **Position extraction infrastructure**: Successfully extracts 200+ positions per message
 - **Deselection on single click**: Working
 - **Selection scrolling alignment**: Working
 - **3-coordinate system**: (Window → Viewport → Item) - stable and correct
-- **Position extraction infrastructure**: All items extract positions successfully
-- **Mouse event capture and routing**: Working correctly
-- **Vertical alignment**: Correct
+- **Position extraction**: Now processes ALL paragraphs (confirmed with logging)
+- **Command item rendering**: Fixed display issues
+- **Cluster information**: All sidebar text has GlyphWithCluster (no missing clusters)
+
+### Partially Working 🚧
+- **Multi-paragraph AI messages with styled text**: 
+  - First plain paragraph: Works perfectly ✅
+  - Headings with bold text: Off by 1 character to the right
+  - Code blocks: Severely misaligned, almost unusable
+  - Issue correlates with styled text segments (bold, italic, code)
+  - Can select beyond first paragraph but with increasing offset errors
 
 ### Remaining Bugs 🔧
-1. ~~**AI Message Selection**: 4-character LEFT offset~~ **FIXED in Session 15**
-2. **Selection Z-Index**: Changed to z-index 12, appears to work correctly now
-3. **Command Items**: Selection and rendering misaligned (not addressed)
-4. **Markdown Code Blocks**: NO selection functionality at all (not addressed)
-5. **Long AI Messages**: Only first section/chunk works (not addressed)
+1. ~~**AI Message Selection**: 4-character LEFT offset~~ **FIXED in Session 16**
+2. ~~**Selection Z-Index**~~ **FIXED in Session 16**
+3. **Styled Text Cluster Issue**: Each style segment (bold, italic) gets shaped independently with clusters restarting from 0
+4. **Command Items**: Selection and rendering misaligned with the content
+5. **Markdown Code Blocks**: Selection severely misaligned due to styled text issue
+6. **Long AI Messages**: Progressive offset accumulation makes lower sections unusable
+7. ~~**0-width selections**~~ **FIXED in Session 17**
+
+### Critical Implementation Details (Session 18)
+
+#### The Styled Text Segment Problem (ROOT CAUSE)
+**Discovery**: Found the actual root cause through detailed logging
+- When markdown has styled text (bold, italic), each style segment is shaped INDEPENDENTLY
+- Example: "Hello **world**" becomes two segments:
+  - Segment 1: "Hello " with clusters [0, 1, 2, 3, 4, 5]
+  - Segment 2: "world" with clusters [0, 1, 2, 3, 4] (RESTARTS from 0!)
+- The position extraction code sees: [0,1,2,3,4,5,0,1,2,3,4] and misinterprets the byte offsets
+
+**Evidence from logs**:
+```
+byte_offset=418, 419, 420, 421 (first segment)
+byte_offset=423, 424, 423, 423, 424 (second segment - WRONG! Clusters were 0,1,0,0,1)
+```
+
+**Why this happens**:
+1. `StyledWrappedText` in box_model.rs shapes each style span separately
+2. Each shaped segment has its own cluster numbering starting from 0
+3. The `WrappedLine::cluster_to_byte_offset()` method expects continuous clusters
+4. Position extraction doesn't know about segment boundaries
+
+#### Session 18 Fixes Applied
+```rust
+// Fixed paragraph separator consistency
+if !is_first_text_element {
+    *cumulative_byte_offset += 1; // Single \n between paragraphs
+}
+
+// Added comprehensive logging
+log::debug!("📊 MultilineText: {} glyphs with clusters, {} bytes, starts at byte offset {}", ...);
+
+// Improved WrappedLine usage (attempted fix, didn't solve styled text issue)
+extract_cell_positions_internal(cells, builder, offset, line_index, |cluster| {
+    let line_byte_offset = wrapped_line.cluster_to_byte_offset(cluster);
+    let result = line_byte_offset + byte_offset_adjustment;
+    // ...
+});
+```
+
+#### Remaining TODOs and Workarounds
+```rust
+// MAJOR TODO: Handle styled text segments properly
+// The extract_cell_positions_internal function needs to know about segment boundaries
+// OR the cells need to maintain continuous cluster numbering across segments
+
+// Workaround attempt (not implemented): Track cluster restarts
+if *cluster < last_cluster {
+    // Detected segment boundary, adjust byte offset
+    segment_byte_offset += last_cluster + 1;
+}
+
+// Still using approximation fallback when WrappedLine missing
+fn calculate_text_byte_length_from_cells(cells: &[ElementCell]) -> usize {
+    // This is still an approximation and logs warnings
+    log::warn!("⚠️ FALLBACK: Estimating text length from clusters");
+}
+```
 
 ### Architecture Overview
 
@@ -70,6 +150,37 @@ Positions are stored at their render location in item coordinates, eliminating t
 3. **Double transformations** - Common source of offset bugs
 4. **Activity log receives entire computed element** - Must find specific item within
 
+## Next Steps for Resolution
+
+### The Core Problem to Solve
+**Styled text segments have independent cluster numbering**. When markdown contains bold, italic, or other styled text, each segment is shaped separately with clusters starting from 0. The position extraction code doesn't know about these segment boundaries.
+
+### Solution Approaches
+
+#### Option 1: Fix at Text Shaping Level (Recommended)
+Modify how `StyledWrappedText` handles clusters to maintain continuous numbering:
+- In `shape_line_with_styles()` in box_model.rs
+- Track the byte position as segments are shaped
+- Adjust cluster values to be continuous across segments
+- This fixes the issue at its source
+
+#### Option 2: Fix at Position Extraction Level
+Teach position extraction about segment boundaries:
+- Detect when clusters restart (cluster < previous_cluster)
+- Track cumulative byte offset per segment
+- More complex and error-prone
+
+#### Option 3: Store Segment Information
+Include segment boundary information with cells:
+- Add segment_start_byte to ElementCell::GlyphWithCluster
+- Use this to calculate correct byte offsets
+- Requires changes throughout the rendering pipeline
+
+### Debugging Next Session
+1. **Add logging to text shaping**: Log in `shape_line_with_styles()` to see how segments are created
+2. **Track cluster values**: Log cluster values as each segment is shaped
+3. **Verify the fix**: Ensure clusters are continuous or segment info is preserved
+
 ## Bug Fix Implementation
 
 ### Additional Issues Not Yet Specifically Addressed In This Plan
@@ -102,7 +213,7 @@ These issues also need fixing:
 - No pipeline modifications needed
 - WYSIWYG behavior - users copy rendered text, not markdown source
 
-### Why the Deviation Was Necessary
+### Why the Deviation Was Chosen
 
 1. **Architectural Complexity**: Markdown rendering creates multiple independent Elements that get wrapped separately - no clean way to maintain offset mapping through this process
 2. **User Expectations**: WYSIWYG behavior (copying what you see) aligns better with modern UI patterns
@@ -627,7 +738,7 @@ fn test_position_extraction_markdown() {
 
 ## Implementation Order (ACTUAL)
 
-### Session 15 Implementation
+### Session 16 Implementation
 
 1. **✅ Root Cause Analysis** (COMPLETED)
    - Identified markdown stripping as cause of 4-character offset
@@ -664,15 +775,15 @@ fn test_position_extraction_markdown() {
 
 ### Current Implementation Limitations
 
-1. **Markdown Support**: Basic support for bold, italic, code, links, lists. Complex structures (tables, nested lists) may not render correctly in selection
-2. **No Markdown in Clipboard**: Users copy plain text, not markdown formatting
-3. **Command Output Selection**: Still misaligned (not addressed in this session)
-4. **Code Block Selection**: Not functioning (needs investigation)
-5. **Long Message Chunking**: Only first chunk selectable (needs investigation)
+1. **Styled Text Segments**: Each bold/italic segment resets cluster numbering, causing selection offset
+2. **No Markdown in Clipboard**: Users copy plain text, not markdown formatting (by design)
+3. **Command Output Selection**: Still misaligned (not addressed)
+4. **Code Block Selection**: Severely broken due to styled text segment issue
+5. **Progressive Offset Accumulation**: Errors compound in long messages with many styled segments
 
 ### Future Work
 
-1. **Complete Markdown Support**: Add tables, nested lists, blockquotes
+1. **Complete Markdown Support**: Add nested lists, blockquotes
 2. **Command/Code Block Selection**: Investigate and fix remaining selection issues
 3. **Performance Optimization**: Cache rendered text if needed
 4. **Code Organization**: Extract selection module as planned for better maintainability

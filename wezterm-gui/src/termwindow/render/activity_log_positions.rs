@@ -28,13 +28,18 @@ pub fn extract_activity_item_positions(
 ) -> Option<PositionTree> {
     match ui_item_type {
         UIItemType::ActivityItemText { index, .. } => {
-            log::debug!("Extracting positions for activity item {}", index);
+            log::debug!("\n╔══════════════════════════════════════════════════════════╗");
+            log::debug!(
+                "║ EXTRACTING POSITIONS FOR ACTIVITY ITEM {:3}                ║",
+                index
+            );
+            log::debug!("╚══════════════════════════════════════════════════════════╝");
 
             // First, try to find the specific activity item element within the computed element
             // This is necessary because we receive the entire activity log computed element
             // but need to extract positions from the specific activity item
             if let Some(activity_item_element) = find_activity_item_element(computed, *index) {
-                log::debug!("Found activity item {} element", index);
+                log::debug!("Found activity item {} element, starting extraction", index);
                 extract_positions_from_activity_item(activity_item_element, fonts, None)
             } else {
                 // Fallback: if we can't find the specific item, try to extract from the whole element
@@ -138,20 +143,41 @@ fn extract_positions_from_activity_item(
         euclid::Vector2D::new(content_offset.x, content_offset.y),
     );
 
+    // Track cumulative byte offset for multi-paragraph text
+    let mut cumulative_byte_offset = 0;
+
     // Extract positions from the entire computed element tree
     // Pass the content offset so positions are stored at their actual render location in item coordinates
-    extract_positions_recursively(computed, &mut builder, content_offset, fonts);
+    extract_positions_recursively_with_offset(
+        computed,
+        &mut builder,
+        content_offset,
+        fonts,
+        &mut cumulative_byte_offset,
+    );
 
     // Don't call end_element() here - the root element should remain as current_element
     // so that build() can return it
     let result = builder.build();
 
     if let Some(ref tree) = result {
-        log::debug!(
-            "Successfully extracted position tree with {} text positions, bounds: {:?}",
-            tree.text_positions.len(),
-            tree.bounds
-        );
+        let total_positions = tree.text_positions.len();
+        log::debug!("╔══════════════════════════════════════════════════════════╗");
+        if total_positions > 0 {
+            log::debug!(
+                "║ ✅ EXTRACTION SUCCESS: {:4} positions extracted          ║",
+                total_positions
+            );
+        } else {
+            log::error!(
+                "║ ❌ EXTRACTION FAILED: NO POSITIONS EXTRACTED!            ║"
+            );
+            log::error!(
+                "║    This means glyphs don't have cluster info             ║"
+            );
+        }
+        log::debug!("╚══════════════════════════════════════════════════════════╝");
+        log::debug!("Position tree bounds: {:?}", tree.bounds);
     } else {
         log::debug!("Failed to build position tree");
     }
@@ -185,12 +211,25 @@ fn extract_line_height(computed: &ComputedElement) -> f32 {
     }
 }
 
-/// Recursively extract positions from all text content in the element tree
+/// Recursively extract positions from all text content in the element tree (backward compatibility)
 fn extract_positions_recursively(
     computed: &ComputedElement,
     builder: &mut PositionTreeBuilder,
     offset: Point2D<f32, PixelUnit>,
     fonts: &crate::sidebar::SidebarFonts,
+) {
+    // For backward compatibility, just call the new function without offset tracking
+    let mut dummy_offset = 0;
+    extract_positions_recursively_with_offset(computed, builder, offset, fonts, &mut dummy_offset);
+}
+
+/// Recursively extract positions from all text content in the element tree with cumulative byte offset
+fn extract_positions_recursively_with_offset(
+    computed: &ComputedElement,
+    builder: &mut PositionTreeBuilder,
+    offset: Point2D<f32, PixelUnit>,
+    fonts: &crate::sidebar::SidebarFonts,
+    cumulative_byte_offset: &mut usize,
 ) {
     match &computed.content {
         ComputedElementContent::Text(cells) => {
@@ -200,10 +239,8 @@ fn extract_positions_recursively(
                 computed.content_rect.min_x() - computed.bounds.min_x(),
                 computed.content_rect.min_y() - computed.bounds.min_y(),
             );
-            let text_offset: Point2D<f32, PixelUnit> = Point2D::new(
-                offset.x + element_padding.x,
-                offset.y + element_padding.y,
-            );
+            let text_offset: Point2D<f32, PixelUnit> =
+                Point2D::new(offset.x + element_padding.x, offset.y + element_padding.y);
             log::debug!(
                 "Found Text content with {} cells at offset {:?}, element_padding {:?}, text_offset {:?}",
                 cells.len(),
@@ -212,7 +249,17 @@ fn extract_positions_recursively(
                 text_offset
             );
             // Extract positions at the actual text rendering position
-            extract_positions_from_cells(cells, builder, text_offset);
+            // For single text elements, use offset directly
+            extract_positions_from_cells_with_byte_offset(
+                cells,
+                builder,
+                text_offset,
+                *cumulative_byte_offset,
+            );
+
+            // Update cumulative offset with the text length
+            let text_len = calculate_text_byte_length_from_cells(cells);
+            *cumulative_byte_offset += text_len;
         }
         ComputedElementContent::MultilineText {
             lines,
@@ -227,17 +274,73 @@ fn extract_positions_recursively(
                 computed.content_rect.min_x() - computed.bounds.min_x(),
                 computed.content_rect.min_y() - computed.bounds.min_y(),
             );
-            let text_offset: Point2D<f32, PixelUnit> = Point2D::new(
-                offset.x + element_padding.x,
-                offset.y + element_padding.y,
-            );
+            let text_offset: Point2D<f32, PixelUnit> =
+                Point2D::new(offset.x + element_padding.x, offset.y + element_padding.y);
+
+            // Get text preview for debugging - just count cells for now
+            let text_preview = if let Some(first_line) = lines.first() {
+                format!("{} cells", first_line.len())
+            } else {
+                String::new()
+            };
+
             log::debug!(
-                "Found MultilineText content with {} lines at offset {:?}, element_padding {:?}, text_offset {:?}",
+                "Found MultilineText with {} lines at offset ({:.1},{:.1}), preview: '{}'...",
                 lines.len(),
-                offset,
-                element_padding,
-                text_offset
+                text_offset.x,
+                text_offset.y,
+                text_preview
             );
+
+            // Get paragraph byte length and count expected positions
+            let mut paragraph_byte_length = 0;
+            let mut expected_glyph_count = 0;
+
+            // Count glyphs that should have clusters
+            for line in lines.iter() {
+                for cell in line.iter() {
+                    match cell {
+                        ElementCell::GlyphWithCluster { .. } => {
+                            expected_glyph_count += 1;
+                        }
+                        ElementCell::Glyph(_) => {
+                            // Regular glyph without cluster - this is the problem!
+                            log::warn!("  ⚠️ Found Glyph without cluster in sidebar text! This should not happen.");
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            // Use wrapped line info for accurate byte length
+            if let Some(wrapped_lines) = line_info {
+                // Get the byte length from the last wrapped line
+                if let Some(last_line) = wrapped_lines.last() {
+                    paragraph_byte_length = last_line.byte_end;
+                    log::debug!("  ✓ Using WrappedLine info: paragraph has {} bytes (accurate from byte_end)", paragraph_byte_length);
+                } else {
+                    log::warn!("  ⚠️ WrappedLine info present but empty!");
+                }
+            } else {
+                // This should not happen for sidebar text - all text wrapping should provide WrappedLine info
+                log::error!(
+                    "  ❌ ERROR: WrappedLine info missing for MultilineText! This is a bug."
+                );
+                log::error!("     Falling back to unreliable cluster-based estimation.");
+
+                // Fallback to estimation from cells (unreliable for multi-byte chars)
+                for line in lines.iter() {
+                    paragraph_byte_length += calculate_text_byte_length_from_cells(line);
+                }
+            }
+
+            log::debug!(
+                "  📊 MultilineText: {} glyphs with clusters, {} bytes, starts at byte offset {}",
+                expected_glyph_count,
+                paragraph_byte_length,
+                cumulative_byte_offset
+            );
+
             // Extract positions at the actual text rendering position
             for (line_index, line) in lines.iter().enumerate() {
                 // Use line_positions if available, otherwise calculate based on line_height
@@ -249,56 +352,94 @@ fn extract_positions_recursively(
 
                 if let Some(wrapped_lines) = line_info {
                     if let Some(wrapped_line) = wrapped_lines.get(line_index) {
-                        extract_positions_from_cells_with_wrapped_line(
+                        extract_positions_from_cells_with_wrapped_line_and_offset(
                             line,
                             builder,
                             Point2D::new(text_offset.x, text_offset.y + y),
                             line_index,
                             wrapped_line,
+                            *cumulative_byte_offset,
                         );
                     } else {
-                        extract_positions_from_cells_with_line(
+                        extract_positions_from_cells_with_line_and_offset(
                             line,
                             builder,
                             Point2D::new(text_offset.x, text_offset.y + y),
                             line_index,
+                            *cumulative_byte_offset,
                         );
                     }
                 } else {
-                    extract_positions_from_cells_with_line(
+                    extract_positions_from_cells_with_line_and_offset(
                         line,
                         builder,
-                        Point2D::new(text_offset.x, text_offset.y + y), // Use text_offset
+                        Point2D::new(text_offset.x, text_offset.y + y),
                         line_index,
+                        *cumulative_byte_offset,
                     );
                 }
             }
+
+            // Update cumulative offset with this paragraph's text length
+            *cumulative_byte_offset += paragraph_byte_length;
+
+            log::debug!(
+                "  ✅ MultilineText complete: cumulative offset advanced to {}",
+                cumulative_byte_offset
+            );
         }
         ComputedElementContent::Children(children) => {
             log::debug!("Processing Children with {} elements", children.len());
 
-            // IMPORTANT: To prevent duplicate position extraction in markdown,
-            // we should only extract positions from the leaf elements that contain
-            // actual text, not from every level of the tree.
-            //
-            // Check if any child has actual text content (not just more Children)
-            let has_text_content = children.iter().any(|child| {
+            // Log what types of children we have
+            for (i, child) in children.iter().enumerate() {
+                let child_type = match &child.content {
+                    ComputedElementContent::Text(_) => "Text",
+                    ComputedElementContent::MultilineText { .. } => "MultilineText",
+                    ComputedElementContent::Children(_) => "Children",
+                    _ => "Other",
+                };
+                log::debug!(
+                    "  Child {}: type={}, bounds=({:.1},{:.1})",
+                    i,
+                    child_type,
+                    child.bounds.min_x(),
+                    child.bounds.min_y()
+                );
+            }
+
+            // Check if any child has direct text content (not nested Children)
+            let has_direct_text = children.iter().any(|child| {
                 matches!(
                     &child.content,
                     ComputedElementContent::Text(_) | ComputedElementContent::MultilineText { .. }
                 )
             });
 
-            // If this element directly contains text, don't recurse into children
-            // as they would be duplicates of the same content
-            if has_text_content {
-                log::debug!("Children contain direct text content, processing only text elements");
-                for child in children {
+            // If this element directly contains text, process only those text elements
+            // to avoid duplicate position extraction from nested structures
+            if has_direct_text {
+                log::debug!("Has direct text - entering special processing branch");
+                let mut processed_count = 0;
+                let mut is_first_text_element = true;
+
+                for (i, child) in children.iter().enumerate() {
                     match &child.content {
                         ComputedElementContent::Text(_)
                         | ComputedElementContent::MultilineText { .. } => {
-                            // Process text content directly with the correct offset
-                            // Calculate child's position relative to parent
+                            log::debug!("  Processing child {} as text/multiline", i);
+                            processed_count += 1;
+
+                            // In markdown, each paragraph becomes a separate element
+                            // Add newline BEFORE text elements (except the first)
+                            // This matches get_rendered_text_from_markdown behavior
+                            if !is_first_text_element {
+                                *cumulative_byte_offset += 1; // Single \n between paragraphs
+                                log::debug!("    ➕ Added newline before text element {}, cumulative offset now: {}", i, cumulative_byte_offset);
+                            }
+                            is_first_text_element = false;
+
+                            // Process text content with correct offset
                             let child_position: Point2D<f32, PixelUnit> = Point2D::new(
                                 child.bounds.min_x() - computed.content_rect.min_x(),
                                 child.bounds.min_y() - computed.content_rect.min_y(),
@@ -307,26 +448,54 @@ fn extract_positions_recursively(
                                 offset.x + child_position.x,
                                 offset.y + child_position.y,
                             );
-                            extract_positions_recursively(
+                            // Continue with cumulative tracking
+                            extract_positions_recursively_with_offset(
                                 child,
                                 builder,
                                 child_offset,
                                 fonts,
+                                cumulative_byte_offset,
+                            );
+                        }
+                        ComputedElementContent::Children(nested_children) => {
+                            log::debug!(
+                                "  Processing child {} as nested Children with {} elements",
+                                i,
+                                nested_children.len()
+                            );
+                            processed_count += 1;
+                            // Process nested children that might contain more paragraphs
+                            let child_position: Point2D<f32, PixelUnit> = Point2D::new(
+                                child.bounds.min_x() - computed.content_rect.min_x(),
+                                child.bounds.min_y() - computed.content_rect.min_y(),
+                            );
+                            let child_offset = Point2D::new(
+                                offset.x + child_position.x,
+                                offset.y + child_position.y,
+                            );
+                            extract_positions_recursively_with_offset(
+                                child,
+                                builder,
+                                child_offset,
+                                fonts,
+                                cumulative_byte_offset,
                             );
                         }
                         _ => {
-                            // Skip non-text children to avoid duplicates
+                            log::debug!("  Skipping child {} (not text)", i);
                         }
                     }
                 }
-                return; // Don't process children recursively
+                log::debug!(
+                    "Processed {} children in special branch, returning early",
+                    processed_count
+                );
+                return; // Important: don't process children again below
             }
 
-            // Otherwise, process children normally for nested structures
+            // Otherwise, process all children for nested structures
             let mut current_offset = offset;
 
-            // For Card structures, we need to search through all nested children
-            // to find the actual text content, even if they don't have semantic types
             for (i, child) in children.iter().enumerate() {
                 log::debug!(
                     "Processing child {} at offset {:?}, bounds: {:?}",
@@ -399,7 +568,8 @@ fn extract_positions_recursively(
                             );
                             started_element = true;
                         }
-                        crate::termwindow::box_model::SemanticType::CodeBlock { .. } => {
+                        crate::termwindow::box_model::SemanticType::CodeBlock { language } => {
+                            log::debug!("Found CodeBlock with language: {:?}", language);
                             builder.start_element(
                                 ElementType::CodeBlock {
                                     line_height: CODE_LINE_HEIGHT,
@@ -434,7 +604,13 @@ fn extract_positions_recursively(
                 // ALWAYS recursively process this child, whether it has semantic type or not
                 // This is crucial for Card wrappers where the text is nested inside
                 // Use the calculated child offset to position text where it actually renders
-                extract_positions_recursively(child, builder, child_absolute_offset, fonts);
+                extract_positions_recursively_with_offset(
+                    child,
+                    builder,
+                    child_absolute_offset,
+                    fonts,
+                    cumulative_byte_offset,
+                );
 
                 // End element ONLY if we actually started one
                 if started_element {
@@ -518,6 +694,131 @@ fn extract_positions_from_content(
     }
 }
 
+/// Calculate the byte length of text from wrapped line info
+fn calculate_text_byte_length_from_wrapped_line(
+    wrapped_line: &crate::termwindow::box_model::WrappedLine,
+) -> usize {
+    wrapped_line.byte_end - wrapped_line.byte_offset
+}
+
+/// Calculate the byte length of text represented by cells
+fn calculate_text_byte_length_from_cells(cells: &[ElementCell]) -> usize {
+    // Count actual glyphs and track clusters
+    let mut glyph_count = 0;
+    let mut max_cluster = 0u32;
+    let mut clusters = Vec::new();
+
+    for cell in cells {
+        match cell {
+            ElementCell::GlyphWithCluster { cluster, .. } => {
+                glyph_count += 1;
+                max_cluster = max_cluster.max(*cluster);
+                clusters.push(*cluster);
+            }
+            _ => {}
+        }
+    }
+
+    if glyph_count > 0 {
+        // For better accuracy, look at the cluster pattern
+        // If we have multiple glyphs, estimate based on the average bytes per glyph
+        let estimated_length = if clusters.len() > 1 {
+            // Look at the last few clusters to estimate character size
+            let last_idx = clusters.len() - 1;
+            let second_last_idx = if last_idx > 0 { last_idx - 1 } else { 0 };
+            let last_char_bytes = if second_last_idx != last_idx {
+                (clusters[last_idx] - clusters[second_last_idx]) as usize
+            } else {
+                1 // Default to 1 byte
+            };
+            (max_cluster as usize) + last_char_bytes
+        } else {
+            // Single character, assume up to 4 bytes (max UTF-8)
+            (max_cluster as usize) + 4
+        };
+
+        log::warn!(
+            "⚠️ FALLBACK: Estimating text length from clusters. Max cluster={}, glyphs={}, estimated={} bytes",
+            max_cluster,
+            glyph_count,
+            estimated_length
+        );
+        log::warn!("   This should not happen if WrappedLine info is available!");
+
+        estimated_length
+    } else {
+        0
+    }
+}
+
+/// Extract positions from cells with byte offset adjustment
+fn extract_positions_from_cells_with_byte_offset(
+    cells: &[ElementCell],
+    builder: &mut PositionTreeBuilder,
+    offset: Point2D<f32, PixelUnit>,
+    byte_offset_adjustment: usize,
+) {
+    extract_positions_from_cells_with_line_and_offset(
+        cells,
+        builder,
+        offset,
+        0,
+        byte_offset_adjustment,
+    );
+}
+
+/// Extract positions from cells with line index and byte offset
+fn extract_positions_from_cells_with_line_and_offset(
+    cells: &[ElementCell],
+    builder: &mut PositionTreeBuilder,
+    offset: Point2D<f32, PixelUnit>,
+    line_index: usize,
+    byte_offset_adjustment: usize,
+) {
+    extract_cell_positions_internal(cells, builder, offset, line_index, |cluster| {
+        (cluster as usize) + byte_offset_adjustment
+    });
+}
+
+/// Extract positions from cells with wrapped line info and byte offset
+fn extract_positions_from_cells_with_wrapped_line_and_offset(
+    cells: &[ElementCell],
+    builder: &mut PositionTreeBuilder,
+    offset: Point2D<f32, PixelUnit>,
+    line_index: usize,
+    wrapped_line: &crate::termwindow::box_model::WrappedLine,
+    byte_offset_adjustment: usize,
+) {
+    log::debug!(
+        "    📍 Line {}: wrapped_line.byte_offset={}, adjustment={}, text_preview='{}...'",
+        line_index,
+        wrapped_line.byte_offset,
+        byte_offset_adjustment,
+        &wrapped_line
+            .shaped_text
+            .chars()
+            .take(20)
+            .collect::<String>()
+    );
+
+    extract_cell_positions_internal(cells, builder, offset, line_index, |cluster| {
+        // Use the WrappedLine's cluster_to_byte_offset method which properly handles styled text segments
+        let line_byte_offset = wrapped_line.cluster_to_byte_offset(cluster);
+        let result = line_byte_offset + byte_offset_adjustment;
+        if line_index == 0 && cluster < 5 {
+            log::debug!(
+                "      Cluster {}: wrapped_line.cluster_to_byte_offset({}) = {} + adjustment={} = {}",
+                cluster,
+                cluster,
+                line_byte_offset,
+                byte_offset_adjustment,
+                result
+            );
+        }
+        result
+    });
+}
+
 /// Extract positions from a line of cells
 fn extract_positions_from_cells(
     cells: &[ElementCell],
@@ -539,9 +840,22 @@ fn extract_cell_positions_internal(
     let mut glyph_count = 0;
     let mut cluster_count = 0;
 
+    // Count cell types for debugging
+    let mut glyph_with_cluster_count = 0;
+    let mut glyph_without_cluster_count = 0;
+    for cell in cells.iter() {
+        match cell {
+            ElementCell::GlyphWithCluster { .. } => glyph_with_cluster_count += 1,
+            ElementCell::Glyph(_) => glyph_without_cluster_count += 1,
+            _ => {}
+        }
+    }
+    
     log::debug!(
-        "extract_cell_positions_internal: Processing {} cells at offset {:?}",
+        "extract_cell_positions: {} cells total: {} GlyphWithCluster, {} Glyph (no cluster), offset {:?}",
         cells.len(),
+        glyph_with_cluster_count,
+        glyph_without_cluster_count,
         offset
     );
 
@@ -579,7 +893,6 @@ fn extract_cell_positions_internal(
                     y: offset.y,
                     line_index,
                 });
-
 
                 x_pos = x_end;
             }
@@ -807,7 +1120,7 @@ pub fn extract_markdown_positions(
         computed.content_rect.min_x() - computed.bounds.min_x(),
         computed.content_rect.min_y() - computed.bounds.min_y(),
     );
-    
+
     extract_positions_from_content(
         &computed.content,
         &mut builder,

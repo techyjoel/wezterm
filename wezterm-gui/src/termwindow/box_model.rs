@@ -1553,7 +1553,7 @@ impl super::TermWindow {
                                 leading_space_bytes: 0,
                                 shaped_text: current_line_text.clone(),
                                 shaped_offset: 0,
-                                        });
+                            });
                         }
 
                         // Start new line after skipped spaces
@@ -1619,7 +1619,7 @@ impl super::TermWindow {
                         },
                         shaped_text: current_line_text.clone(),
                         shaped_offset: 0,
-                        });
+                    });
                 }
 
                 // Move to next line
@@ -1648,7 +1648,7 @@ impl super::TermWindow {
                         leading_space_bytes: 0,
                         shaped_text: remaining_text.to_string(),
                         shaped_offset: 0,
-                        });
+                    });
                 }
             }
 

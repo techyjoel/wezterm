@@ -307,25 +307,48 @@ impl SelectionState {
 }
 
 /// Extract plain text from an activity item for selection
-fn get_item_text(item: &ActivityItem) -> &str {
+fn get_item_text(item: &ActivityItem) -> String {
     match item {
-        ActivityItem::Chat { message, .. } => message,
+        ActivityItem::Chat { message, .. } => message.clone(),
         ActivityItem::Command {
-            command, output, ..
-        } => output.as_deref().unwrap_or(command),
-        ActivityItem::Suggestion { content, .. } => content,
-        ActivityItem::Goal { text, .. } => text,
+            command,
+            output,
+            status,
+            expanded,
+            ..
+        } => {
+            // Match the rendering format exactly
+            let status_icon = match status {
+                CommandStatus::Running => "◐",
+                CommandStatus::Success => "✓",
+                CommandStatus::Failed(_) => "✕",
+            };
+
+            if *expanded && output.is_some() {
+                format!(
+                    "{} {}\n\n{}",
+                    status_icon,
+                    command,
+                    output.as_ref().unwrap()
+                )
+            } else {
+                format!("{} {}", status_icon, command)
+            }
+        }
+        ActivityItem::Suggestion { content, .. } => content.clone(),
+        ActivityItem::Goal { text, .. } => text.clone(),
     }
 }
 
 /// Extract plain text from markdown, stripping formatting
 fn get_rendered_text_from_markdown(markdown: &str) -> String {
     use pulldown_cmark::{Event, Parser, Tag};
-    
+
     let parser = Parser::new(markdown);
     let mut plain_text = String::new();
     let mut in_link = false;
-    
+    let mut paragraph_count = 0;
+
     for event in parser {
         match event {
             Event::Text(text) | Event::Code(text) => {
@@ -347,16 +370,37 @@ fn get_rendered_text_from_markdown(markdown: &str) -> String {
                 // Add bullet point for list items
                 plain_text.push_str("• ");
             }
-            Event::Start(Tag::Paragraph) if !plain_text.is_empty() => {
+            Event::Start(Tag::Paragraph) => {
+                paragraph_count += 1;
                 // Add newline before paragraphs (except the first)
-                if !plain_text.ends_with('\n') {
+                if !plain_text.is_empty() && !plain_text.ends_with('\n') {
                     plain_text.push('\n');
+                    log::debug!(
+                        "  📦 Markdown: Added \\n before paragraph {} at byte {}",
+                        paragraph_count,
+                        plain_text.len() - 1
+                    );
                 }
+            }
+            Event::End(Tag::Paragraph) => {
+                log::debug!(
+                    "  📦 Markdown: End of paragraph {} at byte {}, text_len={}",
+                    paragraph_count,
+                    plain_text.len(),
+                    plain_text.chars().count()
+                );
             }
             _ => {}
         }
     }
-    
+
+    log::debug!(
+        "📑 Markdown extraction complete: {} paragraphs, {} bytes, {} chars",
+        paragraph_count,
+        plain_text.len(),
+        plain_text.chars().count()
+    );
+
     plain_text
 }
 
@@ -365,7 +409,9 @@ fn get_rendered_text_from_markdown(markdown: &str) -> String {
 /// For user messages, returns the original text
 fn get_item_text_for_selection(item: &ActivityItem) -> String {
     match item {
-        ActivityItem::Chat { message, is_user, .. } => {
+        ActivityItem::Chat {
+            message, is_user, ..
+        } => {
             if !is_user {
                 // AI messages use markdown, extract plain text
                 get_rendered_text_from_markdown(message)
@@ -374,8 +420,30 @@ fn get_item_text_for_selection(item: &ActivityItem) -> String {
                 message.clone()
             }
         }
-        ActivityItem::Command { command, output, .. } => {
-            output.as_deref().unwrap_or(command).to_string()
+        ActivityItem::Command {
+            command,
+            output,
+            status,
+            expanded,
+            ..
+        } => {
+            // Match the rendering format exactly
+            let status_icon = match status {
+                CommandStatus::Running => "◐",
+                CommandStatus::Success => "✓",
+                CommandStatus::Failed(_) => "✕",
+            };
+
+            if *expanded && output.is_some() {
+                format!(
+                    "{} {}\n\n{}",
+                    status_icon,
+                    command,
+                    output.as_ref().unwrap()
+                )
+            } else {
+                format!("{} {}", status_icon, command)
+            }
         }
         ActivityItem::Suggestion { content, .. } => content.clone(),
         ActivityItem::Goal { text, .. } => text.clone(),
@@ -1726,7 +1794,8 @@ This example demonstrates:
                     - (CHAT_ITEM_BORDER * 2.0)
                     - SCROLLBAR_SPACE;
 
-                let mut content = vec![Element::new(
+                // Create command element with status icon
+                let command_element = Element::new(
                     &fonts.body,
                     ElementContent::WrappedText(format!("{} {}", status_icon, command)),
                 )
@@ -1734,8 +1803,11 @@ This example demonstrates:
                     text: status_color.into(),
                     ..Default::default()
                 })
-                .max_width(Some(Dimension::Pixels(content_width)))];
+                .max_width(Some(Dimension::Pixels(content_width)));
 
+                let mut content = vec![command_element];
+
+                // Add output if expanded
                 if *expanded && output.is_some() {
                     content.push(
                         Element::new(
@@ -1747,8 +1819,7 @@ This example demonstrates:
                             ..Default::default()
                         })
                         .padding(BoxDimension {
-                            left: Dimension::Pixels(4.0),
-                            top: Dimension::Pixels(4.0),
+                            top: Dimension::Pixels(8.0),
                             ..Default::default()
                         })
                         .max_width(Some(Dimension::Pixels(content_width))),
@@ -1839,11 +1910,7 @@ This example demonstrates:
                     if selection.is_some() {
                         // When there's a selection, we still use markdown but the selection
                         // will be rendered as an overlay
-                        MarkdownRenderer::render_with_fonts(
-                            message,
-                            fonts,
-                            Some(content_width),
-                        )
+                        MarkdownRenderer::render_with_fonts(message, fonts, Some(content_width))
                     } else {
                         // AI messages use markdown rendering with code font support
                         // Need to add width constraint for proper text wrapping
@@ -2882,7 +2949,9 @@ This example demonstrates:
 
         log::debug!(
             "Coordinate transform: window x={:.1} → viewport x={:.1} (sidebar_x={:.1})",
-            window_point.x, viewport_point.0.x, self.coordinate_transform.sidebar_x
+            window_point.x,
+            viewport_point.0.x,
+            self.coordinate_transform.sidebar_x
         );
 
         // 2. Find which item was hit
@@ -2909,7 +2978,9 @@ This example demonstrates:
         }
 
         for (index, item_data) in &self.item_positions {
-            if let (Some(item_viewport_y), Some(item_viewport_x)) = (item_data.viewport_y, item_data.viewport_x) {
+            if let (Some(item_viewport_y), Some(item_viewport_x)) =
+                (item_data.viewport_y, item_data.viewport_x)
+            {
                 // Check if point is within item bounds
                 let item_width = item_data.position_tree.bounds.size.width;
                 let item_height = item_data.position_tree.bounds.size.height;
@@ -2936,7 +3007,6 @@ This example demonstrates:
                         viewport_point.0.y - item_viewport_y,
                     ));
 
-
                     // 4. Hit test within item (item-relative coordinates)
                     if let Some(position) = self.hit_test_item(&item_data.position_tree, item_point)
                     {
@@ -2958,15 +3028,8 @@ This example demonstrates:
                         );
                         // Validate the position if we have access to the item's text
                         if let Some(item) = self.activity_log.get(*index) {
-                            let text = match item {
-                                ActivityItem::Chat { message, .. } => message,
-                                ActivityItem::Command {
-                                    command, output, ..
-                                } => output.as_deref().unwrap_or(command),
-                                ActivityItem::Suggestion { content, .. } => content,
-                                ActivityItem::Goal { text, .. } => text,
-                            };
-                            if let Err(e) = position.validate(text) {
+                            let text = get_item_text_for_selection(item);
+                            if let Err(e) = position.validate(&text) {
                                 log::warn!("Invalid position from hit test: {}", e);
                                 continue; // Skip this invalid position
                             }
@@ -2999,7 +3062,7 @@ This example demonstrates:
         // Positions are stored in item coordinates at their actual render location
         // No transformation needed - compare item coordinates directly
         let hit_point = point;
-        
+
         // Debug logging to understand coordinate issues
         if !position_tree.text_positions.is_empty() {
             let first_pos = &position_tree.text_positions[0];
@@ -3218,6 +3281,11 @@ This example demonstrates:
                             let start_byte = anchor_byte.min(current_byte);
                             let end_byte = anchor_byte.max(current_byte);
 
+                            // Don't show selection for zero-width (just a click position)
+                            if start_byte == end_byte {
+                                return rects;
+                            }
+
                             // Calculate selection rectangles using the position tree
                             // Positions are now element-relative (content area)
                             let item_rects =
@@ -3306,21 +3374,13 @@ This example demonstrates:
                                 let start_byte = anchor_byte.min(current_byte);
                                 let end_byte = anchor_byte.max(current_byte);
 
-                                // TEMPORARY: Show selection even for zero-width (for debugging)
-                                if start_byte == end_byte {}
-
-                                // Always show selection rectangle for debugging (was: if start_byte != end_byte)
-                                if true {
+                                // Only show selection if there's actual text selected
+                                if start_byte != end_byte {
                                     // For activity items, we need better selection rectangle calculation
                                     let line_height = 20.0; // Approximate line height
 
                                     // Get the message text to estimate selection position
-                                    let text = match item {
-                                        ActivityItem::Chat { message, .. } => message,
-                                        ActivityItem::Command { command, .. } => command,
-                                        ActivityItem::Suggestion { content, .. } => content,
-                                        ActivityItem::Goal { text, .. } => text,
-                                    };
+                                    let text = get_item_text_for_selection(item);
 
                                     // Calculate more accurate selection rectangles
                                     // Account for padding inside the activity item
@@ -3428,13 +3488,8 @@ This example demonstrates:
                     let start = anchor_byte.min(current_byte);
                     let end = anchor_byte.max(current_byte);
 
-                    // TEMPORARY: Show selection even for zero-width (for debugging)
-                    if start == end {
-                        // log::debug!("SELECTION DEBUG: Zero-width goal selection at byte {}", start);
-                    }
-
-                    // Always show selection rectangle for debugging (was: if start != end)
-                    if true {
+                    // Only show selection if there's actual text selected
+                    if start != end {
                         if let Some(goal) = &self.current_goal {
                             // Use actual glyph positions if available
                             let (start_x, end_x) = if let Some(positions) =
