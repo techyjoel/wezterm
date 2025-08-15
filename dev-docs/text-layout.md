@@ -56,37 +56,40 @@ Text rendering in WezTerm involves complex interactions between font selection, 
 
 Text selection in the sidebar follows these principles:
 
-1. **Position Tracking**: Uses the glyph position infrastructure (`ElementCell::GlyphWithCluster`) to store exact character positions
-2. **Two-Phase Selection**: 
-   - `prepare_selection()` on mouse down (stores potential selection)
-   - `activate_prepared_selection()` on drag start (activates selection)
-3. **Rendering**: Selection rectangles ideally render at the same z-index as content using sub-layer ordering:
-   - Sub-layer 0: Selection rectangles (behind text)
-   - Sub-layer 1: Text glyphs
-   - Sub-layer 2: UI elements
+1. **Position Tracking**: Extract and cache text positions during rendering for accurate hit-testing
+2. **Coordinate Consistency**: Maintain a consistent coordinate system throughout the selection pipeline
+3. **Visual Feedback**: Render selection rectangles at appropriate z-indices to appear behind text
+4. **Text Fidelity**: Preserve original text content when copying (e.g., filtering wrap-induced newlines)
 
 ### Implementation Pattern
 
+The current implementation uses these patterns:
+
 ```rust
-// 1. Extract positions after rendering (in sidebar_render.rs)
-if let Some(positions) = self.extract_goal_text_positions(&computed, &ui_item.item_type) {
-    ai_sidebar.store_goal_positions(positions);
-}
+// 1. Position extraction during rendering (activity_log_positions.rs)
+let positions = extract_positions_from_activity_item(computed, fonts);
+ai_sidebar.store_item_positions(index, positions);
 
-// 2. Use positions for hit testing (in mouseevent.rs)
-let byte_offset = find_byte_offset_from_x(relative_x, positions);
+// 2. Selection calculation (position_cache.rs)
+// Current approach: non-recursive to handle flattened position trees
+let rects = position_tree.calculate_local_selection_rectangles(start, end, offset);
 
-// 3. Handle drag outside bounds (in ai_sidebar.rs handle_mouse_event)
-if self.selection_state.is_dragging {
-    // Calculate byte offset and update selection
-}
+// 3. Text extraction for clipboard (position_cache.rs)
+// Current approach: filters artificial newlines tracked during extraction
+let text = position_data.get_selection_text(start, end);
 ```
 
-### Known Limitations
+### Key Implementation Files
 
-- Selection positions must be extracted after rendering due to two-phase architecture
-- Mouse events during drag may not reach original UIItem when cursor moves outside bounds
-- Each selectable text type needs custom position storage and extraction
+- `sidebar/position_cache.rs` - Position tree structure and selection rectangle calculation
+- `termwindow/render/activity_log_positions.rs` - Position extraction from rendered elements  
+- `sidebar/ai_sidebar.rs` - Selection state management and mouse event handling
+
+### Current Implementation Considerations
+
+- **Line Indexing**: The current implementation uses global line indices across elements to ensure selection rectangles render correctly across paragraphs/headings/code blocks
+- **Coordinate System**: Uses a 3-tier system (Window → Viewport → Item) with item-relative coordinates for position storage
+- **Artificial Newlines**: The implementation tracks wrap-induced newlines separately to filter them during text copying
 
 ## Text Rendering Pipeline
 

@@ -1807,7 +1807,7 @@ impl crate::TermWindow {
                 );
 
                 // Extract position data for this activity item
-                if let Some((position_tree, rendered_text)) = crate::termwindow::render::activity_log_positions::extract_activity_item_positions_with_text(
+                if let Some((position_tree, rendered_text, wrap_newlines)) = crate::termwindow::render::activity_log_positions::extract_activity_item_positions_with_text_and_wraps(
                     root_computed,
                     item_type,
                     fonts,
@@ -1831,13 +1831,14 @@ impl crate::TermWindow {
                         activity_bounds.origin.y
                     );
                     
-                    crate::termwindow::render::activity_log_positions::store_activity_item_positions_with_text(
+                    crate::termwindow::render::activity_log_positions::store_activity_item_positions_with_wraps(
                         ai_sidebar,
                         *index,
                         position_tree,
                         viewport_y,
                         viewport_x,
                         rendered_text,
+                        wrap_newlines,
                     );
                 } else {
                     log::debug!("Failed to extract positions for activity item {}", index);

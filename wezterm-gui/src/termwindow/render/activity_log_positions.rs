@@ -47,6 +47,18 @@ pub fn extract_activity_item_positions_with_text(
     fonts: &crate::sidebar::SidebarFonts,
     item_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
 ) -> Option<(PositionTree, String)> {
+    // For backward compatibility, call the new function and discard wrap_newlines
+    extract_activity_item_positions_with_text_and_wraps(computed, ui_item_type, fonts, item_bounds)
+        .map(|(tree, text, _wraps)| (tree, text))
+}
+
+/// Extract position data, rendered text, and wrap newlines from a computed element
+pub fn extract_activity_item_positions_with_text_and_wraps(
+    computed: &ComputedElement,
+    ui_item_type: &UIItemType,
+    fonts: &crate::sidebar::SidebarFonts,
+    item_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
+) -> Option<(PositionTree, String, std::collections::HashSet<usize>)> {
     match ui_item_type {
         UIItemType::ActivityItemText { index, .. } => {
             log::debug!("\n╔══════════════════════════════════════════════════════════╗");
@@ -169,12 +181,12 @@ fn find_activity_item_element(
 }
 
 /// Extract positions from a specific activity item element
-/// Returns both the position tree and the actual rendered text
+/// Returns the position tree, rendered text, and wrap newlines
 fn extract_positions_from_activity_item(
     computed: &ComputedElement,
     fonts: &crate::sidebar::SidebarFonts,
     override_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
-) -> Option<(PositionTree, String)> {
+) -> Option<(PositionTree, String, std::collections::HashSet<usize>)> {
     // Log what we're extracting from
     if override_bounds.is_some() {
         log::warn!("⚠️ Using override bounds - this is the FALLBACK extraction path");
@@ -224,16 +236,24 @@ fn extract_positions_from_activity_item(
 
     // Track the actual rendered text
     let mut rendered_text = String::new();
+    
+    // Track artificial newlines from text wrapping
+    let mut wrap_newlines = std::collections::HashSet::new();
+    
+    // Track global line index across all elements for proper selection
+    let mut global_line_index = 0usize;
 
     // Extract positions from the entire computed element tree
     // Pass the content offset so positions are stored at their actual render location in item coordinates
-    extract_positions_recursively_with_offset_and_text(
+    extract_positions_recursively_with_text_and_wraps(
         computed,
         &mut builder,
         content_offset,
         fonts,
         &mut cumulative_byte_offset,
         &mut rendered_text,
+        &mut wrap_newlines,
+        &mut global_line_index,
     );
 
     // Don't call end_element() here - the root element should remain as current_element
@@ -258,8 +278,8 @@ fn extract_positions_from_activity_item(
         log::debug!("Failed to build position tree");
     }
 
-    // Return both the position tree and the rendered text
-    result.map(|tree| (tree, rendered_text))
+    // Return the position tree, rendered text, and wrap newlines
+    result.map(|tree| (tree, rendered_text, wrap_newlines))
 }
 
 /// Extract line height from computed element or its children
@@ -337,6 +357,32 @@ fn extract_positions_recursively_with_offset_and_text(
     fonts: &crate::sidebar::SidebarFonts,
     cumulative_byte_offset: &mut usize,
     rendered_text: &mut String,
+) {
+    // For backward compatibility, call the new function with empty wrap tracking
+    let mut wrap_newlines = std::collections::HashSet::new();
+    let mut global_line_index = 0usize;
+    extract_positions_recursively_with_text_and_wraps(
+        computed,
+        builder,
+        offset,
+        fonts,
+        cumulative_byte_offset,
+        rendered_text,
+        &mut wrap_newlines,
+        &mut global_line_index,
+    );
+}
+
+/// Recursively extract positions, collect rendered text, and track wrap newlines
+fn extract_positions_recursively_with_text_and_wraps(
+    computed: &ComputedElement,
+    builder: &mut PositionTreeBuilder,
+    offset: Point2D<f32, PixelUnit>,
+    fonts: &crate::sidebar::SidebarFonts,
+    cumulative_byte_offset: &mut usize,
+    rendered_text: &mut String,
+    wrap_newlines: &mut std::collections::HashSet<usize>,
+    global_line_index: &mut usize,
 ) {
     match &computed.content {
         ComputedElementContent::Text(cells) => {
@@ -445,24 +491,25 @@ fn extract_positions_recursively_with_offset_and_text(
             // No need for detection or adjustment
 
             // Extract positions at the actual text rendering position
-            for (line_index, line) in lines.iter().enumerate() {
+            for (local_line_index, line) in lines.iter().enumerate() {
                 // Use line_positions if available, otherwise calculate based on line_height
                 // These Y positions are relative to the content area
                 let y = line_positions
-                    .get(line_index)
+                    .get(local_line_index)
                     .copied()
-                    .unwrap_or_else(|| line_index as f32 * *line_height);
+                    .unwrap_or_else(|| local_line_index as f32 * *line_height);
 
                 if let Some(wrapped_lines) = line_info {
-                    if let Some(wrapped_line) = wrapped_lines.get(line_index) {
+                    if let Some(wrapped_line) = wrapped_lines.get(local_line_index) {
                         // FIX 3: Track actual position in rendered_text instead of using wrapped_line.byte_offset
                         // wrapped_line.byte_offset is relative to the original unwrapped text,
                         // but we need positions relative to the rendered text (with newlines and without wrap-point spaces)
                         let line_start_in_rendered = rendered_text.len();
                         
                         log::debug!(
-                            "    Line {}: wrapped.byte_offset={} (original text), rendered_pos={} (actual), text='{}'",
-                            line_index,
+                            "    Line {} (global {}): wrapped.byte_offset={} (original text), rendered_pos={} (actual), text='{}'",
+                            local_line_index,
+                            global_line_index,
                             wrapped_line.byte_offset,
                             line_start_in_rendered,
                             wrapped_line
@@ -483,30 +530,39 @@ fn extract_positions_recursively_with_offset_and_text(
                             line,
                             builder,
                             Point2D::new(text_offset.x, text_offset.y + y),
-                            line_index,
+                            *global_line_index,  // Use global line index for selection
                             wrapped_line,
                             line_start_in_rendered, // Use ONLY actual position in rendered_text
                         );
                         
+                        // Increment global line index after processing this line
+                        *global_line_index += 1;
+                        
                         // Add newline between lines (but not after the last line)
                         // This happens AFTER position extraction so positions are correct
-                        if line_index < lines.len() - 1 {
+                        if local_line_index < lines.len() - 1 {
+                            // Track this as an artificial newline from text wrapping
+                            // These newlines are added between wrapped lines within the same paragraph
+                            let newline_pos = rendered_text.len();
+                            wrap_newlines.insert(newline_pos);
                             rendered_text.push('\n');
                         }
                     } else {
                         // Fallback case - shouldn't happen with proper global offsets
                         log::warn!(
-                            "    Line {} missing WrappedLine info - using cumulative offset {}",
-                            line_index,
+                            "    Line {} (global {}) missing WrappedLine info - using cumulative offset {}",
+                            local_line_index,
+                            global_line_index,
                             *cumulative_byte_offset
                         );
                         extract_positions_from_cells_with_line_and_offset(
                             line,
                             builder,
                             Point2D::new(text_offset.x, text_offset.y + y),
-                            line_index,
+                            *global_line_index,
                             *cumulative_byte_offset,
                         );
+                        *global_line_index += 1;
                     }
                 } else {
                     // Fallback case - shouldn't happen with proper global offsets
@@ -518,9 +574,10 @@ fn extract_positions_recursively_with_offset_and_text(
                         line,
                         builder,
                         Point2D::new(text_offset.x, text_offset.y + y),
-                        line_index,
+                        *global_line_index,
                         *cumulative_byte_offset,
                     );
+                    *global_line_index += 1;
                 }
             }
 
@@ -601,6 +658,7 @@ fn extract_positions_recursively_with_offset_and_text(
                             // This ensures rendered_text matches what get_rendered_text_from_markdown produces
                             if !is_first_text_element {
                                 // Add newline separator between markdown elements
+                                // These are REAL newlines from markdown structure, not artificial wrapping
                                 rendered_text.push('\n');
                             } else {
                                 log::debug!("    🔵 Element {}: First text element", i);
@@ -617,13 +675,15 @@ fn extract_positions_recursively_with_offset_and_text(
                                 offset.y + child_position.y,
                             );
                             // Continue with cumulative tracking
-                            extract_positions_recursively_with_offset_and_text(
+                            extract_positions_recursively_with_text_and_wraps(
                                 child,
                                 builder,
                                 child_offset,
                                 fonts,
                                 cumulative_byte_offset,
                                 rendered_text,
+                                wrap_newlines,
+                                global_line_index,
                             );
                         }
                         ComputedElementContent::Children(nested_children) => {
@@ -655,13 +715,15 @@ fn extract_positions_recursively_with_offset_and_text(
                                 child_offset = adjusted_offset;
                             }
                             
-                            extract_positions_recursively_with_offset_and_text(
+                            extract_positions_recursively_with_text_and_wraps(
                                 child,
                                 builder,
                                 child_offset,
                                 fonts,
                                 cumulative_byte_offset,
                                 rendered_text,
+                                wrap_newlines,
+                                global_line_index,
                             );
                         }
                         _ => {
@@ -698,7 +760,7 @@ fn extract_positions_recursively_with_offset_and_text(
                 // The child's offset for text extraction is the parent's offset plus child's position
                 // We don't add the child's own content offset here - that will be handled
                 // when we actually extract text from this child
-                let child_absolute_offset = Point2D::new(
+                let mut child_absolute_offset = Point2D::new(
                     current_offset.x + child_position_in_parent.x,
                     current_offset.y + child_position_in_parent.y,
                 );
@@ -741,18 +803,8 @@ fn extract_positions_recursively_with_offset_and_text(
                             let font_size = fonts.body.metrics().cell_height.get() as f32
                                 * font_size_multiplier;
 
-                            builder.start_element(
-                                ElementType::Heading {
-                                    level: level_u8,
-                                    font_size,
-                                    margin: 0.0, // TODO: Add proper heading margin constant
-                                },
-                                Rect::new(
-                                    Point2D::new(0.0, 0.0), // Element-relative coordinates
-                                    Size2D::new(child.bounds.width(), child.bounds.height()),
-                                ),
-                            );
-                            started_element = true;
+                            // Don't create a separate element for headings - this allows selection to span across
+                            started_element = false;
                         }
                         crate::termwindow::box_model::SemanticType::CodeBlock { language } => {
                             // NOTE: Code blocks with copy buttons go through BRANCH 1 (mixed content).
@@ -774,32 +826,12 @@ fn extract_positions_recursively_with_offset_and_text(
                                 adjusted_child_offset.x, adjusted_child_offset.y
                             );
                             
-                            builder.start_element(
-                                ElementType::CodeBlock {
-                                    line_height: CODE_LINE_HEIGHT,
-                                    padding: CODE_BLOCK_PADDING,
-                                    bg_color: CODE_BLOCK_BG,
-                                },
-                                Rect::new(
-                                    Point2D::new(0.0, 0.0), // Element-relative coordinates
-                                    Size2D::new(child.bounds.width(), child.bounds.height()),
-                                ),
-                            );
-                            started_element = true;
+                            // Don't create a separate element for code blocks - this allows selection to span across lines
+                            started_element = false;
                             
                             // Use the adjusted offset when recursing into the code block's children
-                            extract_positions_recursively_with_offset_and_text(
-                                child,
-                                builder,
-                                adjusted_child_offset,  // Use adjusted offset with padding
-                                fonts,
-                                cumulative_byte_offset,
-                                rendered_text,
-                            );
-                            
-                            // Skip the normal recursion since we handled it above
-                            builder.end_element();
-                            continue;  // Skip to next child
+                            // We still need to use the adjusted offset to account for code block padding
+                            child_absolute_offset = adjusted_child_offset;
                         }
                         _ => {
                             // Other semantic types we don't create elements for
@@ -813,13 +845,15 @@ fn extract_positions_recursively_with_offset_and_text(
                 // ALWAYS recursively process this child, whether it has semantic type or not
                 // This is crucial for Card wrappers where the text is nested inside
                 // Use the calculated child offset to position text where it actually renders
-                extract_positions_recursively_with_offset_and_text(
+                extract_positions_recursively_with_text_and_wraps(
                     child,
                     builder,
                     child_absolute_offset,
                     fonts,
                     cumulative_byte_offset,
                     rendered_text,
+                    wrap_newlines,
+                    global_line_index,
                 );
 
                 // End element ONLY if we actually started one
@@ -1420,6 +1454,37 @@ pub fn store_activity_item_positions_with_text(
         viewport_y: Some(viewport_y),
         viewport_x: Some(viewport_x),
         rendered_text,
+        wrap_newlines: std::collections::HashSet::new(), // For backward compatibility
+    };
+
+    sidebar.store_item_positions(item_index, position_data);
+}
+
+/// Store position data with rendered text and wrap newlines for an activity item
+pub fn store_activity_item_positions_with_wraps(
+    sidebar: &mut crate::sidebar::ai_sidebar::AiSidebar,
+    item_index: usize,
+    position_tree: PositionTree,
+    viewport_y: f32,
+    viewport_x: f32,
+    rendered_text: String,
+    wrap_newlines: std::collections::HashSet<usize>,
+) {
+    log::debug!(
+        "Storing position tree for activity item {} with {} text positions and {} wrap newlines at viewport_y={}, viewport_x={}",
+        item_index,
+        position_tree.text_positions.len(),
+        wrap_newlines.len(),
+        viewport_y,
+        viewport_x
+    );
+
+    let position_data = ItemPositionData {
+        position_tree,
+        viewport_y: Some(viewport_y),
+        viewport_x: Some(viewport_x),
+        rendered_text,
+        wrap_newlines,
     };
 
     sidebar.store_item_positions(item_index, position_data);

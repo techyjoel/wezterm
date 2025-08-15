@@ -306,6 +306,12 @@ Track animation progress with `Instant::now()` timestamps.
 - Pass registries for code state
 - Handle nested structures carefully
 
+### Text Selection
+- Position extraction happens during rendering for accuracy
+- See `position_cache.rs` for the caching infrastructure
+- See `activity_log_positions.rs` for extraction patterns
+- Current implementation uses global line indices for multi-element selection
+
 ## Common Gotchas
 
 ### Import Confusion

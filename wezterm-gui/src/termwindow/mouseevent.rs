@@ -2011,6 +2011,11 @@ impl super::TermWindow {
 
                 // Store the potential selection start but don't activate selection yet
                 // Selection will only start when dragging begins
+                log::debug!(
+                    "SELECTION_DEBUG: Preparing selection for item {} at byte {}",
+                    index,
+                    byte_offset
+                );
                 let needs_invalidate = with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
                     ai_sidebar.prepare_selection(SelectionTarget::ActivityItem {
                         anchor_index: index,
@@ -2047,13 +2052,14 @@ impl super::TermWindow {
 
                     if let Some(hit) = hit_result {
                         log::debug!(
-                            "Hit test during drag found item {} at byte {}",
+                            "SELECTION_DEBUG: Hit test during drag found item {} at byte {}",
                             hit.item_index,
                             hit.position_in_item.byte_offset
                         );
                         with_ai_sidebar(&self.sidebar_manager, |ai_sidebar| {
                             // Activate selection if not already active
                             if !ai_sidebar.is_selecting() {
+                                log::debug!("SELECTION_DEBUG: Selection not active, activating prepared selection");
                                 ai_sidebar.activate_prepared_selection();
                             }
                             // Update selection with new hit position

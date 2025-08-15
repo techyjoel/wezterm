@@ -232,10 +232,31 @@ impl MarkdownRenderer {
             .display(DisplayType::Block)
     }
 
-    /// Render markdown text with SidebarFonts (includes bold heading font)
-    pub fn render_with_fonts(text: &str, fonts: &SidebarFonts, max_width: Option<f32>) -> Element {
+    /// Render markdown text with fonts and optional configuration
+    /// 
+    /// # Arguments
+    /// * `text` - The markdown text to render
+    /// * `fonts` - The sidebar fonts configuration
+    /// * `max_width` - Optional maximum width for text wrapping
+    /// * `registry` - Optional code block registry for horizontal scrolling support
+    /// * `context` - Optional context prefix for generating unique IDs (required if registry is provided)
+    /// * `palette` - Optional color palette for syntax highlighting (uses default theme if not provided)
+    pub fn render_with_fonts(
+        text: &str,
+        fonts: &SidebarFonts,
+        max_width: Option<f32>,
+        registry: Option<Arc<Mutex<HashMap<String, CodeBlockContainer>>>>,
+        context: Option<&str>,
+        palette: Option<&ColorPalette>,
+    ) -> Element {
         let mut renderer = Self::new();
-
+        
+        // Set up registry and context if provided
+        if let Some(reg) = registry {
+            renderer.code_block_registry = Some(reg);
+            renderer.context_prefix = context.unwrap_or("").to_string();
+        }
+        
         renderer.render_markdown(
             text,
             Some(fonts),
@@ -245,11 +266,12 @@ impl MarkdownRenderer {
             fonts.code_line_margin,
             max_width,
             Some(&fonts.heading),
-            None,
+            palette,
         )
     }
 
-    /// Render markdown text with SidebarFonts and registry
+    /// Deprecated: Use render_with_fonts with registry parameter instead
+    #[deprecated(since = "0.1.0", note = "Use render_with_fonts with optional parameters")]
     pub fn render_with_fonts_and_registry(
         text: &str,
         fonts: &SidebarFonts,
@@ -257,23 +279,11 @@ impl MarkdownRenderer {
         registry: Arc<Mutex<HashMap<String, CodeBlockContainer>>>,
         context: &str,
     ) -> Element {
-        let mut renderer = Self::new();
-        renderer.code_block_registry = Some(registry);
-        renderer.context_prefix = context.to_string();
-        renderer.render_markdown(
-            text,
-            Some(fonts),
-            &fonts.body,
-            Some(&fonts.code),
-            fonts.code_line_height,
-            fonts.code_line_margin,
-            max_width,
-            Some(&fonts.heading),
-            None,
-        )
+        Self::render_with_fonts(text, fonts, max_width, Some(registry), Some(context), None)
     }
 
-    /// Render markdown text with SidebarFonts, registry, and color palette
+    /// Deprecated: Use render_with_fonts with all parameters instead
+    #[deprecated(since = "0.1.0", note = "Use render_with_fonts with optional parameters")]
     pub fn render_with_fonts_registry_and_palette(
         text: &str,
         fonts: &SidebarFonts,
@@ -282,20 +292,7 @@ impl MarkdownRenderer {
         context: &str,
         palette: &ColorPalette,
     ) -> Element {
-        let mut renderer = Self::new();
-        renderer.code_block_registry = Some(registry);
-        renderer.context_prefix = context.to_string();
-        renderer.render_markdown(
-            text,
-            Some(fonts),
-            &fonts.body,
-            Some(&fonts.code),
-            fonts.code_line_height,
-            fonts.code_line_margin,
-            max_width,
-            Some(&fonts.heading),
-            Some(palette),
-        )
+        Self::render_with_fonts(text, fonts, max_width, Some(registry), Some(context), Some(palette))
     }
 
     /// Internal render method

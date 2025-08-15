@@ -159,22 +159,18 @@ impl SelectionState {
                     // Handle single-item or multi-item selection
                     if anchor_index == current_index {
                         // Single item selection
-                        sidebar.activity_log.get(*anchor_index).and_then(|item| {
-                            let text = get_item_text_for_selection_with_positions(
-                                item,
-                                *anchor_index,
-                                item_positions,
-                            );
+                        item_positions.get(anchor_index).and_then(|position_data| {
                             let start = anchor_byte.min(current_byte);
                             let end = anchor_byte.max(current_byte);
                             
-                            // Add bounds checking to prevent panic
-                            if *start <= text.len() && *end <= text.len() && *start <= *end {
-                                text.get(*start..*end).map(|s| s.to_string())
+                            // Use the smart text extraction that skips artificial newlines
+                            let selected = position_data.get_selection_text(*start, *end);
+                            if !selected.is_empty() {
+                                Some(selected)
                             } else {
                                 log::warn!(
-                                    "Selection bounds out of range: start={}, end={}, text_len={}",
-                                    start, end, text.len()
+                                    "Empty selection: start={}, end={}, text_len={}",
+                                    start, end, position_data.rendered_text.len()
                                 );
                                 None
                             }
@@ -186,39 +182,30 @@ impl SelectionState {
                         let mut selected_text = String::new();
 
                         for index in *start_index..=*end_index {
-                            if let Some(item) = sidebar.activity_log.get(index) {
-                                let text = get_item_text_for_selection_with_positions(
-                                    item,
-                                    index,
-                                    item_positions,
-                                );
-
+                            if let Some(position_data) = item_positions.get(&index) {
                                 if index == *start_index && index == *anchor_index {
                                     // First item, from anchor_byte to end
-                                    if let Some(partial) = text.get(*anchor_byte..) {
-                                        selected_text.push_str(partial);
-                                    }
+                                    let text = position_data.get_selection_text(*anchor_byte, position_data.rendered_text.len());
+                                    selected_text.push_str(&text);
                                 } else if index == *start_index {
                                     // First item, from current_byte to end
-                                    if let Some(partial) = text.get(*current_byte..) {
-                                        selected_text.push_str(partial);
-                                    }
+                                    let text = position_data.get_selection_text(*current_byte, position_data.rendered_text.len());
+                                    selected_text.push_str(&text);
                                 } else if index == *end_index && index == *anchor_index {
                                     // Last item, from start to anchor_byte
-                                    if let Some(partial) = text.get(..*anchor_byte) {
-                                        selected_text.push_str(partial);
-                                    }
+                                    let text = position_data.get_selection_text(0, *anchor_byte);
+                                    selected_text.push_str(&text);
                                 } else if index == *end_index {
                                     // Last item, from start to current_byte
-                                    if let Some(partial) = text.get(..*current_byte) {
-                                        selected_text.push_str(partial);
-                                    }
+                                    let text = position_data.get_selection_text(0, *current_byte);
+                                    selected_text.push_str(&text);
                                 } else {
-                                    // Middle items, entire text
+                                    // Middle items, entire text (without artificial newlines)
+                                    let text = position_data.get_selection_text(0, position_data.rendered_text.len());
                                     selected_text.push_str(&text);
                                 }
 
-                                // Add newline between items
+                                // Add newline between items (this is a REAL newline between different activity items)
                                 if index < *end_index {
                                     selected_text.push('\n');
                                 }
@@ -912,12 +899,6 @@ impl AiSidebar {
 
     /// Update activity log selection during drag, handling crossing item boundaries
     pub fn update_activity_log_selection_drag(&mut self, item_index: usize, byte_offset: usize) {
-        log::debug!(
-            "update_activity_log_selection_drag: item_index={}, byte_offset={}, is_dragging={}",
-            item_index,
-            byte_offset,
-            self.selection_state.is_dragging
-        );
 
         if !self.selection_state.is_dragging {
             return;
@@ -930,13 +911,6 @@ impl AiSidebar {
             ..
         }) = &self.selection_state.active_selection
         {
-            log::debug!(
-                "Updating selection from anchor=({}, {}) to current=({}, {})",
-                anchor_index,
-                anchor_byte,
-                item_index,
-                byte_offset
-            );
 
             // Update the selection to span from anchor to current position
             // This properly handles selection across multiple items
@@ -985,17 +959,12 @@ impl AiSidebar {
     /// Prepare for potential selection (on mouse down)
     /// Returns true if UI should be invalidated
     pub fn prepare_selection(&mut self, target: SelectionTarget) -> bool {
-        log::debug!(
-            "prepare_selection called with target: {:?}",
-            match &target {
-                SelectionTarget::ActivityItem {
-                    anchor_index,
-                    anchor_byte,
-                    ..
-                } => format!("ActivityItem(index={}, byte={})", anchor_index, anchor_byte),
-                _ => format!("{:?}", target),
-            }
-        );
+        // Don't prepare a new selection if we're already dragging
+        // This prevents the selection from jumping when dragging across items
+        if self.selection_state.is_dragging {
+            return false;
+        }
+
 
         // Check if clicking on existing selection to deselect
         if let Some(active) = &self.selection_state.active_selection {
@@ -1038,7 +1007,6 @@ impl AiSidebar {
             self.selection_state.active_selection = Some(prepared);
             self.selection_state.is_dragging = true;
             // prepared_selection is already cleared by take()
-        } else {
         }
     }
 
@@ -2065,7 +2033,14 @@ This example demonstrates:
                     if selection.is_some() {
                         // When there's a selection, we still use markdown but the selection
                         // will be rendered as an overlay
-                        MarkdownRenderer::render_with_fonts(message, fonts, Some(content_width))
+                        MarkdownRenderer::render_with_fonts(
+                            message, 
+                            fonts, 
+                            Some(content_width),
+                            self.code_block_registry.clone(),
+                            Some(&format!("activity_{}", item_index)),
+                            Some(palette),
+                        )
                     } else {
                         // AI messages use markdown rendering with code font support
                         // Need to add width constraint for proper text wrapping
@@ -2088,18 +2063,14 @@ This example demonstrates:
                         );
 
                         // Use registry if available for horizontal scrolling support
-                        if let Some(ref registry) = self.code_block_registry {
-                            MarkdownRenderer::render_with_fonts_registry_and_palette(
-                                message,
-                                fonts,
-                                Some(content_width),
-                                Arc::clone(registry),
-                                &format!("activity_{}", item_index),
-                                palette,
-                            )
-                        } else {
-                            MarkdownRenderer::render_with_fonts(message, fonts, Some(content_width))
-                        }
+                        MarkdownRenderer::render_with_fonts(
+                            message,
+                            fonts,
+                            Some(content_width),
+                            self.code_block_registry.clone(),
+                            Some(&format!("activity_{}", item_index)),
+                            Some(palette),
+                        )
                     }
                 };
 
@@ -2135,18 +2106,14 @@ This example demonstrates:
                 // - Scrollbar space: ~12px
                 // Total: 16 + 24 + 2 + 12 = 54px
                 let content_width = sidebar_width - 54.0;
-                let markdown_content = if let Some(ref registry) = self.code_block_registry {
-                    MarkdownRenderer::render_with_fonts_registry_and_palette(
-                        content,
-                        fonts,
-                        Some(content_width),
-                        Arc::clone(registry),
-                        &format!("suggestion_{}", item_index),
-                        palette,
-                    )
-                } else {
-                    MarkdownRenderer::render_with_fonts(content, fonts, Some(content_width))
-                };
+                let markdown_content = MarkdownRenderer::render_with_fonts(
+                    content,
+                    fonts,
+                    Some(content_width),
+                    self.code_block_registry.clone(),
+                    Some(&format!("suggestion_{}", item_index)),
+                    Some(palette),
+                );
 
                 Card::new()
                     .with_title(format!("Past: {}", title))
@@ -3599,9 +3566,10 @@ This example demonstrates:
                             }
 
                             // Calculate selection rectangles using the position tree
-                            // Positions are now element-relative (content area)
+                            // Use calculate_local_selection_rectangles since all positions are in the root element
+                            // after we removed the child element creation for headings/code blocks
                             let item_rects =
-                                position_data.position_tree.calculate_selection_rectangles(
+                                position_data.position_tree.calculate_local_selection_rectangles(
                                     *start_byte,
                                     *end_byte,
                                     euclid::Vector2D::new(0.0, 0.0), // Element-relative coordinates
@@ -3726,13 +3694,61 @@ This example demonstrates:
                         }
                     }
                 } else {
-                    // TODO: Implement multi-item selection rendering
-                    // This will require calculating rectangles for all items from anchor to current
-                    log::debug!(
-                        "Multi-item selection not yet implemented: {} to {}",
-                        anchor_index,
-                        current_index
-                    );
+                    // Multi-item selection - generate rectangles for all items in range
+                    
+                    let start_index = anchor_index.min(current_index);
+                    let end_index = anchor_index.max(current_index);
+                    
+                    for item_index in *start_index..=*end_index {
+                        if let Some(position_data) = self.get_item_positions(item_index) {
+                            if let Some(bounds) = self.activity_item_bounds.get(&item_index) {
+                                // Determine selection range for this item
+                                let (item_start_byte, item_end_byte) = if item_index == *anchor_index {
+                                    // Anchor item: from anchor_byte to end (or start if reversed)
+                                    if anchor_index < current_index {
+                                        (*anchor_byte, position_data.rendered_text.len())
+                                    } else {
+                                        (0, *anchor_byte)
+                                    }
+                                } else if item_index == *current_index {
+                                    // Current item: from start to current_byte (or end if reversed)
+                                    if anchor_index < current_index {
+                                        (0, *current_byte)
+                                    } else {
+                                        (*current_byte, position_data.rendered_text.len())
+                                    }
+                                } else {
+                                    // Middle item: select entire text
+                                    (0, position_data.rendered_text.len())
+                                };
+                                
+                                // Skip if nothing to select
+                                if item_start_byte >= item_end_byte {
+                                    continue;
+                                }
+                                
+                                // Calculate selection rectangles for this item
+                                // Use calculate_local_selection_rectangles since all positions are in the root element
+                                let item_rects = position_data.position_tree.calculate_local_selection_rectangles(
+                                    item_start_byte,
+                                    item_end_byte,
+                                    euclid::Vector2D::new(0.0, 0.0),
+                                );
+                                
+                                // Transform to absolute coordinates
+                                for rect in item_rects {
+                                    let absolute_rect = euclid::Rect::new(
+                                        euclid::Point2D::new(
+                                            bounds.origin.x + rect.origin.x,
+                                            bounds.origin.y + rect.origin.y,
+                                        ),
+                                        rect.size,
+                                    );
+                                    rects.push(absolute_rect);
+                                }
+                            }
+                        }
+                    }
                 }
             }
             SelectionTarget::Suggestion {
@@ -4007,7 +4023,6 @@ This example demonstrates:
                                         x_end - x_start,
                                         line_height,
                                     );
-                                    log::debug!("Adding selection rect: {:?}", rect);
                                     rects.push(rect);
                                 }
                             }
@@ -5774,7 +5789,12 @@ fn render_activity_item_static(
             } else {
                 // AI messages - render with markdown
                 MarkdownRenderer::render_with_fonts(
-                    message, fonts, None, // max_width
+                    message, 
+                    fonts, 
+                    None, // max_width
+                    None, // registry
+                    None, // context
+                    None, // palette - not available in this helper
                 )
                 .padding(BoxDimension::new(Dimension::Pixels(8.0)))
                 .display(DisplayType::Block)
@@ -5791,6 +5811,9 @@ fn render_activity_item_static(
                 &format!("**{}**\n\n{}", title, content),
                 fonts,
                 None, // max_width
+                None, // registry
+                None, // context
+                None, // palette - not available in this helper
             )
             .padding(BoxDimension::new(Dimension::Pixels(8.0)))
         }

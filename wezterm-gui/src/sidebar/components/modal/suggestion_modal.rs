@@ -52,21 +52,14 @@ impl ModalContent for SuggestionModal {
         let content_width = context.modal_bounds.width() - 20.0; // Account for right padding
 
         // Get code block registry from context if available
-        let content = if let Some(registry) = context.code_block_registry.as_ref() {
-            MarkdownRenderer::render_with_fonts_and_registry(
-                &self.suggestion.content,
-                &context.fonts,
-                Some(content_width),
-                registry.clone(),
-                "modal",
-            )
-        } else {
-            MarkdownRenderer::render_with_fonts(
-                &self.suggestion.content,
-                &context.fonts,
-                Some(content_width),
-            )
-        }
+        let content = MarkdownRenderer::render_with_fonts(
+            &self.suggestion.content,
+            &context.fonts,
+            Some(content_width),
+            context.code_block_registry.clone(),
+            Some("modal"),
+            None, // palette not available in modal context
+        )
         .max_width(Some(Dimension::Pixels(content_width)))
         .padding(BoxDimension {
             left: Dimension::Pixels(0.0),

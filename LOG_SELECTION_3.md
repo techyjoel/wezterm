@@ -4,14 +4,54 @@
 
 This document tracks the implementation and debugging of the text selection system in WezTerm's AI sidebar activity log. The system uses HarfBuzz cluster information for pixel-perfect text selection with a 3-tier coordinate system (Window → Viewport → Item).
 
-## Current Status (Session 29)
+**STATUS: ✅ FULLY FUNCTIONAL** - All known issues have been resolved as of Session 31. The text selection system now works perfectly across all element types, with proper visual feedback and clean text copying.
 
-### ✅ TEXT SELECTION FULLY ALIGNED
+## Current Status (Session 31)
 
-**Session 29 Major Achievements**:
-1. **Fixed code block selection offset issues** - All text selection now aligned properly
-2. **Cleaned up extensive logging** - Removed ~40 hot-path logs, adjusted log levels
-3. **Improved code maintainability** - Refactored with helper functions and better documentation
+### Session 31 Major Achievements
+
+1. **FIXED Multi-Element Selection Visual Bug** ✅ COMPLETE
+   - **Root Cause**: Line indices were reset to 0 for each markdown element (paragraph, heading, code block)
+   - **Solution**: Implemented global_line_index tracking across all elements
+   - **Implementation**: Added `global_line_index` parameter to position extraction functions
+   - **Result**: Selection rectangles now properly display across all selected lines
+   - **Key Insight**: The issue wasn't child elements in the tree, but incorrect line indexing
+
+2. **Improved Selection Rectangle Calculation** ✅
+   - **Problem**: Only positions strictly within byte range were included
+   - **Solution**: Enhanced `calculate_line_selection_rect` to handle partial line selections
+   - **Result**: Proper selection rectangles for lines that partially overlap selection range
+
+3. **Clean Architecture Implementation** ✅
+   - Added `calculate_local_selection_rectangles` method for non-recursive selection
+   - Kept existing `calculate_selection_rectangles` for backward compatibility
+   - Clear separation of concerns with well-documented methods
+   - Added `collect_all_text_positions` for future extensibility
+
+4. **Code Quality Improvements** ✅
+   - Removed all SELECTION_DEBUG logging
+   - Cleaned up commented-out `builder.start_element()` calls
+   - Added bounds checking to `get_selection_text()`
+   - Removed verbose debug logging from hot paths
+
+### Current Working Features
+
+**Text Selection Functionality**:
+- **Single Element Selection**: ✅ Perfect visual and copy
+- **Multi-Element Selection Within Item**: ✅ FIXED - Works across paragraphs, headings, code blocks
+- **Multi-Item Selection**: ✅ Works across different activity items
+- **Wrapped Text**: ✅ No artificial newlines in copied text
+- **Syntax Highlighting**: ✅ Consistent colors, no longer changes on click
+- **Code Block Multi-Line Selection**: ✅ FIXED - Works across multiple lines
+- **Partial Line Selection**: ✅ Handles selections starting/ending mid-line
+
+### Known Issues
+
+None! All previously identified issues have been resolved:
+- ✅ Multi-element selection visual bug - FIXED with global line indexing
+- ✅ Code block multi-line selection - FIXED as part of multi-element fix
+- ✅ Artificial newlines in copied text - FIXED with wrap_newlines tracking
+- ✅ Syntax highlighting color changes - FIXED with API consolidation
 
 ### Key Fixes Implemented in Session 29:
 
@@ -32,7 +72,7 @@ This document tracks the implementation and debugging of the text selection syst
 
 #### 3. Comprehensive Logging Cleanup
 
-### Current Results (After Session 29)
+### Current Results (After Session 31)
 
 #### All Text Selection ✅ FULLY ALIGNED
 - **User Messages**: ✅ Perfect
@@ -42,11 +82,176 @@ This document tracks the implementation and debugging of the text selection syst
 - **Multi-paragraph**: ✅ Perfect across elements
 - **Code Blocks**: ✅ FIXED alignment
 - **Lists**: ✅ Perfect - ordered and unordered
-- **Multi-line Selection**: ⚠️ Works across most wrapped lines, but copied text has the artificial newlines that wrapping inserts. No multi-line selection in code-blocks working.
+- **Multi-line Selection**: ✅ Perfect - works across all wrapped lines and code blocks without artificial newlines
 
-### Known Issues 🎉
+## How We Fixed Multi-Element Selection (Session 31)
 
-- **Multi-line Selection**: ⚠️ Copied text has the artificial newlines that wrapping inserts. It should copy without those. No multi-line selection in code-blocks working, we need multi-line selection in code blocks (again with no artificial newlines).
+### The Real Root Cause
+
+Initially we thought the issue was child elements in the position tree, but the actual problem was much simpler: **line indices were being reset for each markdown element**.
+
+When processing a document with multiple paragraphs, headings, and code blocks, each element would enumerate its lines starting from 0. This caused all text positions to be grouped into only a few line indices (0-8), making selection rectangles collapse incorrectly.
+
+### The Solution: Global Line Index Tracking
+
+**Implementation**:
+```rust
+// Added global line counter that persists across all elements
+let mut global_line_index = 0usize;
+
+// Pass it through all extraction functions
+extract_positions_recursively_with_text_and_wraps(
+    computed, builder, offset, fonts,
+    &mut cumulative_byte_offset,
+    &mut rendered_text,
+    &mut wrap_newlines,
+    &mut global_line_index,  // NEW: Global counter
+);
+
+// Increment after each line, regardless of element boundaries
+*global_line_index += 1;
+```
+
+This ensures every visual line gets a unique index, allowing proper selection rectangle generation.
+
+### Additional Improvements
+
+1. **Better Partial Line Selection**: Enhanced `calculate_line_selection_rect` to handle selections that start or end mid-line
+2. **Clean Architecture**: Added `calculate_local_selection_rectangles` for non-recursive selection calculation
+3. **Performance**: Removed debug logging from hot paths
+
+## Code Changes Made in Session 31
+
+### 1. Global Line Index Implementation
+
+**Files Modified**:
+- `activity_log_positions.rs`:
+  - Added `global_line_index: &mut usize` parameter to `extract_positions_recursively_with_text_and_wraps`
+  - Changed all `line_index` usages to `local_line_index` for element-local counting
+  - Use `*global_line_index` for position extraction and increment after each line
+  - Updated all recursive calls to pass the global index through
+
+**Key Changes**:
+```rust
+// Before: Each element reset line_index to 0
+for (line_index, line) in lines.iter().enumerate() {
+    extract_positions(..., line_index, ...);
+}
+
+// After: Global counter across all elements
+for (local_line_index, line) in lines.iter().enumerate() {
+    extract_positions(..., *global_line_index, ...);
+    *global_line_index += 1;
+}
+```
+
+### 2. Selection Rectangle Calculation Improvements
+
+**Files Modified**:
+- `position_cache.rs`:
+  - Added `calculate_local_selection_rectangles()` method for non-recursive selection
+  - Enhanced `calculate_line_selection_rect()` to handle partial line selections
+  - Added proper bounds checking to `get_selection_text()`
+  - Added `collect_all_text_positions()` for future extensibility
+
+**Key Improvements**:
+- Handles lines that partially overlap selection range
+- Checks if line has any overlap before processing
+- Properly calculates selection start/end within each line
+
+### 3. Clean Architecture Changes
+
+**Files Modified**:
+- `ai_sidebar.rs`:
+  - Updated to use `calculate_local_selection_rectangles` instead of recursive version
+  - Removed all SELECTION_DEBUG logging
+  - Cleaned up empty else blocks
+
+### 4. Code Quality Cleanup
+
+**Files Modified**:
+- Multiple files had debug logging removed or converted to trace level
+- Removed commented-out code that was no longer needed
+- Added bounds checking for safety
+
+## Code Changes Made in Session 30 (Historical)
+
+### 1. Artificial Newline Fix (Solution B)
+
+**Files Modified**:
+- `position_cache.rs`:
+  - Added `wrap_newlines: HashSet<usize>` to `ItemPositionData` struct
+  - Added `get_selection_text()` method to skip artificial newlines when extracting text
+  
+- `activity_log_positions.rs`:
+  - Modified to track wrap newlines during position extraction (line 517)
+  - Added `wrap_newlines` parameter to extraction functions
+  - Updated `store_activity_item_positions_with_wraps` to accept wrap_newlines
+
+- `ai_sidebar.rs`:
+  - Updated text extraction to use `get_selection_text()` instead of raw substring
+  - Modified both single-item and multi-item selection cases
+
+### 2. Syntax Highlighting Fix
+
+**Files Modified**:
+- `markdown.rs`:
+  - Consolidated `render_with_fonts`, `render_with_fonts_and_registry`, and `render_with_fonts_registry_and_palette` into single function
+  - Single `render_with_fonts` now accepts optional registry, context, and palette parameters
+  - Marked old functions as deprecated (they delegate to new function)
+
+- `ai_sidebar.rs`:
+  - Updated all 5 call sites to use new consolidated API
+  - Always passes palette when available (lines 2082-2089, 2106-2112, 2153-2159)
+  - Fixed issue where selection state caused palette to be omitted
+
+- `suggestion_modal.rs`:
+  - Updated to use new API (palette not available in modal context, passes None)
+
+### 3. Multi-Element Selection Attempt (Incomplete)
+
+**Files Modified**:
+- `activity_log_positions.rs`:
+  - Commented out `builder.start_element()` calls for headings (lines 790-803)
+  - Commented out `builder.start_element()` calls for code blocks (lines 825-838)
+  - Attempted to flatten position tree structure
+
+- `ai_sidebar.rs`:
+  - Implemented multi-item selection rendering (lines 3743-3802)
+  - Fixed TODO for rendering selection across different activity items
+
+**Issue**: Child elements still exist from recursive processing, causing only last element to show selection
+
+## Deviations from Original Plan (Session 31)
+
+1. **Simpler Solution Than Expected**: Instead of implementing the complex "hybrid approach" with flat mode flags, we discovered the real issue was just line index resetting. The simpler global_line_index solution was more elegant and less invasive.
+
+2. **No PositionTreeBuilder Changes Needed**: We initially planned to add a `flat_mode` flag to PositionTreeBuilder, but this wasn't necessary once we fixed the line indexing issue.
+
+3. **Better Architecture Without Structural Changes**: Rather than modifying the tree structure, we added clean separation with `calculate_local_selection_rectangles` vs `calculate_selection_rectangles` methods.
+
+## Deviations from Original Plan (Session 30 - Historical)
+
+1. **Solution B Instead of A**: Chose to track wrap newlines separately rather than modifying position extraction logic extensively
+2. **API Consolidation**: Went beyond fixing the bug to clean up poor API design with 3 similar functions
+3. **Multi-Element Selection**: Initial attempt was incomplete - fixed properly in Session 31
+
+## Key Learnings from Session 31
+
+1. **Debug the Right Thing**: We spent time thinking about tree structure when the real issue was much simpler - line indices resetting. Always verify assumptions with logging.
+
+2. **Global State Can Be Simple**: The global_line_index solution is straightforward and effective - sometimes a simple counter is all you need.
+
+3. **Line-Based Selection Is Fundamental**: The selection system fundamentally works on lines, so getting line indices right is critical for proper rectangle generation.
+
+4. **Clean Architecture Pays Off**: Adding separate methods (`calculate_local_selection_rectangles`) rather than boolean flags makes the code more maintainable and clear.
+
+## Key Learnings from Session 30 (Historical)
+
+1. **Wrap Newlines Are Predictable**: They occur between wrapped lines within the same paragraph/element, making them easy to track and filter
+2. **API Design Matters**: Having 3 functions doing similar things with slight variations led to the palette bug
+3. **Position Tree Structure Is Complex**: Even when not explicitly creating elements, recursive processing still creates child elements
+4. **Selection vs Rendering Needs Differ**: Selection wants flat positions, rendering wants structure - these should be separated
 
 ### Architecture Evolution (Session 28)
 
@@ -61,15 +266,42 @@ This document tracks the implementation and debugging of the text selection syst
 
 **Key Learning**: The position tree must use the same coordinate system as the text it's selecting from. Mixing original text positions with rendered text positions creates progressive offsets.
 
-### Future Optimization Opportunities (Not Required)
+## Future Optimization Opportunities
 
-While the system is fully functional, potential future improvements could include:
-1. **Performance**: Consider caching position trees for unchanged content
-2. **Memory**: Consider implementing position tree cleanup for off-screen items
-3. **Architecture**: Consider extracting selection logic into dedicated module
-4. **Testing**: Add unit tests for position calculation edge cases
+The text selection system is now fully functional and production-ready. These are optional improvements for future consideration:
+
+### Performance Enhancements
+1. **Position Tree Caching**: Cache position trees for unchanged content to avoid recalculation
+2. **Memory Management**: Implement position tree cleanup for off-screen items
+3. **Lazy Evaluation**: Only calculate positions for visible items until selection starts
+
+### Code Organization
+1. **Selection Module**: Extract selection logic from `ai_sidebar.rs` into dedicated module (see refactoring plan in previous sessions)
+2. **Constants Consolidation**: Remove remaining magic numbers for line heights and spacing
+3. **Type Safety**: Consider stronger typing for byte offsets vs character indices
+
+### Testing & Documentation
+1. **Unit Tests**: Add comprehensive tests for:
+   - Line selection edge cases
+   - Partial line selection
+   - Multi-element selection
+   - Artificial newline filtering
+2. **Integration Tests**: Test selection across different markdown element combinations
+3. **Performance Benchmarks**: Measure selection performance with large documents
 
 ## Previous Session History
+
+### Session 29: Final Selection Alignment & Cleanup
+
+**Major Achievements**:
+1. **Fixed code block selection offset issues** - Added proper padding/margin handling
+2. **Cleaned up extensive logging** - Removed ~40 debug logs from hot paths
+3. **Improved code structure** - Added helper functions and clear documentation
+
+**Key Technical Details**:
+- Added `apply_code_block_offset_adjustment()` helper for consistent offset handling
+- Code blocks have 12px padding + 8px top margin that needed accounting
+- Clarified two processing branches: mixed content vs pure nested elements
 
 ### Session 28: Fixed Coordinate System Issues
 

@@ -141,7 +141,11 @@ pub struct PositionTree {
 }
 
 impl PositionTree {
-    /// Calculate selection rectangles for a byte range within this element tree
+    /// Calculate selection rectangles for a byte range within this element tree (recursive)
+    ///
+    /// This method processes the current element's text positions and recursively
+    /// processes all child elements. Use this when you have a hierarchical structure
+    /// and want to select across multiple nested elements.
     ///
     /// # Arguments
     /// * `start_byte` - Start byte offset (inclusive)
@@ -183,6 +187,75 @@ impl PositionTree {
 
         rects
     }
+    
+    /// Calculate selection rectangles using only this element's positions (non-recursive)
+    ///
+    /// This method only processes the current element's text positions without
+    /// recursing into children. Use this when all text positions have been
+    /// flattened into a single root element, or when you only want to select
+    /// within a specific element.
+    ///
+    /// # Arguments
+    /// * `start_byte` - Start byte offset (inclusive)
+    /// * `end_byte` - End byte offset (exclusive)
+    /// * `offset` - Offset for coordinate transformation
+    ///
+    /// # Returns
+    /// Vector of rectangles representing the selection, in element-relative coordinates
+    pub fn calculate_local_selection_rectangles(
+        &self,
+        start_byte: usize,
+        end_byte: usize,
+        offset: Vector2D<f32, PixelUnit>,
+    ) -> Vec<Rect<f32, PixelUnit>> {
+        // Validate selection range
+        if start_byte > end_byte {
+            log::warn!(
+                "Invalid selection range: start {} > end {}",
+                start_byte,
+                end_byte
+            );
+            return Vec::new();
+        }
+        
+        let mut rects = Vec::new();
+        
+        // Only process this element's positions, no recursion
+        if !self.text_positions.is_empty() {
+            self.add_text_selection_rects(start_byte, end_byte, offset, &mut rects);
+        }
+        
+        rects
+    }
+    
+    /// Collect all text positions from the entire tree with absolute offsets
+    ///
+    /// This method recursively collects all text positions from this element
+    /// and all its children, calculating absolute offsets for each position.
+    /// This is useful when you need to work with all positions in a flat list
+    /// rather than a hierarchical structure.
+    ///
+    /// # Arguments
+    /// * `parent_offset` - Offset of parent element for coordinate transformation
+    ///
+    /// # Returns
+    /// Vector of (TextPosition, absolute_offset) tuples
+    pub fn collect_all_text_positions(&self, parent_offset: Vector2D<f32, PixelUnit>) -> Vec<(TextPosition, Vector2D<f32, PixelUnit>)> {
+        let mut all_positions = Vec::new();
+        let element_offset = parent_offset + self.bounds.origin.to_vector();
+        
+        // Add this element's positions with their absolute offset
+        for pos in &self.text_positions {
+            all_positions.push((pos.clone(), element_offset));
+        }
+        
+        // Recursively collect from children
+        for child in &self.children {
+            all_positions.extend(child.collect_all_text_positions(element_offset));
+        }
+        
+        all_positions
+    }
 
     /// Get the line height for this element type
     pub fn get_line_height(&self) -> f32 {
@@ -209,14 +282,23 @@ impl PositionTree {
         for pos in &self.text_positions {
             lines.entry(pos.line_index).or_default().push(pos);
         }
+        
 
         // Get line height for this element
         let line_height = self.get_line_height();
 
-        // Process each line
-        for (line_index, line_positions) in lines {
+        // Sort lines by index to process them in order
+        let mut sorted_lines: Vec<_> = lines.into_iter().collect();
+        sorted_lines.sort_by_key(|(idx, _)| *idx);
+        
+        // Track if we're in a code block to handle multi-line selection specially
+        let is_code_block = matches!(self.element_type, ElementType::CodeBlock { .. });
+        
+        // Process each line and track which lines have selections
+        let mut selected_lines = Vec::new();
+        for (line_index, line_positions) in &sorted_lines {
             if let Some(line_rect) = self.calculate_line_selection_rect(
-                line_positions,
+                line_positions.clone(),
                 start_byte,
                 end_byte,
                 line_height,
@@ -226,8 +308,41 @@ impl PositionTree {
                     Point2D::new(line_rect.origin.x + offset.x, line_rect.origin.y + offset.y),
                     line_rect.size,
                 );
-                rects.push(absolute_rect);
+                selected_lines.push((*line_index, absolute_rect));
             }
+        }
+        
+        // For code blocks, fill in gaps between selected lines
+        if is_code_block && selected_lines.len() > 1 {
+            let first_line = selected_lines.first().unwrap().0;
+            let last_line = selected_lines.last().unwrap().0;
+            
+            // Find the x bounds from existing selections
+            let mut min_x = f32::MAX;
+            let mut max_x = f32::MIN;
+            for (_, rect) in &selected_lines {
+                min_x = min_x.min(rect.origin.x);
+                max_x = max_x.max(rect.origin.x + rect.size.width);
+            }
+            
+            // Add rectangles for missing lines between first and last
+            for line_idx in first_line..=last_line {
+                if !selected_lines.iter().any(|(idx, _)| *idx == line_idx) {
+                    // This line is in the range but has no selection rect
+                    // Create a full-line selection rectangle for it
+                    let y = offset.y + (line_idx as f32) * line_height;
+                    let gap_rect = Rect::new(
+                        Point2D::new(min_x, y),
+                        Size2D::new(max_x - min_x, line_height),
+                    );
+                    rects.push(gap_rect);
+                }
+            }
+        }
+        
+        // Add all the selected line rectangles
+        for (_, rect) in selected_lines {
+            rects.push(rect);
         }
     }
 
@@ -239,6 +354,16 @@ impl PositionTree {
         end_byte: usize,
         line_height: f32,
     ) -> Option<Rect<f32, PixelUnit>> {
+        // Debug: Check what we're working with
+        if !line_positions.is_empty() {
+            let line_idx = line_positions[0].line_index;
+            let min_byte = line_positions.iter().map(|p| p.byte_offset).min().unwrap_or(0);
+            let max_byte = line_positions.iter().map(|p| p.byte_offset).max().unwrap_or(0);
+            log::trace!(
+                "  Line {}: checking range {}-{} against line bytes {}-{} ({} positions)",
+                line_idx, start_byte, end_byte, min_byte, max_byte, line_positions.len()
+            );
+        }
         // Handle zero-width selection (cursor position)
         if start_byte == end_byte {
             // Find the position at or just before the cursor
@@ -269,30 +394,75 @@ impl PositionTree {
         }
 
         // Find the leftmost and rightmost positions within the selection range
-        let mut min_x = f32::MAX;
-        let mut max_x = f32::MIN;
+        let mut min_x: Option<f32> = None;
+        let mut max_x: Option<f32> = None;
         let mut y_pos = 0.0;
-        let mut found_any = false;
 
-        for pos in line_positions {
-            // Check if this position is within the selection range
-            if pos.byte_offset >= start_byte && pos.byte_offset < end_byte {
-                min_x = min_x.min(pos.x_start);
-                max_x = max_x.max(pos.x_end);
-                y_pos = pos.y;
-                found_any = true;
-            }
-            // Note: We don't need to check for glyphs that span the selection boundary
-            // because byte_offset represents the start of the glyph, and selections
-            // are made at glyph boundaries in our implementation
+        // First, check if this line has any overlap with the selection
+        let line_min_byte = line_positions.iter().map(|p| p.byte_offset).min().unwrap_or(0);
+        let line_max_byte = line_positions.iter().map(|p| p.byte_offset).max().unwrap_or(0);
+        
+        // If the entire line is before the selection start or after the selection end, skip it
+        if line_max_byte < start_byte || line_min_byte >= end_byte {
+            log::trace!("    Line has no overlap with selection");
+            return None;
         }
 
-        if found_any {
+        // The line overlaps with the selection, find the exact boundaries
+        for pos in &line_positions {
+            y_pos = pos.y; // All positions on the same line should have the same y
+            
+            // Include this position if:
+            // 1. It's fully within the selection range
+            // 2. It's the last position before the selection starts (for partial start)
+            // 3. It's the first position after the selection ends (for partial end)
+            
+            if pos.byte_offset >= start_byte && pos.byte_offset < end_byte {
+                // Position is fully within selection
+                min_x = Some(min_x.map_or(pos.x_start, |x| x.min(pos.x_start)));
+                max_x = Some(max_x.map_or(pos.x_end, |x| x.max(pos.x_end)));
+            }
+        }
+        
+        // Handle partial selections at line boundaries
+        // If selection starts mid-line, find where it starts
+        if line_min_byte < start_byte && start_byte <= line_max_byte {
+            // Find the position at or just after start_byte
+            for pos in &line_positions {
+                if pos.byte_offset >= start_byte {
+                    min_x = Some(min_x.map_or(pos.x_start, |x| x.min(pos.x_start)));
+                    break;
+                }
+            }
+            // If we didn't find a position after start_byte, use the last position's end
+            if min_x.is_none() && !line_positions.is_empty() {
+                let last_pos = line_positions[line_positions.len() - 1];
+                min_x = Some(last_pos.x_end);
+            }
+        }
+        
+        // If selection starts before this line, include from the beginning
+        if start_byte <= line_min_byte {
+            if let Some(first_pos) = line_positions.first() {
+                min_x = Some(min_x.map_or(first_pos.x_start, |x| x.min(first_pos.x_start)));
+            }
+        }
+        
+        // If selection ends after this line, include to the end
+        if end_byte > line_max_byte {
+            if let Some(last_pos) = line_positions.last() {
+                max_x = Some(max_x.map_or(last_pos.x_end, |x| x.max(last_pos.x_end)));
+            }
+        }
+
+        if let (Some(min), Some(max)) = (min_x, max_x) {
+            log::trace!("    Generated rect from x={:.1} to x={:.1}", min, max);
             Some(Rect::new(
-                Point2D::new(min_x, y_pos),
-                Size2D::new(max_x - min_x, line_height),
+                Point2D::new(min, y_pos),
+                Size2D::new(max - min, line_height),
             ))
         } else {
+            log::trace!("    No valid selection rect for this line");
             None
         }
     }
@@ -324,6 +494,55 @@ pub struct ItemPositionData {
     pub viewport_x: Option<f32>,
     /// The actual rendered text that positions were extracted from
     pub rendered_text: String,
+    /// Byte positions of artificial newlines added by text wrapping (not original text newlines)
+    pub wrap_newlines: std::collections::HashSet<usize>,
+}
+
+impl ItemPositionData {
+    /// Get text for clipboard selection, skipping artificial newlines from text wrapping
+    pub fn get_selection_text(&self, start: usize, end: usize) -> String {
+        // Validate bounds
+        let start = start.min(self.rendered_text.len());
+        let end = end.min(self.rendered_text.len());
+        if start >= end {
+            return String::new();
+        }
+        
+        if self.wrap_newlines.is_empty() {
+            // Fast path: no artificial newlines to skip
+            return self.rendered_text[start..end].to_string();
+        }
+        
+        // Build result character by character, skipping artificial newlines
+        let mut result = String::new();
+        let mut char_indices = self.rendered_text.char_indices().peekable();
+        
+        // Skip to start position
+        while let Some((byte_pos, _ch)) = char_indices.peek() {
+            if *byte_pos >= start {
+                break;
+            }
+            char_indices.next();
+        }
+        
+        // Collect characters up to end position, skipping artificial newlines
+        while let Some((byte_pos, ch)) = char_indices.next() {
+            if byte_pos >= end {
+                break;
+            }
+            
+            // Check if this is an artificial newline
+            if ch == '\n' && self.wrap_newlines.contains(&byte_pos) {
+                // Skip artificial newline
+                continue;
+            }
+            
+            // Include real character (including original newlines)
+            result.push(ch);
+        }
+        
+        result
+    }
 }
 
 /// Coordinate types for explicit transformation tracking
@@ -549,9 +768,17 @@ impl PositionTreeBuilder {
             log::debug!("PositionTreeBuilder::build: No current element - returning None");
         } else if let Some(ref elem) = self.current_element {
             log::debug!(
-                "PositionTreeBuilder::build: Returning tree with {} text positions",
-                elem.text_positions.len()
+                "PositionTreeBuilder::build: Returning tree with {} text positions and {} children",
+                elem.text_positions.len(),
+                elem.children.len()
             );
+            // Debug: Check if we have children when we shouldn't
+            if !elem.children.is_empty() {
+                log::warn!("PositionTreeBuilder: Tree has {} children - this may cause selection issues!", elem.children.len());
+                for (i, child) in elem.children.iter().enumerate() {
+                    log::warn!("  Child {}: {:?}, {} positions", i, child.element_type, child.text_positions.len());
+                }
+            }
         }
 
         self.current_element
