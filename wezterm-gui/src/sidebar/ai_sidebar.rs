@@ -139,6 +139,14 @@ pub enum SelectionTarget {
 
 impl SelectionState {
     pub fn get_selected_text(&self, sidebar: &AiSidebar) -> Option<String> {
+        self.get_selected_text_with_positions(sidebar, &sidebar.item_positions)
+    }
+
+    pub fn get_selected_text_with_positions(
+        &self,
+        sidebar: &AiSidebar,
+        item_positions: &HashMap<usize, crate::sidebar::position_cache::ItemPositionData>,
+    ) -> Option<String> {
         match &self.active_selection {
             None => None,
             Some(selection) => match selection {
@@ -152,10 +160,24 @@ impl SelectionState {
                     if anchor_index == current_index {
                         // Single item selection
                         sidebar.activity_log.get(*anchor_index).and_then(|item| {
-                            let text = get_item_text_for_selection(item);
+                            let text = get_item_text_for_selection_with_positions(
+                                item,
+                                *anchor_index,
+                                item_positions,
+                            );
                             let start = anchor_byte.min(current_byte);
                             let end = anchor_byte.max(current_byte);
-                            text.get(*start..*end).map(|s| s.to_string())
+                            
+                            // Add bounds checking to prevent panic
+                            if *start <= text.len() && *end <= text.len() && *start <= *end {
+                                text.get(*start..*end).map(|s| s.to_string())
+                            } else {
+                                log::warn!(
+                                    "Selection bounds out of range: start={}, end={}, text_len={}",
+                                    start, end, text.len()
+                                );
+                                None
+                            }
                         })
                     } else {
                         // Multi-item selection
@@ -165,7 +187,11 @@ impl SelectionState {
 
                         for index in *start_index..=*end_index {
                             if let Some(item) = sidebar.activity_log.get(index) {
-                                let text = get_item_text_for_selection(item);
+                                let text = get_item_text_for_selection_with_positions(
+                                    item,
+                                    index,
+                                    item_positions,
+                                );
 
                                 if index == *start_index && index == *anchor_index {
                                     // First item, from anchor_byte to end
@@ -340,25 +366,51 @@ fn get_item_text(item: &ActivityItem) -> String {
     }
 }
 
+/// Check if an item should contribute to selection byte offset calculation
+/// All items contribute to selection offset since they're all selectable
+fn should_include_item_in_selection_offset(item: &ActivityItem) -> bool {
+    true // All items are selectable and contribute to offset
+}
+
 /// Extract plain text from markdown, stripping formatting
-fn get_rendered_text_from_markdown(markdown: &str) -> String {
+pub fn get_rendered_text_from_markdown(markdown: &str) -> String {
     use pulldown_cmark::{Event, Parser, Tag};
 
     let parser = Parser::new(markdown);
     let mut plain_text = String::new();
     let mut in_link = false;
     let mut paragraph_count = 0;
+    let mut element_count = 0;
+    let mut heading_count = 0;
+    let mut code_block_count = 0;
+
+    // Debug: Track what's being assembled
+    log::debug!(
+        "🔍 MARKDOWN ASSEMBLY START: markdown_len={}",
+        markdown.len()
+    );
 
     for event in parser {
         match event {
             Event::Text(text) | Event::Code(text) => {
+                let start_pos = plain_text.len();
                 plain_text.push_str(&text);
+                log::debug!(
+                    "  📝 Added text '{}' at byte {}-{}",
+                    &text.chars().take(20).collect::<String>(),
+                    start_pos,
+                    plain_text.len()
+                );
             }
             Event::SoftBreak => {
+                let pos = plain_text.len();
                 plain_text.push(' ');
+                log::debug!("  📝 Added SoftBreak (space) at byte {}", pos);
             }
             Event::HardBreak => {
+                let pos = plain_text.len();
                 plain_text.push('\n');
+                log::debug!("  📝 Added HardBreak (\\n) at byte {}", pos);
             }
             Event::Start(Tag::Link(..)) => {
                 in_link = true;
@@ -368,26 +420,79 @@ fn get_rendered_text_from_markdown(markdown: &str) -> String {
             }
             Event::Start(Tag::Item) => {
                 // Add bullet point for list items
+                let pos = plain_text.len();
                 plain_text.push_str("• ");
+                log::debug!("  📝 Added list bullet at byte {}", pos);
             }
             Event::Start(Tag::Paragraph) => {
+                element_count += 1;
                 paragraph_count += 1;
                 // Add newline before paragraphs (except the first)
                 if !plain_text.is_empty() && !plain_text.ends_with('\n') {
+                    let pos = plain_text.len();
                     plain_text.push('\n');
                     log::debug!(
-                        "  📦 Markdown: Added \\n before paragraph {} at byte {}",
+                        "  📦 Element {}: Added \\n before paragraph {} at byte {}",
+                        element_count,
                         paragraph_count,
-                        plain_text.len() - 1
+                        pos
                     );
                 }
             }
             Event::End(Tag::Paragraph) => {
                 log::debug!(
-                    "  📦 Markdown: End of paragraph {} at byte {}, text_len={}",
+                    "  📦 Element {}: End of paragraph {} at byte {}",
+                    element_count,
                     paragraph_count,
-                    plain_text.len(),
-                    plain_text.chars().count()
+                    plain_text.len()
+                );
+            }
+            Event::Start(Tag::Heading(level, _, _)) => {
+                element_count += 1;
+                heading_count += 1;
+                // Add newline before headings (except at start)
+                if !plain_text.is_empty() && !plain_text.ends_with('\n') {
+                    let pos = plain_text.len();
+                    plain_text.push('\n');
+                    log::debug!(
+                        "  📦 Element {}: Added \\n before heading {} (level {}) at byte {}",
+                        element_count,
+                        heading_count,
+                        level,
+                        pos
+                    );
+                }
+            }
+            Event::End(Tag::Heading(level, _, _)) => {
+                log::debug!(
+                    "  📦 Element {}: End of heading {} (level {}) at byte {}",
+                    element_count,
+                    heading_count,
+                    level,
+                    plain_text.len()
+                );
+            }
+            Event::Start(Tag::CodeBlock(_)) => {
+                element_count += 1;
+                code_block_count += 1;
+                // Add newline before code block
+                if !plain_text.is_empty() && !plain_text.ends_with('\n') {
+                    let pos = plain_text.len();
+                    plain_text.push('\n');
+                    log::debug!(
+                        "  📦 Element {}: Added \\n before code block {} at byte {}",
+                        element_count,
+                        code_block_count,
+                        pos
+                    );
+                }
+            }
+            Event::End(Tag::CodeBlock(_)) => {
+                log::debug!(
+                    "  📦 Element {}: End of code block {} at byte {}",
+                    element_count,
+                    code_block_count,
+                    plain_text.len()
                 );
             }
             _ => {}
@@ -395,10 +500,12 @@ fn get_rendered_text_from_markdown(markdown: &str) -> String {
     }
 
     log::debug!(
-        "📑 Markdown extraction complete: {} paragraphs, {} bytes, {} chars",
+        "🔍 MARKDOWN ASSEMBLY END: {} elements ({} para, {} head, {} code), final_len={}",
+        element_count,
         paragraph_count,
-        plain_text.len(),
-        plain_text.chars().count()
+        heading_count,
+        code_block_count,
+        plain_text.len()
     );
 
     plain_text
@@ -408,15 +515,68 @@ fn get_rendered_text_from_markdown(markdown: &str) -> String {
 /// For AI messages (which use markdown), returns the rendered text
 /// For user messages, returns the original text
 fn get_item_text_for_selection(item: &ActivityItem) -> String {
+    // For backward compatibility, just call the original function
+    get_item_text_for_selection_impl(item, None, None)
+}
+
+/// Get the text to use for selection extraction, using stored rendered text if available
+fn get_item_text_for_selection_with_positions(
+    item: &ActivityItem,
+    index: usize,
+    item_positions: &HashMap<usize, crate::sidebar::position_cache::ItemPositionData>,
+) -> String {
+    get_item_text_for_selection_impl(item, Some(index), Some(item_positions))
+}
+
+/// Internal implementation of text extraction
+fn get_item_text_for_selection_impl(
+    item: &ActivityItem,
+    index: Option<usize>,
+    item_positions: Option<&HashMap<usize, crate::sidebar::position_cache::ItemPositionData>>,
+) -> String {
+    // First try to use the actual rendered text if available
+    if let (Some(idx), Some(positions)) = (index, item_positions) {
+        if let Some(position_data) = positions.get(&idx) {
+            if !position_data.rendered_text.is_empty() {
+                log::debug!("Using stored rendered_text for item {}: len={}", idx, position_data.rendered_text.len());
+                return position_data.rendered_text.clone();
+            } else {
+                log::debug!("Item {} has empty rendered_text, using fallback", idx);
+            }
+        } else {
+            log::debug!("Item {} not found in position data, using fallback", idx);
+        }
+    } else {
+        log::debug!("No position data available, using fallback");
+    }
+
+    // Fallback to the original behavior
     match item {
         ActivityItem::Chat {
             message, is_user, ..
         } => {
             if !is_user {
                 // AI messages use markdown, extract plain text
-                get_rendered_text_from_markdown(message)
+                let rendered = get_rendered_text_from_markdown(message);
+
+                // Debug: Log the first AI message text for analysis
+                static LOGGED: std::sync::Once = std::sync::Once::new();
+                LOGGED.call_once(|| {
+                    log::debug!(
+                        "🎯 AI message markdown: '{}'",
+                        &message[..message.len().min(200)]
+                    );
+                    log::debug!(
+                        "🎯 AI message rendered: '{}'",
+                        &rendered[..rendered.len().min(200)]
+                    );
+                });
+
+                log::debug!("FALLBACK: AI message using markdown conversion, len={}", rendered.len());
+                rendered
             } else {
                 // User messages are plain text
+                log::debug!("FALLBACK: User message using plain text, len={}", message.len());
                 message.clone()
             }
         }
@@ -1765,6 +1925,7 @@ This example demonstrates:
         fonts: &SidebarFonts,
         item_index: usize,
         palette: &wezterm_term::color::ColorPalette,
+        global_byte_offset: usize,
     ) -> Element {
         match item {
             ActivityItem::Command {
@@ -1795,9 +1956,11 @@ This example demonstrates:
                     - SCROLLBAR_SPACE;
 
                 // Create command element with status icon
+                // Commands don't contribute to selection offset, so don't set global_byte_offset
+                let command_text = format!("{} {}", status_icon, command);
                 let command_element = Element::new(
                     &fonts.body,
-                    ElementContent::WrappedText(format!("{} {}", status_icon, command)),
+                    ElementContent::WrappedText(command_text.clone()),
                 )
                 .colors(ElementColors {
                     text: status_color.into(),
@@ -1809,6 +1972,7 @@ This example demonstrates:
 
                 // Add output if expanded
                 if *expanded && output.is_some() {
+                    // Commands don't contribute to selection, don't set global_byte_offset
                     content.push(
                         Element::new(
                             &fonts.body,
@@ -1904,6 +2068,7 @@ This example demonstrates:
                             ..Default::default()
                         })
                         .max_width(Some(Dimension::Pixels(content_width)))
+                        .global_byte_offset(0) // Use item-relative offset, not document-global
                 } else {
                     // AI messages - use markdown rendering
                     // Selection is now rendered as an overlay, not inline styles
@@ -2294,15 +2459,60 @@ This example demonstrates:
             start_idx
         );
 
-        // Render visible items
+        // Track global byte position for the entire document
+        // Only count items that contribute to selectable text
+        let mut document_byte_offset = 0usize;
+
+        // Calculate byte offset up to the first visible item
+        // Only include items that are part of selectable text (exclude commands)
+        for idx in 0..start_idx {
+            if let Some((_, item)) = filtered_items.get(idx) {
+                if should_include_item_in_selection_offset(item) {
+                    let item_text = get_item_text(item);
+                    document_byte_offset += item_text.len();
+                    // Add newline between items (except after the last one)
+                    if idx < filtered_items.len() - 1 {
+                        document_byte_offset += 1;
+                    }
+                }
+            }
+        }
+
+        // Render visible items with proper global byte offsets
         for idx in self.activity_log_visible_range.clone() {
             if let Some((orig_idx, item)) = filtered_items.get(idx) {
-                log::debug!(
-                    "Rendering item at filtered index {} = original index {}",
+                // Enhanced logging to debug offset issues
+                let item_text = get_item_text(item);
+                log::warn!(
+                    "📊 RENDER ITEM {}: type={}, global_offset={}, text_len={}, text_preview='{}'",
                     idx,
-                    orig_idx
+                    match item {
+                        ActivityItem::Command { .. } => "Command",
+                        ActivityItem::Chat { .. } => "Chat",
+                        _ => "Other",
+                    },
+                    document_byte_offset,
+                    item_text.len(),
+                    &item_text.chars().take(30).collect::<String>()
                 );
-                let mut element = self.render_activity_item(item, fonts, *orig_idx, palette);
+                let mut element = self.render_activity_item(
+                    item,
+                    fonts,
+                    *orig_idx,
+                    palette,
+                    document_byte_offset,
+                );
+
+                // Update document byte offset for next item
+                // Only increment offset for items that contribute to selectable text
+                if should_include_item_in_selection_offset(item) {
+                    let item_text = get_item_text(item);
+                    document_byte_offset += item_text.len();
+                    // Add newline between items (except after the last one)
+                    if idx < filtered_items.len() - 1 {
+                        document_byte_offset += 1;
+                    }
+                }
 
                 // Attach cached height if available
                 let item_id = match item {
@@ -2910,7 +3120,7 @@ This example demonstrates:
                 }
             }
         }
-        
+
         log::debug!(
             "Storing item positions for index {}, viewport_y={:?}, {} positions",
             index,
@@ -3011,7 +3221,7 @@ This example demonstrates:
                     viewport_point.0.x,
                     viewport_point.0.y
                 );
-                
+
                 // For tall items that are partially scrolled, viewport_y might be negative
                 if item_viewport_y < 0.0 && item_height > 1000.0 {
                     log::debug!(
@@ -3052,9 +3262,10 @@ This example demonstrates:
                             index,
                             position.byte_offset
                         );
+                        
                         // Validate the position if we have access to the item's text
                         if let Some(item) = self.activity_log.get(*index) {
-                            let text = get_item_text_for_selection(item);
+                            let text = get_item_text_for_selection_with_positions(item, *index, &self.item_positions);
                             if let Err(e) = position.validate(&text) {
                                 log::warn!("Invalid position from hit test: {}", e);
                                 continue; // Skip this invalid position
@@ -3082,7 +3293,11 @@ This example demonstrates:
 
         // Check if point is within this element's bounds
         if !position_tree.bounds.contains(point.0) {
-            log::debug!("Point {:?} not in bounds {:?}", point.0, position_tree.bounds);
+            log::debug!(
+                "Point {:?} not in bounds {:?}",
+                point.0,
+                position_tree.bounds
+            );
             return None;
         }
 
@@ -3144,16 +3359,26 @@ This example demonstrates:
             }
             _ => {
                 // For other elements, check children first
-                log::debug!("Checking {} children for hit test", position_tree.children.len());
+                log::debug!(
+                    "Checking {} children for hit test",
+                    position_tree.children.len()
+                );
                 for (i, child) in position_tree.children.iter().enumerate() {
-                    log::debug!("  Checking child {} with element type {:?}", i, child.element_type);
+                    log::debug!(
+                        "  Checking child {} with element type {:?}",
+                        i,
+                        child.element_type
+                    );
                     if let Some(hit) = self.hit_test_item(child, hit_point) {
                         log::debug!("  Found hit in child {}", i);
                         return Some(hit);
                     }
                 }
                 // Then check own text positions
-                log::debug!("No hit in children, checking {} own positions", position_tree.text_positions.len());
+                log::debug!(
+                    "No hit in children, checking {} own positions",
+                    position_tree.text_positions.len()
+                );
                 self.hit_test_text_positions(
                     &position_tree.text_positions,
                     hit_point.0,
@@ -3171,44 +3396,79 @@ This example demonstrates:
         element_type: &crate::sidebar::position_cache::ElementType,
     ) -> Option<crate::sidebar::position_cache::ItemPosition> {
         use crate::sidebar::position_cache::{ItemPosition, TextAffinity};
-        
+
         log::debug!(
             "hit_test_text_positions: Testing point ({:.1}, {:.1}) against {} positions",
             point.x,
             point.y,
             positions.len()
         );
-        
+
         // Debug: Log the y-coordinate range of positions
         if !positions.is_empty() {
-            let min_y = positions.iter().map(|p| p.y).min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
-            let max_y = positions.iter().map(|p| p.y).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
-            log::debug!("  Position y-range: {:.1} to {:.1}, click y: {:.1}", min_y, max_y, point.y);
+            let min_y = positions
+                .iter()
+                .map(|p| p.y)
+                .min_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap();
+            let max_y = positions
+                .iter()
+                .map(|p| p.y)
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap();
+            log::debug!(
+                "  Position y-range: {:.1} to {:.1}, click y: {:.1}",
+                min_y,
+                max_y,
+                point.y
+            );
             if point.y > max_y + 20.0 {
                 log::warn!("  Click y={:.1} is beyond max position y={:.1}! This item may be taller than the viewport.", point.y, max_y);
             }
-            
+
             // Find the nearest positions above and below the click point
             let positions_before: Vec<_> = positions.iter().filter(|p| p.y <= point.y).collect();
             let positions_after: Vec<_> = positions.iter().filter(|p| p.y > point.y).collect();
-            
+
             if !positions_before.is_empty() && !positions_after.is_empty() {
-                let nearest_before = positions_before.iter().max_by(|a, b| a.y.partial_cmp(&b.y).unwrap()).unwrap();
-                let nearest_after = positions_after.iter().min_by(|a, b| a.y.partial_cmp(&b.y).unwrap()).unwrap();
+                let nearest_before = positions_before
+                    .iter()
+                    .max_by(|a, b| a.y.partial_cmp(&b.y).unwrap())
+                    .unwrap();
+                let nearest_after = positions_after
+                    .iter()
+                    .min_by(|a, b| a.y.partial_cmp(&b.y).unwrap())
+                    .unwrap();
                 let gap = nearest_after.y - nearest_before.y;
-                if gap > 25.0 {  // More than typical line height
-                    log::debug!("  Large gap detected: y={:.1} to {:.1} (gap={:.1}px)", nearest_before.y, nearest_after.y, gap);
-                    log::debug!("  Gap is between byte offsets {} and {}", nearest_before.byte_offset, nearest_after.byte_offset);
+                if gap > 25.0 {
+                    // More than typical line height
+                    log::debug!(
+                        "  Large gap detected: y={:.1} to {:.1} (gap={:.1}px)",
+                        nearest_before.y,
+                        nearest_after.y,
+                        gap
+                    );
+                    log::debug!(
+                        "  Gap is between byte offsets {} and {}",
+                        nearest_before.byte_offset,
+                        nearest_after.byte_offset
+                    );
                 }
             }
-            
+
             // Debug: Find where specific byte offsets are located
             // "Detailed Troubleshooting" is at byte offset 877
             if let Some(pos_877) = positions.iter().find(|p| p.byte_offset == 877) {
-                log::debug!("  'Detailed Troubleshooting' (offset 877) is at y={:.1}", pos_877.y);
+                log::debug!(
+                    "  'Detailed Troubleshooting' (offset 877) is at y={:.1}",
+                    pos_877.y
+                );
             }
             if let Some(pos_402) = positions.iter().find(|p| p.byte_offset == 402) {
-                log::debug!("  'brew install openssl' (offset 402) is at y={:.1}", pos_402.y);
+                log::debug!(
+                    "  'brew install openssl' (offset 402) is at y={:.1}",
+                    pos_402.y
+                );
             }
         }
 
@@ -3459,7 +3719,7 @@ This example demonstrates:
                                     let line_height = 20.0; // Approximate line height
 
                                     // Get the message text to estimate selection position
-                                    let text = get_item_text_for_selection(item);
+                                    let text = get_item_text_for_selection_with_positions(item, *anchor_index, &self.item_positions);
 
                                     // Calculate more accurate selection rectangles
                                     // Account for padding inside the activity item
@@ -4982,6 +5242,8 @@ impl AiSidebar {
 
     /// Handle copy operation (Ctrl+C / Cmd+C)
     pub fn handle_copy(&mut self, window: &dyn window::WindowOps) -> bool {
+        println!("🔔🔔🔔 handle_copy called!");
+        eprintln!("🔔🔔🔔 handle_copy called!");
         // Check if chat input has focus and selection
         if self.chat_input.focused {
             if let Some(text) = self.chat_input.get_selected_text() {
@@ -4991,10 +5253,16 @@ impl AiSidebar {
         }
 
         // Check sidebar selection state
+        eprintln!("🔔 COPY: Checking selection state, item_positions.len()={}", self.item_positions.len());
         if let Some(text) = self.selection_state.get_selected_text(self) {
+            eprintln!("🔔 COPY: Got text: {} chars, preview: '{}'", 
+                text.len(), 
+                &text.chars().take(50).collect::<String>()
+            );
             window.set_clipboard(window::Clipboard::Clipboard, text);
             return true;
         }
+        eprintln!("🔔 COPY: No selection text found");
 
         false
     }

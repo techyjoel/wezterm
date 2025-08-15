@@ -1727,7 +1727,7 @@ impl crate::TermWindow {
 
         None
     }
-    
+
     /// Extract activity item positions using unclamped bounds from computed elements
     /// This avoids the UIItem y-coordinate clamping issue
     fn extract_activity_item_positions_with_unclamped_bounds(
@@ -1740,7 +1740,7 @@ impl crate::TermWindow {
     ) {
         // Maximum recursion depth to prevent stack overflow
         const MAX_TREE_DEPTH: usize = 50;
-        
+
         // Walk through the computed element tree to find activity items
         self.walk_computed_for_activity_items_with_depth(
             computed,
@@ -1749,11 +1749,11 @@ impl crate::TermWindow {
             activity_bounds,
             sidebar_x,
             computed, // root_computed for position extraction
-            0, // initial depth
+            0,        // initial depth
             MAX_TREE_DEPTH,
         );
     }
-    
+
     /// Recursively walk computed elements to find and process activity items with depth limiting
     fn walk_computed_for_activity_items_with_depth(
         &self,
@@ -1768,7 +1768,10 @@ impl crate::TermWindow {
     ) {
         // Prevent stack overflow from deeply nested elements
         if depth >= max_depth {
-            log::warn!("Computed element tree depth exceeded {}, stopping traversal", max_depth);
+            log::warn!(
+                "Computed element tree depth exceeded {}, stopping traversal",
+                max_depth
+            );
             return;
         }
         // Check if this element has an ActivityItemText UIItemType
@@ -1776,18 +1779,25 @@ impl crate::TermWindow {
             if let UIItemType::ActivityItemText { index, .. } = item_type {
                 // We have found an activity item! Use the UNCLAMPED bounds
                 let unclamped_bounds = computed.bounds;
-                
+
                 // Validate bounds before using them
-                if !unclamped_bounds.min_x().is_finite() || !unclamped_bounds.min_y().is_finite() ||
-                   !unclamped_bounds.width().is_finite() || !unclamped_bounds.height().is_finite() {
-                    log::warn!("Invalid bounds for activity item {}: {:?}", index, unclamped_bounds);
+                if !unclamped_bounds.min_x().is_finite()
+                    || !unclamped_bounds.min_y().is_finite()
+                    || !unclamped_bounds.width().is_finite()
+                    || !unclamped_bounds.height().is_finite()
+                {
+                    log::warn!(
+                        "Invalid bounds for activity item {}: {:?}",
+                        index,
+                        unclamped_bounds
+                    );
                     return;
                 }
-                
+
                 // Store the UNCLAMPED bounds for selection rendering
                 // This is critical - selection rectangles need the real position for transformation
                 ai_sidebar.set_activity_item_bounds(*index, unclamped_bounds);
-                
+
                 log::debug!(
                     "Activity item {} - unclamped bounds: y={:.1}, height={:.1}, activity_bounds.y={:.1}",
                     index,
@@ -1795,9 +1805,9 @@ impl crate::TermWindow {
                     unclamped_bounds.height(),
                     activity_bounds.origin.y
                 );
-                
+
                 // Extract position data for this activity item
-                if let Some(position_tree) = crate::termwindow::render::activity_log_positions::extract_activity_item_positions(
+                if let Some((position_tree, rendered_text)) = crate::termwindow::render::activity_log_positions::extract_activity_item_positions_with_text(
                     root_computed,
                     item_type,
                     fonts,
@@ -1821,19 +1831,20 @@ impl crate::TermWindow {
                         activity_bounds.origin.y
                     );
                     
-                    crate::termwindow::render::activity_log_positions::store_activity_item_positions(
+                    crate::termwindow::render::activity_log_positions::store_activity_item_positions_with_text(
                         ai_sidebar,
                         *index,
                         position_tree,
                         viewport_y,
                         viewport_x,
+                        rendered_text,
                     );
                 } else {
                     log::debug!("Failed to extract positions for activity item {}", index);
                 }
             }
         }
-        
+
         // Recursively process children
         if let ComputedElementContent::Children(children) = &computed.content {
             for child in children {

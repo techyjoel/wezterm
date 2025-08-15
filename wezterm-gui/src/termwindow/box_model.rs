@@ -679,6 +679,9 @@ pub struct Element {
     pub font: Rc<LoadedFont>,
     pub content: ElementContent,
     pub presentation: Option<Presentation>,
+    /// Global byte offset where this element's text starts in the document
+    /// Used for markdown elements to maintain correct text selection positions
+    pub global_byte_offset: Option<usize>,
     pub line_height: Option<f64>,
     pub max_width: Option<Dimension>,
     pub min_width: Option<Dimension>,
@@ -708,6 +711,7 @@ impl Element {
             font: Rc::clone(font),
             content,
             presentation: None,
+            global_byte_offset: None,
             line_height: None,
             max_width: None,
             min_width: None,
@@ -834,6 +838,11 @@ impl Element {
 
     pub fn semantic_type(mut self, semantic_type: SemanticType) -> Self {
         self.semantic_type.replace(semantic_type);
+        self
+    }
+
+    pub fn global_byte_offset(mut self, offset: usize) -> Self {
+        self.global_byte_offset = Some(offset);
         self
     }
 
@@ -984,6 +993,8 @@ pub struct ComputedElement {
     pub clip_bounds: Option<RectF>,
     /// Whether this element contributes scissor bounds to its layer
     pub layer_scissor: Option<LayerScissor>,
+    /// Global byte offset for text elements (document-relative position)
+    pub global_byte_offset: Option<usize>,
 
     pub content: ComputedElementContent,
 }
@@ -1367,7 +1378,7 @@ impl super::TermWindow {
         context: &LayoutContext,
         style: &config::TextStyle,
     ) -> anyhow::Result<Vec<Vec<ElementCell>>> {
-        let (lines, _) = self.wrap_text_with_info(text, font, max_width, context, style)?;
+        let (lines, _) = self.wrap_text_with_info(text, font, max_width, context, style, None)?;
         Ok(lines)
     }
 
@@ -1379,9 +1390,11 @@ impl super::TermWindow {
         max_width: f32,
         context: &LayoutContext,
         style: &config::TextStyle,
+        global_byte_offset: Option<usize>,
     ) -> anyhow::Result<(Vec<Vec<ElementCell>>, Vec<WrappedLine>)> {
         // Step 1: Calculate line breaks and create WrappedLines
-        let wrapped_lines = self.wrap_text_into_lines(text, font, max_width, context, style)?;
+        let wrapped_lines =
+            self.wrap_text_into_lines(text, font, max_width, context, style, global_byte_offset)?;
 
         // Step 2: Shape each complete line
         let mut all_lines = Vec::new();
@@ -1477,8 +1490,11 @@ impl super::TermWindow {
         max_width: f32,
         context: &LayoutContext,
         style: &config::TextStyle,
+        global_byte_offset: Option<usize>,
     ) -> anyhow::Result<Vec<WrappedLine>> {
         let mut wrapped_lines = Vec::new();
+        // Always start at 0 for element-local offsets
+        // The global_byte_offset is set on the Element, not on individual lines
         let mut byte_offset = 0;
 
         log::debug!(
@@ -1679,6 +1695,7 @@ impl super::TermWindow {
         context: &LayoutContext,
         default_style: &config::TextStyle,
         element_colors: &ElementColors,
+        global_byte_offset: Option<usize>,
     ) -> anyhow::Result<(
         Vec<Vec<ElementCell>>,
         Vec<Vec<ElementColors>>,
@@ -1699,7 +1716,8 @@ impl super::TermWindow {
             self.calculate_average_char_width(default_font, context, default_style)?
         };
 
-        let wrapped_lines = self.wrap_text_with_estimates(text, char_width, max_width);
+        let wrapped_lines =
+            self.wrap_text_with_estimates(text, char_width, max_width, global_byte_offset);
 
         // Clone wrapped_lines to return them along with the shaped content
         let wrapped_lines_for_return = wrapped_lines.clone();
@@ -1883,10 +1901,34 @@ impl super::TermWindow {
         cluster_offset: u32,
     ) -> anyhow::Result<Vec<ElementCell>> {
         let cells = self.shape_text_to_cells(text, infos, font, context, style, track_cluster)?;
-        
+
         // Adjust clusters for styled text segments to maintain continuous numbering
+        // Only apply this for segments within a line, not for global offsets
         if cluster_offset > 0 && track_cluster {
             // Debug: Show cluster adjustment for first few glyphs
+            if !cells.is_empty() {
+                // Log the first and last cluster values before adjustment
+                let first_cluster = cells.iter().find_map(|c| match c {
+                    ElementCell::GlyphWithCluster { cluster, .. } => Some(*cluster),
+                    _ => None,
+                });
+                let last_cluster = cells.iter().rev().find_map(|c| match c {
+                    ElementCell::GlyphWithCluster { cluster, .. } => Some(*cluster),
+                    _ => None,
+                });
+                if let (Some(first), Some(last)) = (first_cluster, last_cluster) {
+                    log::debug!(
+                        "  Adjusting clusters: text_len={}, offset={}, clusters: {}..{} → {}..{}",
+                        text.len(),
+                        cluster_offset,
+                        first,
+                        last,
+                        first + cluster_offset,
+                        last + cluster_offset
+                    );
+                }
+            }
+
             let adjusted_cells: Vec<ElementCell> = cells
                 .into_iter()
                 .enumerate()
@@ -1988,8 +2030,11 @@ impl super::TermWindow {
         text: &str,
         char_width: f32,
         max_width: f32,
+        global_byte_offset: Option<usize>,
     ) -> Vec<WrappedLine> {
         let mut wrapped_lines = Vec::new();
+        // Always start at 0 for element-local offsets
+        // The global_byte_offset is set on the Element, not on individual lines
         let mut byte_offset = 0;
 
         // Split by newlines first to preserve line structure
@@ -2079,17 +2124,24 @@ impl super::TermWindow {
                 } else {
                     line_start_pos
                 };
-                let shaped_text =
-                    text[line_byte_start + shaped_start..line_byte_start + wrap_pos].to_string();
+                let shaped_text = line_text[shaped_start..wrap_pos].to_string();
 
                 let wrapped_line = WrappedLine {
                     byte_offset: line_byte_start + line_start_pos,
                     byte_end: line_byte_start + wrap_pos,
                     skip_leading_spaces: line_count > 0,
                     leading_space_bytes: skip_spaces,
-                    shaped_text,
+                    shaped_text: shaped_text.clone(),
                     shaped_offset: shaped_start - line_start_pos,
                 };
+
+                // Debug logging for wrapped line creation
+                if line_count > 0 && skip_spaces > 0 {
+                    log::debug!(
+                        "📏 Created wrapped line: line_count={}, skip_spaces={}, shaped_text='{}', line_start_pos={}, shaped_start={}",
+                        line_count, skip_spaces, &shaped_text[..shaped_text.len().min(20)], line_start_pos, shaped_start
+                    );
+                }
 
                 wrapped_lines.push(wrapped_line);
 
@@ -2124,17 +2176,78 @@ impl super::TermWindow {
     ) -> anyhow::Result<Vec<ElementCell>> {
         let mut cells = Vec::new();
 
-        // Extract the line text from the original with bounds checking
-        if line.byte_offset > original_text.len() || line.byte_end > original_text.len() {
-            log::error!(
-                "Invalid byte offsets: offset={}, end={}, text_len={}",
-                line.byte_offset,
-                line.byte_end,
-                original_text.len()
-            );
-            return Ok(cells);
+        // Debug logging for wrapped line properties
+        if context.source == RenderSource::Sidebar {
+            // Log the first few wrapped lines to understand the text flow
+            static mut LINE_COUNT: usize = 0;
+            unsafe {
+                if LINE_COUNT < 5 {
+                    let line_text_preview = if line.byte_offset < original_text.len()
+                        && line.byte_end <= original_text.len()
+                    {
+                        &original_text[line.byte_offset..line.byte_end.min(line.byte_offset + 50)]
+                    } else {
+                        "<invalid range>"
+                    };
+                    log::debug!(
+                        "📝 Wrapped line {}: offset={}, end={}, text='{}'",
+                        LINE_COUNT,
+                        line.byte_offset,
+                        line.byte_end,
+                        line_text_preview
+                    );
+                    LINE_COUNT += 1;
+                }
+            }
         }
-        let full_line_text = &original_text[line.byte_offset..line.byte_end];
+
+        // Extract the line text from the original with bounds checking
+        // When global_byte_offset is used, WrappedLines have document-relative offsets
+        // We need to convert them to element-relative offsets for text extraction
+        let (full_line_text, local_byte_offset) =
+            if line.byte_offset <= original_text.len() && line.byte_end <= original_text.len() {
+                // Local offsets - can index directly into original_text
+                (
+                    &original_text[line.byte_offset..line.byte_end],
+                    line.byte_offset,
+                )
+            } else {
+                // Global offsets detected - need to find this line within the element's text
+                // The line spans from byte_offset to byte_end in the document
+                // We need to find where this maps to in our local text
+
+                // For elements with global offsets, the entire text is passed and we need to
+                // extract the appropriate portion based on the line boundaries
+                // Since we don't have the element's global offset here, we'll use a different approach:
+                // If the line's byte range doesn't fit in the text, it must be using global offsets
+
+                // Check if this could be a wrapped line from text with global offsets
+                let line_length = line.byte_end - line.byte_offset;
+
+                // Find the line within the text by matching the shaped_text
+                if !line.shaped_text.is_empty() {
+                    // Use the pre-calculated shaped text which has the correct content
+                    let shaped_text = &line.shaped_text;
+                    if let Some(pos) = original_text.find(shaped_text) {
+                        let end_pos = pos + shaped_text.len();
+                        (&original_text[pos..end_pos], pos)
+                    } else {
+                        log::error!(
+                            "Could not find shaped_text '{}' in original_text",
+                            &shaped_text.chars().take(20).collect::<String>()
+                        );
+                        return Ok(cells);
+                    }
+                } else {
+                    log::error!(
+                    "Invalid byte offsets: offset={}, end={}, text_len={} (shaped_text is empty)",
+                    line.byte_offset,
+                    line.byte_end,
+                    original_text.len()
+                );
+                    return Ok(cells);
+                }
+            };
 
         // Apply space skipping if needed
         let line_text = if line.skip_leading_spaces && line.leading_space_bytes > 0 {
@@ -2158,9 +2271,9 @@ impl super::TermWindow {
 
         // Debug check for unusually large space counts (removed - the logic is now correct)
 
-        // The effective byte offset is just the line's byte offset
-        // Style spans are relative to the original text, not the space-skipped text
-        let effective_byte_offset = line.byte_offset;
+        // The effective byte offset for style span calculation
+        // When using global offsets, we need to use the local offset for style span indexing
+        let effective_byte_offset = local_byte_offset;
 
         // Find which style spans overlap with this line
         let mut segments = Vec::new();
@@ -2168,24 +2281,58 @@ impl super::TermWindow {
 
         // First, collect all style spans that affect this line
         let mut line_spans = Vec::new();
+
+        // Debug: Log style spans for first line
+        if context.source == RenderSource::Sidebar && line.byte_offset == 0 {
+            log::debug!("📌 Style spans for first line:");
+            for (i, span) in style_spans.iter().enumerate().take(5) {
+                log::debug!(
+                    "  Span {}: start={}, end={}, has_style={}",
+                    i,
+                    span.start,
+                    span.end,
+                    span.font_style.is_some()
+                );
+            }
+        }
+
+        // Calculate the effective line end for style span comparison
+        let effective_byte_end = local_byte_offset + full_line_text.len();
+
         for span in style_spans {
             // Check if span overlaps with this line
-            if span.end <= effective_byte_offset || span.start >= line.byte_end {
+            // IMPORTANT: Style spans are relative to the full rendered text (not markdown),
+            // and wrapped lines have byte_offset/byte_end positions within that text.
+            if span.end <= effective_byte_offset || span.start >= effective_byte_end {
                 continue;
             }
 
             // Calculate overlap within the line
+            // The span positions are global within the full text, so we need to make them
+            // relative to this specific wrapped line
             let start_in_original = if span.start > effective_byte_offset {
                 span.start - effective_byte_offset
             } else {
                 0
             };
 
-            let end_in_original = if span.end < line.byte_end {
+            let end_in_original = if span.end < effective_byte_end {
                 span.end - effective_byte_offset
             } else {
-                line.byte_end - effective_byte_offset
+                effective_byte_end - effective_byte_offset
             };
+
+            // Debug: Log the span mapping for the first few spans
+            if context.source == RenderSource::Sidebar && line.byte_offset < 100 {
+                log::debug!(
+                    "📎 Span mapping: global span [{}, {}) → line offset {} → line-relative [{}, {})",
+                    span.start,
+                    span.end,
+                    line.byte_offset,
+                    start_in_original,
+                    end_in_original
+                );
+            }
 
             // Adjust positions for the space-skipped line_text
             let start_in_line = if line.skip_leading_spaces && line.leading_space_bytes > 0 {
@@ -2284,19 +2431,26 @@ impl super::TermWindow {
 
             // Convert to cells with cluster offset adjustment for continuous numbering
             let track_cluster = context.source == RenderSource::Sidebar;
-            
-            // The 'start' value is the byte position within line_text where this segment begins.
-            // We use it as the cluster offset to ensure clusters represent positions in the full line.
+
+            // CRITICAL: Adjust clusters to be unique within the line.
+            //
+            // Each segment is shaped independently with clusters starting from 0.
+            // We must add the segment's byte position within line_text to make
+            // clusters unique and correctly represent positions in the line.
+            //
+            // The 'start' value is the byte position of this segment within line_text.
             let cluster_offset = start as u32;
-            
+
             // Debug logging for cluster adjustment verification
             if track_cluster && style_span.is_some() {
                 log::debug!(
-                    "🔧 Styled segment: text='{}', start={}, end={}, cluster_offset={}",
+                    "🔧 Styled segment: text='{}', start={}, end={}, cluster_offset={}, skip_spaces={}, leading_bytes={}",
                     segment_text,
                     start,
                     end,
-                    cluster_offset
+                    cluster_offset,
+                    line.skip_leading_spaces,
+                    line.leading_space_bytes
                 );
             }
 
@@ -2529,6 +2683,7 @@ impl super::TermWindow {
                     content_rect: rects.content_rect,
                     clip_bounds,
                     layer_scissor: element.layer_scissor.clone(),
+                    global_byte_offset: element.global_byte_offset,
                     content: ComputedElementContent::Text(computed_cells),
                 })
             }
@@ -2537,8 +2692,14 @@ impl super::TermWindow {
                 let track_cluster = context.source == RenderSource::Sidebar;
 
                 // Use wrap_text_with_info to get both cells and line information
-                let (lines, wrapped_lines) =
-                    self.wrap_text_with_info(text, &element.font, max_width, context, &style)?;
+                let (lines, wrapped_lines) = self.wrap_text_with_info(
+                    text,
+                    &element.font,
+                    max_width,
+                    context,
+                    &style,
+                    element.global_byte_offset,
+                )?;
                 let line_height = context.height.pixel_cell;
                 let num_lines = lines.len() as f32;
 
@@ -2578,6 +2739,7 @@ impl super::TermWindow {
                     content_rect: rects.content_rect,
                     clip_bounds,
                     layer_scissor: element.layer_scissor.clone(),
+                    global_byte_offset: element.global_byte_offset,
                     content: ComputedElementContent::MultilineText {
                         lines: lines.clone(),
                         line_height,
@@ -2760,6 +2922,7 @@ impl super::TermWindow {
                     content_rect: rects.content_rect,
                     clip_bounds,
                     layer_scissor: element.layer_scissor.clone(),
+                    global_byte_offset: element.global_byte_offset,
                     content: ComputedElementContent::Children(computed_kids),
                 })
             }
@@ -2784,6 +2947,7 @@ impl super::TermWindow {
                     content_rect: rects.content_rect,
                     clip_bounds,
                     layer_scissor: element.layer_scissor.clone(),
+                    global_byte_offset: element.global_byte_offset,
                     content: ComputedElementContent::Poly {
                         poly,
                         line_width: *line_width,
@@ -2800,6 +2964,7 @@ impl super::TermWindow {
                     context,
                     &style,
                     &element.colors,
+                    element.global_byte_offset,
                 )?;
 
                 let line_height = context.height.pixel_cell;
@@ -2855,6 +3020,7 @@ impl super::TermWindow {
                     content_rect: rects.content_rect,
                     clip_bounds,
                     layer_scissor: element.layer_scissor.clone(),
+                    global_byte_offset: element.global_byte_offset,
                     content: ComputedElementContent::MultilineText {
                         lines,
                         line_height,

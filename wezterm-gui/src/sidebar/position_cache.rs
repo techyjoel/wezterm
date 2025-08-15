@@ -322,6 +322,8 @@ pub struct ItemPositionData {
     pub viewport_y: Option<f32>,
     /// Current viewport X position (accounts for margins)
     pub viewport_x: Option<f32>,
+    /// The actual rendered text that positions were extracted from
+    pub rendered_text: String,
 }
 
 /// Coordinate types for explicit transformation tracking

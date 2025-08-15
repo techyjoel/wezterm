@@ -167,6 +167,7 @@ impl MarkdownRenderer {
         default_font: &Rc<LoadedFont>,
         palette: Option<&ColorPalette>,
         dimming_factor: f32,
+        global_byte_offset: Option<usize>,
     ) -> Element {
         let mut combined_text = String::new();
         let mut style_spans = Vec::new();
@@ -196,7 +197,7 @@ impl MarkdownRenderer {
         let spans_count = style_spans.len();
         let text_len = combined_text.len();
 
-        let element = if !style_spans.is_empty() {
+        let mut element = if !style_spans.is_empty() {
             Element::new(
                 default_font,
                 ElementContent::StyledWrappedText {
@@ -207,6 +208,11 @@ impl MarkdownRenderer {
         } else {
             Element::new(default_font, ElementContent::WrappedText(combined_text))
         };
+
+        // Set the global byte offset if provided
+        if let Some(offset) = global_byte_offset {
+            element = element.global_byte_offset(offset);
+        }
 
         log::debug!(
             "Created paragraph element with {} style spans, text length: {}",
@@ -320,6 +326,10 @@ impl MarkdownRenderer {
         let mut in_list_item = false;
         let mut pending_list_marker: Option<String> = None;
 
+        // Track global byte offset for text selection
+        // This mirrors how get_rendered_text_from_markdown assembles the text
+        let mut global_byte_offset: usize = 0;
+
         for event in parser {
             match event {
                 Event::Start(tag) => match tag {
@@ -380,6 +390,21 @@ impl MarkdownRenderer {
                 Event::End(tag) => match tag {
                     Tag::Paragraph => {
                         if !current_paragraph.is_empty() {
+                            // Calculate the byte offset for this paragraph
+                            // Add newline if not the first element (matching get_rendered_text_from_markdown)
+                            if global_byte_offset > 0 {
+                                global_byte_offset += 1; // Newline before paragraph
+                            }
+
+                            let paragraph_start = global_byte_offset;
+
+                            // Calculate paragraph text length
+                            let paragraph_text: String = current_paragraph
+                                .iter()
+                                .map(|(text, _, _)| text.as_str())
+                                .collect();
+                            global_byte_offset += paragraph_text.len();
+
                             let dimming_factor = fonts
                                 .map(|f| f.syntax_dimming_factor as f32)
                                 .unwrap_or(0.85);
@@ -388,6 +413,7 @@ impl MarkdownRenderer {
                                 font,
                                 palette,
                                 dimming_factor,
+                                Some(paragraph_start),
                             );
                             elements.push(paragraph_element);
                             current_paragraph.clear();
@@ -395,6 +421,13 @@ impl MarkdownRenderer {
                     }
                     Tag::Heading(level, _, _) => {
                         if !current_paragraph.is_empty() {
+                            // Add newline before heading if not first element
+                            if global_byte_offset > 0 {
+                                global_byte_offset += 1;
+                            }
+
+                            let heading_start = global_byte_offset;
+
                             // Build heading text from segments
                             let mut combined_text = String::new();
                             for (text, _, _) in &current_paragraph {
@@ -439,6 +472,9 @@ impl MarkdownRenderer {
                                 ),
                             };
 
+                            // Update global byte offset
+                            global_byte_offset += combined_text.len();
+
                             // Use heading font if available, otherwise use regular font
                             let heading_element_font = heading_font.unwrap_or(font);
                             elements.push(
@@ -446,6 +482,7 @@ impl MarkdownRenderer {
                                     heading_element_font,
                                     ElementContent::WrappedText(combined_text),
                                 )
+                                .global_byte_offset(heading_start)
                                 .semantic_type(crate::termwindow::box_model::SemanticType::Heading(
                                     level,
                                 ))
@@ -466,6 +503,15 @@ impl MarkdownRenderer {
                     }
                     Tag::CodeBlock(_) => {
                         in_code_block = false;
+
+                        // Add newline before code block if not first element
+                        if global_byte_offset > 0 {
+                            global_byte_offset += 1;
+                        }
+
+                        let code_block_start = global_byte_offset;
+                        global_byte_offset += code_block_content.len();
+
                         // Render code block with syntax highlighting
                         // Use code font if provided, otherwise use regular font
                         let code_render_font = code_font.unwrap_or(&font);
@@ -491,6 +537,7 @@ impl MarkdownRenderer {
                             block_id,
                             palette,
                             fonts,
+                            Some(code_block_start),
                         );
                         elements.push(highlighted_element);
                         code_block_content.clear();
@@ -503,6 +550,18 @@ impl MarkdownRenderer {
                         // Add spacing after top-level lists
                         if list_depth == 0 && !current_paragraph.is_empty() {
                             // Use existing paragraph handling
+                            // Add newline if not first element
+                            if global_byte_offset > 0 {
+                                global_byte_offset += 1;
+                            }
+
+                            let para_start = global_byte_offset;
+                            let para_text: String = current_paragraph
+                                .iter()
+                                .map(|(text, _, _)| text.as_str())
+                                .collect();
+                            global_byte_offset += para_text.len();
+
                             let dimming_factor = fonts
                                 .map(|f| f.syntax_dimming_factor as f32)
                                 .unwrap_or(0.85);
@@ -511,6 +570,7 @@ impl MarkdownRenderer {
                                 font,
                                 palette,
                                 dimming_factor,
+                                Some(para_start),
                             );
                             elements.push(paragraph_element);
                             current_paragraph.clear();
@@ -532,6 +592,29 @@ impl MarkdownRenderer {
                             // Calculate indentation
                             let indent = (list_depth.saturating_sub(1)) as f32 * 20.0;
 
+                            // Track byte offset for list item
+                            // List items get "• " prefix
+                            if global_byte_offset > 0 {
+                                global_byte_offset += 1; // newline
+                            }
+                            let item_start = global_byte_offset;
+
+                            // List items have bullet prefix - calculate actual marker length
+                            // The marker is the first element in current_paragraph
+                            let marker_len = if !current_paragraph.is_empty() {
+                                current_paragraph[0].0.len()
+                            } else {
+                                3 // fallback to "• " if somehow empty
+                            };
+                            global_byte_offset += marker_len;
+
+                            let item_text: String = current_paragraph
+                                .iter()
+                                .skip(1) // Skip the marker which is first
+                                .map(|(text, _, _)| text.as_str())
+                                .collect();
+                            global_byte_offset += item_text.len();
+
                             // Build element with existing method but add indentation
                             let dimming_factor = fonts
                                 .map(|f| f.syntax_dimming_factor as f32)
@@ -541,6 +624,7 @@ impl MarkdownRenderer {
                                 font,
                                 palette,
                                 dimming_factor,
+                                Some(item_start),
                             );
 
                             // Determine if the list is ordered
@@ -636,11 +720,26 @@ impl MarkdownRenderer {
 
         // Handle any remaining paragraph content
         if !current_paragraph.is_empty() {
+            if global_byte_offset > 0 {
+                global_byte_offset += 1;
+            }
+            let para_start = global_byte_offset;
+            let para_text: String = current_paragraph
+                .iter()
+                .map(|(text, _, _)| text.as_str())
+                .collect();
+            global_byte_offset += para_text.len();
+
             let dimming_factor = fonts
                 .map(|f| f.syntax_dimming_factor as f32)
                 .unwrap_or(0.85);
-            let paragraph_element =
-                Self::build_paragraph_element(&current_paragraph, font, palette, dimming_factor);
+            let paragraph_element = Self::build_paragraph_element(
+                &current_paragraph,
+                font,
+                palette,
+                dimming_factor,
+                Some(para_start),
+            );
             elements.push(paragraph_element);
         }
 
@@ -873,6 +972,7 @@ impl MarkdownRenderer {
         block_id: String,
         palette: Option<&ColorPalette>,
         fonts: Option<&SidebarFonts>,
+        global_byte_offset: Option<usize>,
     ) -> Element {
         // Try to find syntax for the language
         let syntax = language
@@ -918,6 +1018,9 @@ impl MarkdownRenderer {
 
         let mut line_elements = Vec::new();
         let mut lines_for_measurement = Vec::new();
+
+        // Track byte position within the code block for global offsets
+        let mut code_byte_position = 0usize;
 
         // Process each line with syntax highlighting
         for line in LinesWithEndings::from(code) {
@@ -986,6 +1089,12 @@ impl MarkdownRenderer {
                     byte_offset = end;
                 }
 
+                // Calculate global offset for this line
+                let line_global_offset = global_byte_offset.map(|base| base + code_byte_position);
+
+                // Save the text length before moving combined_text
+                let text_len = combined_text.len();
+
                 // Use StyledWrappedText for syntax highlighting with wrapping
                 // Set max_width to match the available width for proper wrapping
                 let mut wrapped_line = Element::new(
@@ -1006,20 +1115,35 @@ impl MarkdownRenderer {
                     ..Default::default()
                 });
 
+                // Set the global byte offset for this line
+                if let Some(offset) = line_global_offset {
+                    wrapped_line = wrapped_line.global_byte_offset(offset);
+                }
+
                 // Set max_width if available to ensure proper text wrapping
                 if let Some(width) = available_width {
                     wrapped_line = wrapped_line.max_width(Some(Dimension::Pixels(width)));
                 }
 
                 line_elements.push(wrapped_line);
+
+                // Update byte position for next line using the saved text length
+                code_byte_position += text_len;
             }
         }
 
         // If no lines were highlighted, fall back to plain text
         if line_elements.is_empty() {
+            // Reset byte position for plain text rendering
+            code_byte_position = 0;
+
             // Split code into lines and render each as a separate block element
             for line in code.lines() {
                 lines_for_measurement.push(line);
+
+                // Calculate global offset for this line
+                let line_global_offset = global_byte_offset.map(|base| base + code_byte_position);
+
                 // Use WrappedText for plain code to handle long lines
                 let mut plain_line =
                     Element::new(font, ElementContent::WrappedText(line.to_string()))
@@ -1035,19 +1159,35 @@ impl MarkdownRenderer {
                             ..Default::default()
                         });
 
+                // Set the global byte offset for this line
+                if let Some(offset) = line_global_offset {
+                    plain_line = plain_line.global_byte_offset(offset);
+                }
+
                 // Set max_width if available to ensure proper text wrapping
                 if let Some(width) = available_width {
                     plain_line = plain_line.max_width(Some(Dimension::Pixels(width)));
                 }
 
                 line_elements.push(plain_line);
+
+                // Update byte position for next line (add 1 for newline between lines)
+                code_byte_position += line.len();
+                if !line.ends_with('\n') {
+                    code_byte_position += 1; // Account for implicit newline between lines
+                }
             }
             // Handle case where code is empty or has no lines
             if line_elements.is_empty() {
-                line_elements.push(
+                let empty_element = if let Some(offset) = global_byte_offset {
                     Element::new(font, ElementContent::Text(String::new()))
-                        .display(DisplayType::Block),
-                );
+                        .display(DisplayType::Block)
+                        .global_byte_offset(offset)
+                } else {
+                    Element::new(font, ElementContent::Text(String::new()))
+                        .display(DisplayType::Block)
+                };
+                line_elements.push(empty_element);
             }
         }
 
@@ -1169,10 +1309,17 @@ impl MarkdownRenderer {
             ));
 
         // Create a wrapper that includes both the copy button and the code block
-        Element::new(
+        let mut wrapper = Element::new(
             font,
             ElementContent::Children(vec![copy_button, code_block]),
         )
-        .display(DisplayType::Block)
+        .display(DisplayType::Block);
+
+        // Set global byte offset if provided
+        if let Some(offset) = global_byte_offset {
+            wrapper = wrapper.global_byte_offset(offset);
+        }
+
+        wrapper
     }
 }
