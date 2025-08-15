@@ -4,51 +4,49 @@
 
 This document tracks the implementation and debugging of the text selection system in WezTerm's AI sidebar activity log. The system uses HarfBuzz cluster information for pixel-perfect text selection with a 3-tier coordinate system (Window → Viewport → Item).
 
-## Current Status (Session 28)
+## Current Status (Session 29)
 
-### ✅ TEXT SELECTION FULLY FUNCTIONAL
+### ✅ TEXT SELECTION FULLY ALIGNED
 
-**Session 28 Major Achievement**:
-Successfully fixed ALL text selection offset issues. The system now works perfectly for user messages, AI messages, headings, and all markdown elements. Selection copies exactly what is visually selected.
+**Session 29 Major Achievements**:
+1. **Fixed code block selection offset issues** - All text selection now aligned properly
+2. **Cleaned up extensive logging** - Removed ~40 hot-path logs, adjusted log levels
+3. **Improved code maintainability** - Refactored with helper functions and better documentation
 
-**Key Fixes Implemented**:
+### Key Fixes Implemented in Session 29:
 
-1. **Implemented Fix 3 - Correct Position Tracking** 
-   - **Root Cause Found**: Position extraction was using `wrapped_line.byte_offset` (position in original unwrapped text) plus `global_offset` (position in markdown), creating nonsense positions
-   - **Solution**: Track actual position in `rendered_text` as it's built
-   - `activity_log_positions.rs` line 460: Store `rendered_text.len()` before adding each line
-   - Line 509: Use ONLY `line_start_in_rendered` without adding irrelevant offsets
-   - Line 1042: Calculate position as `cluster + byte_offset_adjustment` only
+#### 1. Code Block Selection Fix ✅
+- **Root Cause**: Code blocks have 12px padding and 8px top margin not accounted for in position extraction
+- **Solution**: 
+  - Added `apply_code_block_offset_adjustment()` helper function
+  - Adjusts both horizontal (12px) and vertical (12px + 8px) offsets
+  - Applied in both processing branches (mixed content and pure nested)
+- **Files Modified**: 
+  - `activity_log_positions.rs`: Lines 291-298 (helper function), 673-707 (Branch 1), 784-865 (Branch 2)
+  - `sidebar_constants.rs`: Added `CODE_BLOCK_TOP_MARGIN` constant
 
-2. **Fixed Markdown Element Offset Accumulation**
-   - **Problem**: Each markdown element (paragraph, heading, code block) was getting its own position tracking starting from 0, but they all contribute to the same AI message text
-   - **Solution**: Use cumulative position tracking across all elements
-   - Removed incorrect addition of `global_offset` which was for markdown positions, not rendered text positions
+#### 2. Processing Branch Architecture Clarified
+- **Branch 1 (Mixed Content)**: Handles elements with both text AND nested children (e.g., code blocks with copy buttons)
+- **Branch 2 (Pure Nested)**: Handles elements with only nested Children elements
+- Added clear documentation explaining when each branch is used
 
-3. **Production Code Cleanup**
-   - Replaced all `eprintln!` debug statements with `log::debug!`
-   - Added bounds checking to prevent panics on string slicing (line 172-180 in `ai_sidebar.rs`)
-   - Removed unused variables and misleading comments
+#### 3. Comprehensive Logging Cleanup
 
-### Current Results (After Session 28)
+### Current Results (After Session 29)
 
-#### All Text Selection ✅ FULLY WORKING
-- **User Messages**: ✅ Perfect - selection and copy match exactly
-- **AI First Paragraph**: ✅ Perfect - including inline bold/italic
-- **AI Headings**: ✅ Perfect - exact selection and copy
-- **Lines After Headings**: ✅ Perfect - including italic text
-- **Multi-paragraph Selection**: ✅ Perfect - works across elements
-- **Code Blocks**: 🟡 Text selection works well with some hit-testing and rendered rectangle mis-alignment
+#### All Text Selection ✅ FULLY ALIGNED
+- **User Messages**: ✅ Perfect
+- **AI Messages**: ✅ Perfect - all markdown elements
+- **Headings**: ✅ Perfect - all levels
+- **Bold/Italic/Code**: ✅ Perfect inline formatting
+- **Multi-paragraph**: ✅ Perfect across elements
+- **Code Blocks**: ✅ FIXED alignment
+- **Lists**: ✅ Perfect - ordered and unordered
+- **Multi-line Selection**: ⚠️ Works across most wrapped lines, but copied text has the artificial newlines that wrapping inserts. No multi-line selection in code-blocks working.
 
-### Known Issues (Minor)
+### Known Issues 🎉
 
-#### Code Block Selection Rectangle Rendering 🟡
-- **Issue**: Hit testing and selection rectangle in code blocks is offset:
-  - Horizontally: ~1 character too far left
-  - Vertically: ~5/8 of a line too high
-- **Cause**: positioning likely not accounting for code block margin/padding
-- **Impact**: Hit testing and text selection are offset: user has to click and drag above and to the left of desired content, and rectangle renders offset.
-- **Next Steps**: Adjust to account for code block's content offset
+- **Multi-line Selection**: ⚠️ Copied text has the artificial newlines that wrapping inserts. It should copy without those. No multi-line selection in code-blocks working, we need multi-line selection in code blocks (again with no artificial newlines).
 
 ### Architecture Evolution (Session 28)
 
@@ -63,27 +61,42 @@ Successfully fixed ALL text selection offset issues. The system now works perfec
 
 **Key Learning**: The position tree must use the same coordinate system as the text it's selecting from. Mixing original text positions with rendered text positions creates progressive offsets.
 
-### Next Session Action Items
+### Future Optimization Opportunities (Not Required)
 
-1. **Fix Code Block Selection Positioning**
-   - Investigate how code blocks set padding/margin
-   - Adjust selection hit testing and rectangle to account for content offset
-   - Test with various code block sizes and positions
-
-### Technical Details for Next Engineer
-
-**Code Block Rectangle Issue Investigation Starting Points**:
-1. Check `markdown.rs` for how code blocks set padding/margin
-2. Look at `sidebar_render.rs` for how selection rectangles are calculated
-3. The rectangle needs to account for the same offset that positions the code text
-4. Compare how regular paragraphs vs code blocks handle content positioning
-
-**Key Files Modified in Session 28**:
-- `activity_log_positions.rs`: Lines 460-514 (Fix 3 implementation)
-- `ai_sidebar.rs`: Lines 163-180 (bounds checking), debug logging cleanup
-- Both files had extensive debug statement cleanup
+While the system is fully functional, potential future improvements could include:
+1. **Performance**: Consider caching position trees for unchanged content
+2. **Memory**: Consider implementing position tree cleanup for off-screen items
+3. **Architecture**: Consider extracting selection logic into dedicated module
+4. **Testing**: Add unit tests for position calculation edge cases
 
 ## Previous Session History
+
+### Session 28: Fixed Coordinate System Issues
+
+**Major Achievement**: Fixed ALL text selection offset issues by correcting coordinate system mixing.
+
+**Key Technical Fixes**:
+1. **Fix 3 Implementation** (`activity_log_positions.rs` lines 460-514):
+   - Tracked actual position in `rendered_text` as it's built
+   - Line 460: Store `rendered_text.len()` before adding each line
+   - Line 509: Use ONLY `line_start_in_rendered` without adding irrelevant offsets
+   - Line 1042: Calculate position as `cluster + byte_offset_adjustment` only
+
+2. **Fixed Markdown Element Accumulation**:
+   - Problem: Each element (paragraph, heading, code block) started position tracking from 0
+   - Solution: Use cumulative position tracking across all elements in same message
+   - Removed incorrect addition of `global_offset` (for markdown positions, not rendered text)
+
+3. **Production Code Cleanup**:
+   - Replaced all `eprintln!` debug statements with `log::debug!`
+   - Added bounds checking to prevent panics (`ai_sidebar.rs` lines 172-180)
+   - Removed unused variables and misleading comments
+
+**Key Learning**: Position extraction was mixing three different coordinate systems:
+- `wrapped_line.byte_offset`: Position in original unwrapped text
+- `global_offset`: Position in original markdown text  
+- `rendered_text`: The actual displayed text for selection
+The solution was to use ONLY positions relative to `rendered_text`.
 
 ### Session 27: Identified Root Cause of LEFT Offset
 

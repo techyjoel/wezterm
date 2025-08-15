@@ -60,7 +60,7 @@ impl SidebarAnimation {
         let now = Instant::now();
         self.start_time = Some(now);
         self.color_ease.update_start(now);
-        log::info!(
+        log::debug!(
             "SidebarAnimation::start: animating_in={}, was_animating={}, was_direction={}",
             animating_in,
             was_animating,
@@ -157,7 +157,7 @@ impl SidebarPositionAnimation {
 
     /// Start the animation
     pub fn start(&mut self, forward: bool) {
-        log::info!(
+        log::debug!(
             "SidebarPositionAnimation::start: forward={}, start_pos={}, end_pos={}",
             forward,
             self.start_position,
@@ -182,7 +182,7 @@ impl SidebarPositionAnimation {
             self.end_position = current_pos.abs().max(300.0); // Use the original off-screen position
         }
 
-        log::info!(
+        log::debug!(
             "SidebarPositionAnimation::start_from_current: forward={}, current_pos={}, new_start={}, new_end={}",
             forward,
             current_pos,

@@ -602,7 +602,7 @@ impl TermWindow {
 
         // Force the right sidebar to be visible since show_on_startup is true
         if show_on_startup {
-            log::info!("Setting right sidebar to visible based on show_on_startup");
+            log::debug!("Setting right sidebar to visible based on show_on_startup");
             sidebar_manager.set_right_visible(true);
             // Also ensure the AI sidebar's internal state matches
             if let Some(sidebar) = sidebar_manager.get_right_sidebar() {
@@ -631,7 +631,7 @@ impl TermWindow {
 
         // Trigger a window invalidation to ensure the sidebar is rendered
         if let Some(window) = &self.window {
-            log::info!("Invalidating window to trigger sidebar render");
+            log::debug!("Invalidating window to trigger sidebar render");
             window.invalidate();
         }
     }

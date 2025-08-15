@@ -405,12 +405,10 @@ pub fn get_rendered_text_from_markdown(markdown: &str) -> String {
             Event::SoftBreak => {
                 let pos = plain_text.len();
                 plain_text.push(' ');
-                log::debug!("  📝 Added SoftBreak (space) at byte {}", pos);
             }
             Event::HardBreak => {
                 let pos = plain_text.len();
                 plain_text.push('\n');
-                log::debug!("  📝 Added HardBreak (\\n) at byte {}", pos);
             }
             Event::Start(Tag::Link(..)) => {
                 in_link = true;
@@ -422,7 +420,6 @@ pub fn get_rendered_text_from_markdown(markdown: &str) -> String {
                 // Add bullet point for list items
                 let pos = plain_text.len();
                 plain_text.push_str("• ");
-                log::debug!("  📝 Added list bullet at byte {}", pos);
             }
             Event::Start(Tag::Paragraph) => {
                 element_count += 1;
@@ -664,13 +661,6 @@ fn calculate_char_positions(text: &str, font: &Rc<LoadedFont>) -> Vec<(f32, f32,
     } else {
         format!("{}...", &text[..47])
     };
-    log::warn!(
-        "[FONT_METRICS] Calculated {} positions for text '{}' (len={}), total_width={}",
-        positions.len(),
-        display_text,
-        text.len(),
-        x
-    );
 
     positions
 }
@@ -2482,19 +2472,6 @@ This example demonstrates:
         for idx in self.activity_log_visible_range.clone() {
             if let Some((orig_idx, item)) = filtered_items.get(idx) {
                 // Enhanced logging to debug offset issues
-                let item_text = get_item_text(item);
-                log::warn!(
-                    "📊 RENDER ITEM {}: type={}, global_offset={}, text_len={}, text_preview='{}'",
-                    idx,
-                    match item {
-                        ActivityItem::Command { .. } => "Command",
-                        ActivityItem::Chat { .. } => "Chat",
-                        _ => "Other",
-                    },
-                    document_byte_offset,
-                    item_text.len(),
-                    &item_text.chars().take(30).collect::<String>()
-                );
                 let mut element = self.render_activity_item(
                     item,
                     fonts,
@@ -3165,7 +3142,6 @@ This example demonstrates:
         use crate::sidebar::position_cache::{ItemCoord, ViewportCoord, WindowCoord};
         use euclid::Point2D;
 
-        log::debug!("hit_test_activity_log: window_point={:?}", window_point);
 
         // 1. Window → Viewport transformation
         let viewport_point = self
@@ -3593,7 +3569,6 @@ This example demonstrates:
         selection: &SelectionTarget,
     ) -> Vec<euclid::Rect<f32, window::PixelUnit>> {
         let mut rects = Vec::new();
-        log::debug!("calculate_selection_rectangles called");
 
         match selection {
             SelectionTarget::ActivityItem {
@@ -3613,10 +3588,8 @@ This example demonstrates:
                 if anchor_index == current_index {
                     // Get the cached position data for this item
                     if let Some(position_data) = self.get_item_positions(*anchor_index) {
-                        log::debug!("Found position data for item {}", anchor_index);
                         // Get the activity item bounds for absolute positioning
                         if let Some(bounds) = self.activity_item_bounds.get(anchor_index) {
-                            log::debug!("Found bounds for item {}: {:?}", anchor_index, bounds);
                             let start_byte = anchor_byte.min(current_byte);
                             let end_byte = anchor_byte.max(current_byte);
 
@@ -3635,21 +3608,6 @@ This example demonstrates:
                                 );
 
                             // Debug log to understand the rectangles
-                            log::debug!(
-                                "Item {} position tree returned {} rectangles",
-                                anchor_index,
-                                item_rects.len()
-                            );
-                            for (i, rect) in item_rects.iter().enumerate() {
-                                log::debug!(
-                                    "  Rect {}: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
-                                    i,
-                                    rect.origin.x,
-                                    rect.origin.y,
-                                    rect.size.width,
-                                    rect.size.height
-                                );
-                            }
 
                             // Positions are already stored in content coordinates (where text renders)
                             // after the fix in extract_positions_from_activity_item which applies

@@ -60,7 +60,7 @@ pub fn extract_activity_item_positions_with_text(
             // This is necessary because we receive the entire activity log computed element
             // but need to extract positions from the specific activity item
             if let Some(activity_item_element) = find_activity_item_element(computed, *index) {
-                log::debug!(
+                log::trace!(
                     "✅ Found activity item {} element, starting extraction",
                     index
                 );
@@ -288,6 +288,15 @@ fn extract_line_height(computed: &ComputedElement) -> f32 {
     }
 }
 
+/// Apply code block padding and margin adjustments to an offset
+/// Code blocks have 12px padding and 8px top margin that need to be accounted for
+fn apply_code_block_offset_adjustment(offset: Point2D<f32, PixelUnit>) -> Point2D<f32, PixelUnit> {
+    Point2D::new(
+        offset.x + CODE_BLOCK_PADDING,
+        offset.y + CODE_BLOCK_PADDING + CODE_BLOCK_TOP_MARGIN,
+    )
+}
+
 /// Recursively extract positions from all text content in the element tree (backward compatibility)
 fn extract_positions_recursively(
     computed: &ComputedElement,
@@ -339,13 +348,6 @@ fn extract_positions_recursively_with_offset_and_text(
             );
             let text_offset: Point2D<f32, PixelUnit> =
                 Point2D::new(offset.x + element_padding.x, offset.y + element_padding.y);
-            log::debug!(
-                "Found Text content with {} cells at offset {:?}, element_padding {:?}, text_offset {:?}",
-                cells.len(),
-                offset,
-                element_padding,
-                text_offset
-            );
             // Extract positions at the actual text rendering position
             // For single text elements, use offset directly
             extract_positions_from_cells_with_byte_offset(
@@ -441,7 +443,6 @@ fn extract_positions_recursively_with_offset_and_text(
 
             // All elements now use global offsets, so we can simplify extraction
             // No need for detection or adjustment
-            log::debug!("  🌍 Processing MultilineText with {} lines", lines.len());
 
             // Extract positions at the actual text rendering position
             for (line_index, line) in lines.iter().enumerate() {
@@ -474,23 +475,6 @@ fn extract_positions_recursively_with_offset_and_text(
                         // Collect the shaped_text - this is the actual rendered text!
                         rendered_text.push_str(&wrapped_line.shaped_text);
                         
-                        // Debug: Log lines that might have italic text
-                        if wrapped_line.shaped_text.contains("OpenSSL") || wrapped_line.shaped_text.contains("First") {
-                            log::warn!(
-                                "🔍 ITALIC LINE DEBUG: line_index={}, text='{}', wrapped.byte_offset={}, rendered_pos={}",
-                                line_index,
-                                &wrapped_line.shaped_text,
-                                wrapped_line.byte_offset,
-                                line_start_in_rendered
-                            );
-                            
-                            // Show cluster info for first few cells
-                            for (i, cell) in line.iter().take(5).enumerate() {
-                                if let ElementCell::GlyphWithCluster { cluster, .. } = cell {
-                                    log::warn!("    Cell {}: cluster={}", i, cluster);
-                                }
-                            }
-                        }
 
                         // FIX 3 (CORRECTED): Use ONLY the position in rendered_text
                         // Do NOT add global_offset - that's for original markdown positions
@@ -554,7 +538,6 @@ fn extract_positions_recursively_with_offset_and_text(
         }
         ComputedElementContent::Children(children) => {
             log::debug!("Processing Children with {} elements", children.len());
-            eprintln!("🔍 CHILDREN: Processing {} children for extraction", children.len());
 
             // Log what types of children we have for debugging
             for (i, child) in children.iter().enumerate() {
@@ -579,31 +562,15 @@ fn extract_positions_recursively_with_offset_and_text(
                         crate::termwindow::box_model::SemanticType::CodeBlock { .. }
                     ) {
                         log::debug!(
-                            "🔲 FOUND CODE BLOCK at child {} with cumulative offset {}",
+                            "🔲 Found code block at child {} with cumulative offset {}",
                             i,
                             cumulative_byte_offset
                         );
                     }
                 } else {
-                    log::debug!("  Child {}: {} (no semantic type)", i, content_type);
                 }
             }
 
-            for (i, child) in children.iter().enumerate() {
-                let child_type = match &child.content {
-                    ComputedElementContent::Text(_) => "Text",
-                    ComputedElementContent::MultilineText { .. } => "MultilineText",
-                    ComputedElementContent::Children(_) => "Children",
-                    _ => "Other",
-                };
-                log::debug!(
-                    "  Child {}: type={}, bounds=({:.1},{:.1})",
-                    i,
-                    child_type,
-                    child.bounds.min_x(),
-                    child.bounds.min_y()
-                );
-            }
 
             // Check if any child has direct text content (not nested Children)
             let has_direct_text = children.iter().any(|child| {
@@ -613,10 +580,14 @@ fn extract_positions_recursively_with_offset_and_text(
                 )
             });
 
-            // If this element directly contains text, process only those text elements
-            // to avoid duplicate position extraction from nested structures
+            // BRANCH 1: MIXED CONTENT (heterogeneous children)
+            // This branch handles elements that have both direct text AND nested Children.
+            // Common examples:
+            // - Code block wrapper: [copy_button (Text), code_content (Children)]
+            // - Mixed markdown: [plain_text (Text), styled_paragraph (Children)]
+            // Why separate: Avoids double-processing text that exists at multiple levels
             if has_direct_text {
-                log::debug!("Has direct text - entering special processing branch");
+                log::trace!("MIXED CONTENT BRANCH: Element has both text and nested children");
                 let mut processed_count = 0;
                 let mut is_first_text_element = true;
 
@@ -624,7 +595,6 @@ fn extract_positions_recursively_with_offset_and_text(
                     match &child.content {
                         ComputedElementContent::Text(_)
                         | ComputedElementContent::MultilineText { .. } => {
-                            log::debug!("  Processing child {} as text/multiline", i);
                             processed_count += 1;
 
                             // Add separators to rendered_text to match markdown structure
@@ -632,10 +602,6 @@ fn extract_positions_recursively_with_offset_and_text(
                             if !is_first_text_element {
                                 // Add newline separator between markdown elements
                                 rendered_text.push('\n');
-                                log::debug!(
-                                    "    🌍 Element {}: Added separator to rendered_text, global offsets handle document position",
-                                    i
-                                );
                             } else {
                                 log::debug!("    🔵 Element {}: First text element", i);
                             }
@@ -661,21 +627,34 @@ fn extract_positions_recursively_with_offset_and_text(
                             );
                         }
                         ComputedElementContent::Children(nested_children) => {
-                            log::debug!(
-                                "  Processing child {} as nested Children with {} elements",
-                                i,
-                                nested_children.len()
-                            );
+                            
+                            // Check if this is a code block that needs padding adjustment
+                            let is_code_block = child.semantic_type.as_ref()
+                                .map_or(false, |st| matches!(st, crate::termwindow::box_model::SemanticType::CodeBlock { .. }));
+                            
                             processed_count += 1;
                             // Process nested children that might contain more paragraphs
                             let child_position: Point2D<f32, PixelUnit> = Point2D::new(
                                 child.bounds.min_x() - computed.content_rect.min_x(),
                                 child.bounds.min_y() - computed.content_rect.min_y(),
                             );
-                            let child_offset = Point2D::new(
+                            
+                            let mut child_offset = Point2D::new(
                                 offset.x + child_position.x,
                                 offset.y + child_position.y,
                             );
+                            
+                            // If this is a code block, add padding AND top margin to the offset
+                            if is_code_block {
+                                let adjusted_offset = apply_code_block_offset_adjustment(child_offset);
+                                log::trace!(
+                                    "🔲 BRANCH 1 (MIXED): Adjusting code block offset for padding+margin: before=({:.1}, {:.1}), after=({:.1}, {:.1})",
+                                    child_offset.x, child_offset.y,
+                                    adjusted_offset.x, adjusted_offset.y
+                                );
+                                child_offset = adjusted_offset;
+                            }
+                            
                             extract_positions_recursively_with_offset_and_text(
                                 child,
                                 builder,
@@ -697,16 +676,16 @@ fn extract_positions_recursively_with_offset_and_text(
                 return; // Important: don't process children again below
             }
 
-            // Otherwise, process all children for nested structures
+            // BRANCH 2: PURE NESTED STRUCTURE (homogeneous children)
+            // This branch handles elements where ALL children are nested Children elements.
+            // Common examples:
+            // - Pure markdown paragraphs with only styled segments
+            // - Nested container structures without direct text
+            // Note: Code blocks typically go through BRANCH 1 due to copy buttons
+            log::trace!("PURE NESTED BRANCH: All children are nested Children elements");
             let mut current_offset = offset;
 
             for (i, child) in children.iter().enumerate() {
-                log::debug!(
-                    "Processing child {} at offset {:?}, bounds: {:?}",
-                    i,
-                    current_offset,
-                    child.bounds
-                );
 
                 // For nested children, we need to calculate the position relative to the root content area
                 // The current_offset already includes the root's content offset
@@ -725,10 +704,6 @@ fn extract_positions_recursively_with_offset_and_text(
                 );
 
                 // Debug log the child structure
-                log::debug!(
-                    "Child {} offset: parent_offset={:?}, child_position_in_parent={:?}, child_absolute_offset={:?}",
-                    i, current_offset, child_position_in_parent, child_absolute_offset
-                );
 
                 // Check if this child has semantic type (for markdown elements)
                 let mut started_element = false;
@@ -780,11 +755,25 @@ fn extract_positions_recursively_with_offset_and_text(
                             started_element = true;
                         }
                         crate::termwindow::box_model::SemanticType::CodeBlock { language } => {
-                            log::debug!("🔲 Found CodeBlock with language: {:?}", language);
-                            log::debug!(
+                            // NOTE: Code blocks with copy buttons go through BRANCH 1 (mixed content).
+                            // This path handles code blocks without copy buttons or future variations.
+                            // Keeping both ensures robustness regardless of markdown structure changes
+                            log::trace!("🔲 BRANCH 2: Found CodeBlock with language: {:?}", language);
+                            log::trace!(
                                 "  CodeBlock at cumulative offset: {}",
                                 cumulative_byte_offset
                             );
+                            
+                            // Account for code block padding AND top margin when processing its content
+                            // Use the helper function to apply the standard adjustments
+                            let adjusted_child_offset = apply_code_block_offset_adjustment(child_absolute_offset);
+                            
+                            log::trace!(
+                                "🔲 BRANCH 2 (PURE): Adjusting code block offset for padding+margin: original=({:.1}, {:.1}), adjusted=({:.1}, {:.1})",
+                                child_absolute_offset.x, child_absolute_offset.y,
+                                adjusted_child_offset.x, adjusted_child_offset.y
+                            );
+                            
                             builder.start_element(
                                 ElementType::CodeBlock {
                                     line_height: CODE_LINE_HEIGHT,
@@ -797,23 +786,28 @@ fn extract_positions_recursively_with_offset_and_text(
                                 ),
                             );
                             started_element = true;
+                            
+                            // Use the adjusted offset when recursing into the code block's children
+                            extract_positions_recursively_with_offset_and_text(
+                                child,
+                                builder,
+                                adjusted_child_offset,  // Use adjusted offset with padding
+                                fonts,
+                                cumulative_byte_offset,
+                                rendered_text,
+                            );
+                            
+                            // Skip the normal recursion since we handled it above
+                            builder.end_element();
+                            continue;  // Skip to next child
                         }
                         _ => {
                             // Other semantic types we don't create elements for
-                            log::debug!(
-                                "Child {} has semantic type {:?} but no element created",
-                                i,
-                                semantic_type
-                            );
                         }
                     }
                 } else {
                     // No semantic type - this might be a Card wrapper or other container
                     // We still need to process its children to find text content
-                    log::debug!(
-                        "Child {} has no semantic type, recursing to find text content",
-                        i
-                    );
                 }
 
                 // ALWAYS recursively process this child, whether it has semantic type or not
@@ -1038,13 +1032,6 @@ fn extract_positions_from_cells_with_wrapped_line_and_offset(
         // Just use the cluster offset within the line plus the line's start position
         let result = cluster as usize + byte_offset_adjustment;
         if line_index == 0 && cluster < 5 {
-            log::debug!(
-                "      🔢 Cluster {}: cluster({}) + rendered_pos({}) = {}",
-                cluster,
-                cluster,
-                byte_offset_adjustment,
-                result
-            );
         }
         result
     });
@@ -1082,14 +1069,6 @@ fn extract_cell_positions_internal(
         }
     }
 
-    log::debug!(
-        "extract_cell_positions: {} cells total: {} GlyphWithCluster, {} Glyph (no cluster), offset {:?}",
-        cells.len(),
-        glyph_with_cluster_count,
-        glyph_without_cluster_count,
-        offset
-    );
-
     for (i, cell) in cells.iter().enumerate() {
         match cell {
             ElementCell::GlyphWithCluster { glyph, cluster } => {
@@ -1102,14 +1081,6 @@ fn extract_cell_positions_internal(
 
                 if i < 5 {
                     // Log first few glyphs for debugging
-                    log::debug!(
-                        "GlyphWithCluster {}: cluster={}, byte_offset={}, x_start={}, x_end={}",
-                        i,
-                        cluster,
-                        byte_offset,
-                        x_start,
-                        x_end
-                    );
                 }
 
                 // Validate that the byte offset is on a character boundary
@@ -1138,12 +1109,6 @@ fn extract_cell_positions_internal(
         }
     }
 
-    log::debug!(
-        "Extracted positions from {} cells: {} with clusters, {} regular glyphs",
-        cells.len(),
-        cluster_count,
-        glyph_count
-    );
 }
 
 /// Extract positions from a line of cells with line index
@@ -1190,16 +1155,6 @@ fn extract_positions_from_cells_with_wrapped_line(
     // clusters should already be line-relative after adjustment.
     // Log critical information about this line
     if line_index == 0 {
-        log::debug!(
-            "    📍 Line {}: wrapped_line.byte_offset={}, shaped_text='{}'",
-            line_index,
-            wrapped_line.byte_offset,
-            &wrapped_line
-                .shaped_text
-                .chars()
-                .take(30)
-                .collect::<String>()
-        );
     }
 
     extract_cell_positions_internal(cells, builder, offset, line_index, |cluster| {
@@ -1213,12 +1168,6 @@ fn extract_positions_from_cells_with_wrapped_line(
         static mut LOGGED_COUNT: usize = 0;
         unsafe {
             if line_index == 0 && LOGGED_COUNT < 10 {
-                log::debug!(
-                    "      🔢 Cluster {}: line.byte_offset({}) + cluster = {}",
-                    cluster,
-                    wrapped_line.byte_offset,
-                    byte_offset
-                );
                 LOGGED_COUNT += 1;
             }
         }
@@ -1459,35 +1408,11 @@ pub fn store_activity_item_positions_with_text(
         viewport_x
     );
 
-    // Debug logging for position storage
-    log::warn!(
-        "💾 STORING POSITIONS for item {}:",
-        item_index
-    );
-    log::warn!(
-        "  Rendered text length: {}",
-        rendered_text.len()
-    );
-    log::warn!(
-        "  Text preview: '{}'",
-        rendered_text.chars().take(50).collect::<String>()
-    );
-    log::warn!(
-        "  Position count: {}",
-        position_tree.text_positions.len()
-    );
     
     if !position_tree.text_positions.is_empty() {
         // Show first and last position byte offsets
         let first_pos = position_tree.text_positions.iter().min_by_key(|p| p.byte_offset);
         let last_pos = position_tree.text_positions.iter().max_by_key(|p| p.byte_offset);
-        if let (Some(first), Some(last)) = (first_pos, last_pos) {
-            log::warn!(
-                "  Byte offset range: {} to {}",
-                first.byte_offset,
-                last.byte_offset
-            );
-        }
     }
 
     let position_data = ItemPositionData {
