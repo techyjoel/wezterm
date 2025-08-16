@@ -85,6 +85,7 @@ pub mod ai_sidebar;
 pub mod animation;
 pub mod chat_input;
 pub mod components;
+pub mod goal_renderer;
 pub mod mock_data;
 pub mod position_cache;
 pub mod settings_sidebar;

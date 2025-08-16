@@ -81,6 +81,7 @@ use super::activity_log_renderer::{
     ActivityLogRenderer, ActivityLogState, HeightTracker, VisualAnchor,
 };
 use super::chat_input::ChatInputHandler;
+use super::goal_renderer;
 use super::text_selection::{SelectionState, SelectionTarget, TextSelectionManager};
 
 /// Extract plain text from an activity item for selection
@@ -959,288 +960,25 @@ impl AiSidebar {
     }
 
     fn render_current_goal(&self, fonts: &SidebarFonts) -> Option<Element> {
-        let goal = self.current_goal.as_ref()?;
-
-        // Goal text
-        let goal_text = if goal.is_editing {
-            // Show edit input
-            Element::new(
-                &fonts.body,
-                ElementContent::Text(format!("{}_", &goal.edit_text)),
-            )
-            .colors(ElementColors {
-                text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
-                bg: LinearRgba::with_components(0.15, 0.15, 0.17, 1.0).into(),
-                ..Default::default()
-            })
-            .padding(BoxDimension::new(Dimension::Pixels(8.0)))
-        } else {
-            // Check if this goal has a selection
-            let selection = match &self.selection_state.active_selection {
-                Some(SelectionTarget::Goal {
-                    anchor_byte,
-                    current_byte,
-                }) => Some((
-                    *anchor_byte.min(current_byte),
-                    *anchor_byte.max(current_byte),
-                )),
-                _ => None,
-            };
-
-            // Always use WrappedText to avoid layout changes
-            log::debug!(
-                "GOAL TEXT DEBUG: Rendering goal text: '{}', len={}",
-                goal.text,
-                goal.text.len()
-            );
-            let elem = Element::new(&fonts.body, ElementContent::WrappedText(goal.text.clone()));
-
-            // Calculate available width for goal text
-            let sidebar_width = self.width as f32;
-            let goal_content_width = sidebar_width - 40.0; // Account for padding
-
-            log::debug!(
-                "Goal width calculation: sidebar_width={}, content_width={}, has_selection={}",
-                sidebar_width,
-                goal_content_width,
-                selection.is_some()
-            );
-
-            // Don't pre-calculate positions - they'll be extracted after rendering
-            elem.item_type(UIItemType::GoalText {
-                char_positions: Vec::new(), // Will be populated after rendering
-            })
-            .colors(ElementColors {
-                text: LinearRgba::with_components(0.85, 0.85, 0.85, 1.0).into(),
-                ..Default::default()
-            })
-            .max_width(Some(Dimension::Pixels(goal_content_width)))
-            .padding(BoxDimension::new(Dimension::Pixels(8.0)))
-        };
-
-        // Action buttons
-        let mut actions = vec![];
-
-        if goal.is_ai_inferred && !goal.is_confirmed && !goal.is_editing {
-            let confirm_btn = Chip::new("✓".to_string())
-                .with_style(ChipStyle::Success)
-                .with_size(ChipSize::Small)
-                .clickable(true)
-                .render(&fonts.body);
-            actions.push(confirm_btn);
-        }
-
-        if !goal.is_editing {
-            let edit_btn = Chip::new("✎".to_string())
-                .with_style(ChipStyle::Default)
-                .with_size(ChipSize::Small)
-                .clickable(true)
-                .render(&fonts.body);
-            actions.push(edit_btn);
-        } else {
-            let save_btn = Chip::new("Save".to_string())
-                .with_style(ChipStyle::Primary)
-                .with_size(ChipSize::Small)
-                .clickable(true)
-                .render(&fonts.body);
-            let cancel_btn = Chip::new("Cancel".to_string())
-                .with_style(ChipStyle::Default)
-                .with_size(ChipSize::Small)
-                .clickable(true)
-                .render(&fonts.body);
-            actions.push(save_btn);
-            actions.push(cancel_btn);
-        }
-
-        let card = Card::new()
-            .with_title("Current Goal".to_string())
-            .with_content(vec![goal_text])
-            .with_actions(actions)
-            .pass_through_events(true) // Allow child UIItemTypes to be detected
-            .render(&fonts.heading);
-
-        Some(
-            Element::new(&fonts.body, ElementContent::Children(vec![card]))
-                .display(DisplayType::Block)
-                .padding(BoxDimension {
-                    left: Dimension::Pixels(16.0),
-                    right: Dimension::Pixels(16.0),
-                    top: Dimension::Pixels(4.0),
-                    bottom: Dimension::Pixels(4.0),
-                }),
+        goal_renderer::render_current_goal(
+            &self.current_goal,
+            &self.selection_state,
+            fonts,
+            self.width as f32,
         )
     }
 
     fn render_current_suggestion(&mut self, fonts: &SidebarFonts) -> Option<Element> {
-        let suggestion = self.current_suggestion.as_ref()?;
-
         // Clear previous more link bounds
         self.more_link_bounds = None;
-
-        // Check if content would exceed 2 lines when wrapped
-        const MAX_LINES: usize = 2;
-
-        // Get approximate width available for text in the suggestion card
-        // Sidebar: 16px padding each side = 32px
-        // Card: 8px margin each side = 16px
-        // Content container: 8px padding each side = 16px
-        // Total: 32 + 16 + 16 = 64px
-        let available_width = (self.width as f32) - 64.0;
-
-        // Use our wrapping estimation to determine if we need truncation
-        let estimated_lines =
-            self.estimate_wrapped_lines(&suggestion.content, available_width, fonts);
-        let needs_more_link = estimated_lines > MAX_LINES;
-
-        let mut content_elements = vec![];
-
-        if needs_more_link {
-            // Truncate to fit within 2 lines using shared function
-            let font_metrics = fonts.body.metrics();
-            let avg_char_width =
-                font_metrics.cell_height.get() as f32 * SUGGESTION_CHAR_WIDTH_MULTIPLIER;
-
-            // Use shared truncation function
-            let truncated_text = crate::termwindow::box_model::truncate_to_wrapped_lines(
-                &suggestion.content,
-                available_width,
-                avg_char_width,
-                MAX_LINES,
-            );
-
-            // Add ellipsis
-            let display_text = format!("{}...", truncated_text);
-
-            // Use plain text for truncated content
-            content_elements.push(
-                Element::new(&fonts.body, ElementContent::WrappedText(display_text))
-                    .colors(ElementColors {
-                        text: LinearRgba(0.9, 0.9, 0.9, 1.0).into(),
-                        ..Default::default()
-                    })
-                    .display(DisplayType::Block)
-                    .min_height(Some(Dimension::Pixels(
-                        2.0 * fonts.body.metrics().cell_height.get() as f32,
-                    ))), // Fixed height for 2 lines
-            );
-        } else {
-            // Check if this suggestion has a selection
-            let selection = match &self.selection_state.active_selection {
-                Some(SelectionTarget::Suggestion {
-                    anchor_byte,
-                    current_byte,
-                }) => Some((
-                    *anchor_byte.min(current_byte),
-                    *anchor_byte.max(current_byte),
-                )),
-                _ => None,
-            };
-
-            // For short content, still use fixed height
-            // Selection is now rendered as an overlay, not inline styles
-            let elem = Element::new(
-                &fonts.body,
-                ElementContent::WrappedText(suggestion.content.clone()),
-            );
-
-            // Calculate available width for suggestion text
-            let sidebar_width = self.width as f32;
-            let suggestion_content_width = sidebar_width - 40.0; // Account for padding
-
-            content_elements.push(
-                elem.item_type(UIItemType::SuggestionText {
-                    char_positions: Vec::new(), // Position data extracted after rendering
-                })
-                .colors(ElementColors {
-                    text: LinearRgba(0.9, 0.9, 0.9, 1.0).into(),
-                    ..Default::default()
-                })
-                .display(DisplayType::Block)
-                .max_width(Some(Dimension::Pixels(suggestion_content_width)))
-                .min_height(Some(Dimension::Pixels(
-                    2.0 * fonts.body.metrics().cell_height.get() as f32,
-                ))), // Fixed height for 2 lines
-            );
-        }
-
-        let content_container =
-            Element::new(&fonts.body, ElementContent::Children(content_elements))
-                .display(DisplayType::Block)
-                .padding(BoxDimension::new(Dimension::Pixels(8.0)));
-
-        let mut actions = vec![];
-
-        // Create a container for the action buttons
-        let mut left_actions = vec![];
-        let mut right_actions = vec![];
-
-        if suggestion.has_action {
-            let run_btn = Chip::new("▶ Run".to_string())
-                .with_style(ChipStyle::Success)
-                .with_size(ChipSize::Medium)
-                .clickable(true)
-                .with_item_type(crate::termwindow::UIItemType::SuggestionRunButton)
-                .render(&fonts.body);
-            let dismiss_btn = Chip::new("✕ Dismiss".to_string())
-                .with_style(ChipStyle::Default)
-                .with_size(ChipSize::Medium)
-                .clickable(true)
-                .with_item_type(crate::termwindow::UIItemType::SuggestionDismissButton)
-                .render(&fonts.body);
-
-            left_actions.push(run_btn);
-            left_actions.push(
-                Element::new(&fonts.body, ElementContent::Text(" ".to_string()))
-                    .min_width(Some(Dimension::Pixels(8.0))),
-            );
-            left_actions.push(dismiss_btn);
-        }
-
-        // Add "Show more" button on the right if needed
-        if needs_more_link {
-            let show_more_btn = Chip::new("Show more".to_string())
-                .with_style(ChipStyle::Info)
-                .with_size(ChipSize::Medium)
-                .clickable(true)
-                .with_item_type(crate::termwindow::UIItemType::ShowMoreButton(
-                    "current".to_string(),
-                ))
-                .render(&fonts.body);
-            right_actions.push(show_more_btn);
-        }
-
-        // Create the action row with left and right alignment
-        if !left_actions.is_empty() || !right_actions.is_empty() {
-            // Use a flex-like approach with float for right alignment
-            if !left_actions.is_empty() {
-                for action in left_actions {
-                    actions.push(action);
-                }
-            }
-
-            if !right_actions.is_empty() {
-                // Right-align the show more button using float
-                for action in right_actions {
-                    actions.push(action.float(Float::Right));
-                }
-            }
-        }
-
-        let card = Card::new()
-            .with_title(suggestion.title.clone())
-            .with_content(vec![content_container])
-            .with_actions(actions)
-            .render(&fonts.heading);
-
-        Some(
-            Element::new(&fonts.body, ElementContent::Children(vec![card]))
-                .display(DisplayType::Block)
-                .padding(BoxDimension {
-                    left: Dimension::Pixels(16.0),
-                    right: Dimension::Pixels(16.0),
-                    top: Dimension::Pixels(4.0),
-                    bottom: Dimension::Pixels(4.0),
-                }),
+        
+        // Use static method reference
+        goal_renderer::render_current_suggestion(
+            &self.current_suggestion,
+            &self.selection_state,
+            fonts,
+            self.width as f32,
+            Self::estimate_wrapped_lines,
         )
     }
 
@@ -1751,8 +1489,6 @@ impl AiSidebar {
         current_index: usize,
         current_byte: usize,
     ) -> Vec<euclid::Rect<f32, window::PixelUnit>> {
-        let mut rects = Vec::new();
-
         log::debug!(
             "ActivityItem selection: anchor=({}, {}), current=({}, {})",
             anchor_index,
@@ -1760,23 +1496,48 @@ impl AiSidebar {
             current_index,
             current_byte
         );
-        // For single-item selection
-        if anchor_index == current_index {
-            // Get the cached position data for this item
-            if let Some(position_data) = self.get_item_positions(anchor_index) {
-                // Get the activity item bounds for absolute positioning
-                if let Some(bounds) = self
-                    .activity_log_state
-                    .activity_item_bounds
-                    .get(&anchor_index)
-                {
-                    let start_byte = anchor_byte.min(current_byte);
-                    let end_byte = anchor_byte.max(current_byte);
 
-                    // Don't show selection for zero-width (just a click position)
-                    if start_byte == end_byte {
-                        return rects;
-                    }
+        if anchor_index == current_index {
+            // Single-item selection
+            self.calculate_single_item_selection_rectangles(
+                anchor_index,
+                anchor_byte,
+                current_byte,
+            )
+        } else {
+            // Multi-item selection
+            self.calculate_multi_item_selection_rectangles(
+                anchor_index,
+                anchor_byte,
+                current_index,
+                current_byte,
+            )
+        }
+    }
+
+    /// Calculate selection rectangles for a single activity item
+    fn calculate_single_item_selection_rectangles(
+        &self,
+        item_index: usize,
+        anchor_byte: usize,
+        current_byte: usize,
+    ) -> Vec<euclid::Rect<f32, window::PixelUnit>> {
+        let mut rects = Vec::new();
+
+        // Don't show selection for zero-width (just a click position)
+        let start_byte = anchor_byte.min(current_byte);
+        let end_byte = anchor_byte.max(current_byte);
+        if start_byte == end_byte {
+            return rects;
+        }
+
+        // Try position-based selection first
+        if let Some(position_data) = self.get_item_positions(item_index) {
+            if let Some(bounds) = self
+                .activity_log_state
+                .activity_item_bounds
+                .get(&item_index)
+            {
 
                     // Calculate selection rectangles using the position tree
                     // Use calculate_local_selection_rectangles since all positions are in the root element
@@ -1789,196 +1550,214 @@ impl AiSidebar {
                             euclid::Vector2D::new(0.0, 0.0), // Element-relative coordinates
                         );
 
-                    // Debug log to understand the rectangles
+                // Transform item-relative rectangles to absolute screen coordinates
+                self.transform_item_rects_to_absolute(&item_rects, bounds, item_index, &mut rects);
+            }
+        } else {
+            // Fallback to character-based approximation
+            self.calculate_selection_rect_fallback(item_index, start_byte, end_byte, &mut rects);
+        }
 
-                    // Positions are already stored in content coordinates (where text renders)
-                    // after the fix in extract_positions_from_activity_item which applies
-                    // content_offset during extraction. So we don't need to add it again here.
+        rects
+    }
 
-                    // Transform item-relative rectangles to absolute screen coordinates
-                    for rect in item_rects {
-                        // Debug: Add visualization rectangles for position boundaries
-                        if std::env::var("WEZTERM_DEBUG_SELECTION").is_ok() {
-                            // Draw position boundary in red
-                            let debug_rect = euclid::Rect::new(
-                                euclid::Point2D::new(
-                                    bounds.origin.x + rect.origin.x,
-                                    bounds.origin.y + rect.origin.y,
-                                ),
-                                euclid::Size2D::new(rect.size.width, 2.0), // Thin line
-                            );
-                            rects.push(debug_rect);
-                        }
-                        // The rect positions are already in content coordinates (where text renders)
-                        // We only need to add the activity item's window position
-                        let absolute_rect = euclid::rect(
-                            bounds.origin.x + rect.origin.x,
-                            bounds.origin.y + rect.origin.y,
-                            rect.size.width,
-                            rect.size.height,
-                        );
+    /// Calculate selection rectangles for multiple activity items
+    fn calculate_multi_item_selection_rectangles(
+        &self,
+        anchor_index: usize,
+        anchor_byte: usize,
+        current_index: usize,
+        current_byte: usize,
+    ) -> Vec<euclid::Rect<f32, window::PixelUnit>> {
+        let mut rects = Vec::new();
+        let start_index = anchor_index.min(current_index);
+        let end_index = anchor_index.max(current_index);
 
-                        rects.push(absolute_rect);
-
-                        log::debug!(
-                            "Activity item {} selection rect: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
-                            anchor_index,
-                            absolute_rect.origin.x,
-                            absolute_rect.origin.y,
-                            absolute_rect.size.width,
-                            absolute_rect.size.height
-                        );
-                    }
-                }
-            } else {
-                // Fallback to character-based approximation if position data not available
-                log::warn!(
-                    "No position data for activity item {} - using character approximation",
-                    anchor_index
-                );
-
-                // Debug: Check what items we have position data for
-                log::debug!(
-                    "Available position data for items: {:?}",
-                    self.item_positions.keys().collect::<Vec<_>>()
-                );
-
-                log::warn!(
-                    "No position data available for activity item {}, using fallback",
-                    anchor_index
-                );
-
+        for item_index in start_index..=end_index {
+            if let Some(position_data) = self.get_item_positions(item_index) {
                 if let Some(bounds) = self
                     .activity_log_state
                     .activity_item_bounds
-                    .get(&anchor_index)
+                    .get(&item_index)
                 {
-                    if let Some(item) = self.activity_log.get(anchor_index) {
-                        let start_byte = anchor_byte.min(current_byte);
-                        let end_byte = anchor_byte.max(current_byte);
+                    // Determine selection range for this item
+                    let (item_start_byte, item_end_byte) = self.calculate_item_byte_range(
+                        item_index,
+                        anchor_index,
+                        anchor_byte,
+                        current_index,
+                        current_byte,
+                        position_data.rendered_text.len(),
+                    );
 
-                        // Only show selection if there's actual text selected
-                        if start_byte != end_byte {
-                            // For activity items, we need better selection rectangle calculation
-                            let line_height = 20.0; // Approximate line height
-
-                            // Get the message text to estimate selection position
-                            let text = get_item_text_for_selection_with_positions(
-                                item,
-                                anchor_index,
-                                &self.item_positions,
-                            );
-
-                            // Calculate more accurate selection rectangles
-                            // Account for padding inside the activity item
-                            let padding = if matches!(item, ActivityItem::Chat { .. }) {
-                                CHAT_ITEM_PADDING
-                            } else {
-                                8.0 // Default card padding
-                            };
-
-                            // For now, use character-based approximation
-                            let char_width = 8.5; // Approximate character width
-
-                            // Calculate approximate x positions for selection
-                            let start_char = text.chars().take(start_byte).count();
-                            let end_char = text.chars().take(end_byte).count();
-
-                            let start_x =
-                                bounds.origin.x + padding + (start_char as f32 * char_width);
-                            let mut end_x =
-                                bounds.origin.x + padding + (end_char as f32 * char_width);
-
-                            // Ensure we don't exceed the bounds
-                            let max_x = bounds.origin.x + bounds.size.width - padding;
-                            end_x = end_x.min(max_x);
-
-                            // For zero-width selections, show a cursor-width rectangle
-                            let width = if start_byte == end_byte {
-                                2.0 // Cursor width
-                            } else {
-                                end_x - start_x
-                            };
-
-                            let rect = euclid::rect(
-                                start_x,
-                                bounds.origin.y + padding,
-                                width,
-                                line_height,
-                            );
-
-                            rects.push(rect);
-                        }
+                    // Skip if nothing to select
+                    if item_start_byte >= item_end_byte {
+                        continue;
                     }
-                } else {
-                    log::debug!("No bounds found for activity item {}", anchor_index);
-                }
-            }
-        } else {
-            // Multi-item selection - generate rectangles for all items in range
 
-            let start_index = anchor_index.min(current_index);
-            let end_index = anchor_index.max(current_index);
+                    // Calculate selection rectangles for this item
+                    let item_rects = position_data
+                        .position_tree
+                        .calculate_local_selection_rectangles(
+                            item_start_byte,
+                            item_end_byte,
+                            euclid::Vector2D::new(0.0, 0.0),
+                        );
 
-            for item_index in start_index..=end_index {
-                if let Some(position_data) = self.get_item_positions(item_index) {
-                    if let Some(bounds) = self
-                        .activity_log_state
-                        .activity_item_bounds
-                        .get(&item_index)
-                    {
-                        // Determine selection range for this item
-                        let (item_start_byte, item_end_byte) = if item_index == anchor_index {
-                            // Anchor item: from anchor_byte to end (or start if reversed)
-                            if anchor_index < current_index {
-                                (anchor_byte, position_data.rendered_text.len())
-                            } else {
-                                (0, anchor_byte)
-                            }
-                        } else if item_index == current_index {
-                            // Current item: from start to current_byte (or end if reversed)
-                            if anchor_index < current_index {
-                                (0, current_byte)
-                            } else {
-                                (current_byte, position_data.rendered_text.len())
-                            }
-                        } else {
-                            // Middle item: select entire text
-                            (0, position_data.rendered_text.len())
-                        };
-
-                        // Skip if nothing to select
-                        if item_start_byte >= item_end_byte {
-                            continue;
-                        }
-
-                        // Calculate selection rectangles for this item
-                        // Use calculate_local_selection_rectangles since all positions are in the root element
-                        let item_rects = position_data
-                            .position_tree
-                            .calculate_local_selection_rectangles(
-                                item_start_byte,
-                                item_end_byte,
-                                euclid::Vector2D::new(0.0, 0.0),
-                            );
-
-                        // Transform to absolute coordinates
-                        for rect in item_rects {
-                            let absolute_rect = euclid::Rect::new(
-                                euclid::Point2D::new(
-                                    bounds.origin.x + rect.origin.x,
-                                    bounds.origin.y + rect.origin.y,
-                                ),
-                                rect.size,
-                            );
-                            rects.push(absolute_rect);
-                        }
-                    }
+                    // Transform to absolute coordinates
+                    self.transform_item_rects_to_absolute(&item_rects, bounds, item_index, &mut rects);
                 }
             }
         }
 
         rects
+    }
+
+    /// Transform item-relative rectangles to absolute screen coordinates
+    fn transform_item_rects_to_absolute(
+        &self,
+        item_rects: &[euclid::Rect<f32, window::PixelUnit>],
+        bounds: &euclid::Rect<f32, window::PixelUnit>,
+        item_index: usize,
+        output_rects: &mut Vec<euclid::Rect<f32, window::PixelUnit>>,
+    ) {
+        for rect in item_rects {
+            // Debug: Add visualization rectangles for position boundaries
+            if std::env::var("WEZTERM_DEBUG_SELECTION").is_ok() {
+                let debug_rect = euclid::Rect::new(
+                    euclid::Point2D::new(
+                        bounds.origin.x + rect.origin.x,
+                        bounds.origin.y + rect.origin.y,
+                    ),
+                    euclid::Size2D::new(rect.size.width, 2.0), // Thin line
+                );
+                output_rects.push(debug_rect);
+            }
+
+            let absolute_rect = euclid::rect(
+                bounds.origin.x + rect.origin.x,
+                bounds.origin.y + rect.origin.y,
+                rect.size.width,
+                rect.size.height,
+            );
+
+            output_rects.push(absolute_rect);
+
+            log::debug!(
+                "Activity item {} selection rect: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+                item_index,
+                absolute_rect.origin.x,
+                absolute_rect.origin.y,
+                absolute_rect.size.width,
+                absolute_rect.size.height
+            );
+        }
+    }
+
+    /// Calculate byte range for an item in a multi-item selection
+    fn calculate_item_byte_range(
+        &self,
+        item_index: usize,
+        anchor_index: usize,
+        anchor_byte: usize,
+        current_index: usize,
+        current_byte: usize,
+        text_len: usize,
+    ) -> (usize, usize) {
+        if item_index == anchor_index {
+            // Anchor item: from anchor_byte to end (or start if reversed)
+            if anchor_index < current_index {
+                (anchor_byte, text_len)
+            } else {
+                (0, anchor_byte)
+            }
+        } else if item_index == current_index {
+            // Current item: from start to current_byte (or end if reversed)
+            if anchor_index < current_index {
+                (0, current_byte)
+            } else {
+                (current_byte, text_len)
+            }
+        } else {
+            // Middle item: select entire text
+            (0, text_len)
+        }
+    }
+
+    /// Fallback character-based selection rectangle calculation
+    fn calculate_selection_rect_fallback(
+        &self,
+        item_index: usize,
+        start_byte: usize,
+        end_byte: usize,
+        rects: &mut Vec<euclid::Rect<f32, window::PixelUnit>>,
+    ) {
+        log::warn!(
+            "No position data for activity item {} - using character approximation",
+            item_index
+        );
+
+        if let Some(bounds) = self
+            .activity_log_state
+            .activity_item_bounds
+            .get(&item_index)
+        {
+            if let Some(item) = self.activity_log.get(item_index) {
+                // Only show selection if there's actual text selected
+                if start_byte != end_byte {
+                    let line_height = 20.0; // Approximate line height
+
+                    // Get the message text to estimate selection position
+                    let text = get_item_text_for_selection_with_positions(
+                        item,
+                        item_index,
+                        &self.item_positions,
+                    );
+
+                    // Calculate more accurate selection rectangles
+                    // Account for padding inside the activity item
+                    let padding = if matches!(item, ActivityItem::Chat { .. }) {
+                        CHAT_ITEM_PADDING
+                    } else {
+                        8.0 // Default card padding
+                    };
+
+                    // For now, use character-based approximation
+                    let char_width = 8.5; // Approximate character width
+
+                    // Calculate approximate x positions for selection
+                    let start_char = text.chars().take(start_byte).count();
+                    let end_char = text.chars().take(end_byte).count();
+
+                    let start_x =
+                        bounds.origin.x + padding + (start_char as f32 * char_width);
+                    let mut end_x =
+                        bounds.origin.x + padding + (end_char as f32 * char_width);
+
+                    // Ensure we don't exceed the bounds
+                    let max_x = bounds.origin.x + bounds.size.width - padding;
+                    end_x = end_x.min(max_x);
+
+                    // For zero-width selections, show a cursor-width rectangle
+                    let width = if start_byte == end_byte {
+                        2.0 // Cursor width
+                    } else {
+                        end_x - start_x
+                    };
+
+                    let rect = euclid::rect(
+                        start_x,
+                        bounds.origin.y + padding,
+                        width,
+                        line_height,
+                    );
+
+                    rects.push(rect);
+                }
+            }
+        } else {
+            log::debug!("No bounds found for activity item {}", item_index);
+        }
     }
 
     /// Calculate selection rectangles for Suggestion selections
@@ -2568,7 +2347,6 @@ impl AiSidebar {
 
     /// Estimate how many lines text will wrap to given available width
     fn estimate_wrapped_lines(
-        &self,
         text: &str,
         available_width: f32,
         fonts: &SidebarFonts,
@@ -2910,23 +2688,8 @@ impl Sidebar for AiSidebar {
         );
 
         // Handle modal events first - if modal is active, it captures ALL events
-        if self.modal_manager.is_active() {
-            let sidebar_bounds = euclid::rect(
-                self.sidebar_x_position,
-                0.0,
-                self.width as f32,
-                1000.0, // Use a reasonable default height
-            );
-            // Always let modal handle the event when it's active
-            let handled = self.modal_manager.handle_mouse_event(event, sidebar_bounds);
-            // For scroll wheel events, always return true when modal is active to prevent
-            // the activity log from scrolling behind the modal
-            if matches!(event.kind, WMEK::VertWheel(_)) {
-                return Ok(true);
-            }
-            if handled {
-                return Ok(true);
-            }
+        if self.handle_modal_mouse_event(event)? {
+            return Ok(true);
         }
 
         // Code block horizontal scrolling has been removed - using line wrapping instead
@@ -2934,51 +2697,8 @@ impl Sidebar for AiSidebar {
         // Show more button is now handled via UIItemType
 
         // Handle text selection drag during Move events
-        if let WMEK::Move = &event.kind {
-            // Check if we're currently dragging a selection
-            if self.selection_state.is_dragging && event.mouse_buttons == MouseButtons::LEFT {
-                // log::debug!("SELECTION DEBUG: Handling drag Move event in sidebar");
-
-                // Determine which selection target we're dragging
-                if let Some(selection) = &self.selection_state.active_selection {
-                    match selection {
-                        SelectionTarget::Goal { anchor_byte, .. } => {
-                            // Handle goal text drag directly in sidebar since mouse may be outside UIItem bounds
-                            if let Some(bounds) = self.goal_bounds {
-                                let relative_x =
-                                    event.coords.x as f32 - bounds.origin.x - GOAL_CARD_PADDING;
-
-                                // log::debug!("SELECTION DEBUG: Goal drag at relative_x={}", relative_x);
-
-                                // Use stored real positions to find byte offset
-                                if let Some(positions) = &self.goal_char_positions {
-                                    let current_byte =
-                                        self.find_byte_offset_from_positions(relative_x, positions);
-                                    // log::debug!("SELECTION DEBUG: Calculated byte_offset={} from relative_x={}", current_byte, relative_x);
-
-                                    self.update_selection_drag(current_byte);
-                                    return Ok(true); // Event handled
-                                } else {
-                                    // log::debug!("SELECTION DEBUG: No character positions available for goal text");
-                                }
-                            } else {
-                                // log::debug!("SELECTION DEBUG: No goal bounds available");
-                            }
-                        }
-                        SelectionTarget::ActivityItem { anchor_index, .. } => {
-                            // Activity item drag is handled by the mouse event handler
-                            // which calls update_activity_log_selection_drag
-                        }
-                        SelectionTarget::Suggestion { .. } => {
-                            // TODO: Handle suggestion drag
-                            // log::debug!("SELECTION DEBUG: Suggestion drag - not yet implemented");
-                        }
-                        SelectionTarget::ChatInput { .. } => {
-                            // Chat input has its own handling
-                        }
-                    }
-                }
-            }
+        if self.handle_selection_drag(event)? {
+            return Ok(true);
         }
 
         // Log current bounds for debugging
@@ -2998,53 +2718,8 @@ impl Sidebar for AiSidebar {
         }
 
         // Handle scroll wheel events
-        if let WMEK::VertWheel(amount) = &event.kind {
-            log::debug!(
-                "Scroll wheel event: amount={}, has_renderer={}",
-                amount,
-                self.activity_log_state
-                    .activity_log_scrollbar_renderer
-                    .is_some()
-            );
-
-            // Check if we have a scrollbar renderer to get scroll metrics
-            if let Some(renderer) = &self.activity_log_state.activity_log_scrollbar_renderer {
-                let scroll_speed = 20.0; // Pixels per scroll step (roughly 1 line)
-                let scroll_amount = scroll_speed * (*amount as f32).abs();
-
-                let old_offset = self.activity_log_state.activity_log_scroll_offset;
-                let new_offset = if *amount > 0 {
-                    // Scroll up
-                    (self.activity_log_state.activity_log_scroll_offset - scroll_amount).max(0.0)
-                } else {
-                    // Scroll down
-                    self.activity_log_state.activity_log_scroll_offset + scroll_amount
-                };
-
-                // Constrain to valid range using actual content metrics
-                let max_scroll = (renderer.total_size() - renderer.viewport_size()).max(0.0);
-                self.activity_log_state.activity_log_scroll_offset =
-                    new_offset.clamp(0.0, max_scroll);
-
-                let actually_scrolled =
-                    (self.activity_log_state.activity_log_scroll_offset - old_offset).abs() > 0.1;
-                log::debug!(
-                    "Scroll wheel: old_offset={}, new_offset={}, max_scroll={}, amount={}, scroll_amount={}, actually_moved={}",
-                    old_offset, self.activity_log_state.activity_log_scroll_offset, max_scroll, amount, scroll_amount, actually_scrolled
-                );
-
-                // Clear activity item bounds when scrolling - they'll be repopulated on next render
-                if actually_scrolled {
-                    self.clear_activity_item_bounds();
-                }
-
-                // Return true to consume the event since we're over the activity log
-                return Ok(true);
-            } else {
-                log::debug!("No scrollbar renderer for scroll wheel");
-                // Still over activity log but no scrollbar - don't consume
-                return Ok(false);
-            }
+        if self.handle_scroll_wheel(event)? {
+            return Ok(true);
         }
 
         // Handle text selection drag
@@ -3069,42 +2744,8 @@ impl Sidebar for AiSidebar {
         }
 
         // Check if we need to handle scrollbar events
-        // Always process mouse events if the scrollbar is currently being dragged,
-        // even if the mouse is outside the scrollbar bounds
-        let should_handle_scrollbar =
-            if let Some(renderer) = &self.activity_log_state.activity_log_scrollbar_renderer {
-                renderer.state().is_dragging || self.is_scrollbar_event(event)
-            } else {
-                false
-            };
-
-        if should_handle_scrollbar {
-            if let Some(renderer) = &mut self.activity_log_state.activity_log_scrollbar_renderer {
-                if let Some(bounds) = &self.activity_log_state.activity_log_scrollbar_bounds {
-                    // Handle the mouse event with the scrollbar renderer
-                    if let Some(new_scroll_offset) = renderer.handle_mouse_event(event, *bounds) {
-                        // Update scroll position with proper bounds checking
-                        let max_scroll =
-                            (renderer.total_size() - renderer.viewport_size()).max(0.0);
-                        self.activity_log_state.activity_log_scroll_offset =
-                            new_scroll_offset.clamp(0.0, max_scroll);
-
-                        // Clear visual anchor when user interacts with scrollbar
-                        self.activity_log_state.visual_anchor = None;
-
-                        // Clear activity item bounds when scrolling - they'll be repopulated on next render
-                        self.clear_activity_item_bounds();
-
-                        log::debug!(
-                            "Scrollbar updated scroll offset to: {} (max: {})",
-                            self.activity_log_state.activity_log_scroll_offset,
-                            max_scroll
-                        );
-                        return Ok(true);
-                    }
-                    return Ok(renderer.state().is_dragging);
-                }
-            }
+        if self.handle_scrollbar_interaction(event)? {
+            return Ok(true);
         }
 
         // Filter chip clicks are now handled through UIItemType
@@ -3204,6 +2845,186 @@ impl Sidebar for AiSidebar {
 }
 
 impl AiSidebar {
+    /// Handle modal mouse events
+    fn handle_modal_mouse_event(&mut self, event: &MouseEvent) -> Result<bool> {
+        if self.modal_manager.is_active() {
+            let sidebar_bounds = euclid::rect(
+                self.sidebar_x_position,
+                0.0,
+                self.width as f32,
+                1000.0, // Use a reasonable default height
+            );
+            // Always let modal handle the event when it's active
+            let handled = self.modal_manager.handle_mouse_event(event, sidebar_bounds);
+            // For scroll wheel events, always return true when modal is active to prevent
+            // the activity log from scrolling behind the modal
+            if matches!(event.kind, WMEK::VertWheel(_)) {
+                return Ok(true);
+            }
+            if handled {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Handle selection drag events
+    fn handle_selection_drag(&mut self, event: &MouseEvent) -> Result<bool> {
+        if let WMEK::Move = &event.kind {
+            // Check if we're currently dragging a selection
+            if self.selection_state.is_dragging && event.mouse_buttons == MouseButtons::LEFT {
+                // Determine which selection target we're dragging
+                if let Some(selection) = &self.selection_state.active_selection {
+                    match selection {
+                        SelectionTarget::Goal { .. } => {
+                            // Handle goal text drag directly in sidebar since mouse may be outside UIItem bounds
+                            if let Some(bounds) = self.goal_bounds {
+                                let relative_x =
+                                    event.coords.x as f32 - bounds.origin.x - GOAL_CARD_PADDING;
+
+                                // Use stored real positions to find byte offset
+                                if let Some(positions) = &self.goal_char_positions {
+                                    let current_byte =
+                                        self.find_byte_offset_from_positions(relative_x, positions);
+                                    self.update_selection_drag(current_byte);
+                                    return Ok(true); // Event handled
+                                }
+                            }
+                        }
+                        SelectionTarget::ActivityItem { .. } => {
+                            // Activity item drag is handled by the mouse event handler
+                            // which calls update_activity_log_selection_drag
+                        }
+                        SelectionTarget::Suggestion { .. } => {
+                            // TODO: Handle suggestion drag
+                        }
+                        SelectionTarget::ChatInput { .. } => {
+                            // Chat input has its own handling
+                        }
+                    }
+                }
+            }
+        }
+
+        // Handle drag for activity items separately
+        if let WMEK::Move = event.kind {
+            if self.selection_state.is_dragging {
+                // For activity item selection, don't claim to handle the event
+                // The drag handling needs to be done by mouse_event_activity_item_text
+                if let Some(SelectionTarget::ActivityItem { .. }) =
+                    &self.selection_state.active_selection
+                {
+                    log::debug!("AiSidebar: Not claiming activity item drag Move event - letting UI item handler process it");
+                    return Ok(false);
+                }
+                // For other selection types, we handle the drag here
+                return Ok(true);
+            }
+        }
+
+        // Handle mouse release to end selection
+        if let WMEK::Release(MousePress::Left) = event.kind {
+            self.selection_state.is_dragging = false;
+        }
+
+        Ok(false)
+    }
+
+    /// Handle scroll wheel events
+    fn handle_scroll_wheel(&mut self, event: &MouseEvent) -> Result<bool> {
+        if let WMEK::VertWheel(amount) = &event.kind {
+            log::debug!(
+                "Scroll wheel event: amount={}, has_renderer={}",
+                amount,
+                self.activity_log_state
+                    .activity_log_scrollbar_renderer
+                    .is_some()
+            );
+
+            // Check if we have a scrollbar renderer to get scroll metrics
+            if let Some(renderer) = &self.activity_log_state.activity_log_scrollbar_renderer {
+                let scroll_speed = 20.0; // Pixels per scroll step (roughly 1 line)
+                let scroll_amount = scroll_speed * (*amount as f32).abs();
+
+                let old_offset = self.activity_log_state.activity_log_scroll_offset;
+                let new_offset = if *amount > 0 {
+                    // Scroll up
+                    (self.activity_log_state.activity_log_scroll_offset - scroll_amount).max(0.0)
+                } else {
+                    // Scroll down
+                    self.activity_log_state.activity_log_scroll_offset + scroll_amount
+                };
+
+                // Constrain to valid range using actual content metrics
+                let max_scroll = (renderer.total_size() - renderer.viewport_size()).max(0.0);
+                self.activity_log_state.activity_log_scroll_offset =
+                    new_offset.clamp(0.0, max_scroll);
+
+                let actually_scrolled =
+                    (self.activity_log_state.activity_log_scroll_offset - old_offset).abs() > 0.1;
+                log::debug!(
+                    "Scroll wheel: old_offset={}, new_offset={}, max_scroll={}, amount={}, scroll_amount={}, actually_moved={}",
+                    old_offset, self.activity_log_state.activity_log_scroll_offset, max_scroll, amount, scroll_amount, actually_scrolled
+                );
+
+                // Clear activity item bounds when scrolling - they'll be repopulated on next render
+                if actually_scrolled {
+                    self.clear_activity_item_bounds();
+                }
+
+                // Return true to consume the event since we're over the activity log
+                return Ok(true);
+            } else {
+                log::debug!("No scrollbar renderer for scroll wheel");
+                // Still over activity log but no scrollbar - don't consume
+                return Ok(false);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Handle scrollbar interaction events
+    fn handle_scrollbar_interaction(&mut self, event: &MouseEvent) -> Result<bool> {
+        // Always process mouse events if the scrollbar is currently being dragged,
+        // even if the mouse is outside the scrollbar bounds
+        let should_handle_scrollbar =
+            if let Some(renderer) = &self.activity_log_state.activity_log_scrollbar_renderer {
+                renderer.state().is_dragging || self.is_scrollbar_event(event)
+            } else {
+                false
+            };
+
+        if should_handle_scrollbar {
+            if let Some(renderer) = &mut self.activity_log_state.activity_log_scrollbar_renderer {
+                if let Some(bounds) = &self.activity_log_state.activity_log_scrollbar_bounds {
+                    // Handle the mouse event with the scrollbar renderer
+                    if let Some(new_scroll_offset) = renderer.handle_mouse_event(event, *bounds) {
+                        // Update scroll position with proper bounds checking
+                        let max_scroll =
+                            (renderer.total_size() - renderer.viewport_size()).max(0.0);
+                        self.activity_log_state.activity_log_scroll_offset =
+                            new_scroll_offset.clamp(0.0, max_scroll);
+
+                        // Clear visual anchor when user interacts with scrollbar
+                        self.activity_log_state.visual_anchor = None;
+
+                        // Clear activity item bounds when scrolling - they'll be repopulated on next render
+                        self.clear_activity_item_bounds();
+
+                        log::debug!(
+                            "Scrollbar updated scroll offset to: {} (max: {})",
+                            self.activity_log_state.activity_log_scroll_offset,
+                            max_scroll
+                        );
+                        return Ok(true);
+                    }
+                    return Ok(renderer.state().is_dragging);
+                }
+            }
+        }
+        Ok(false)
+    }
+
     /// Check if keyboard input should be routed to this sidebar
     pub fn has_keyboard_focus(&self) -> bool {
         self.modal_manager.is_active() || self.chat_input.focused

@@ -9,22 +9,24 @@ The AI sidebar implementation has grown organically during development, resultin
 ## Refactoring Status
 
 ### MUST Refactor (Critical)
-- Split `ai_sidebar.rs`: ✅ Partially Done (5 modules extracted, currently 4,232 lines)
+- Split `ai_sidebar.rs`: ✅ Partially Done (6 modules extracted, currently 4,054 lines)
   - `text_selection.rs`: ✅ Done
   - `activity_log_renderer.rs`: ✅ Done
   - `chat_input.rs`: ✅ Done
   - `modal_manager.rs`: ✅ Done (in components/modal/)
   - `sidebar_state.rs`: ⏭️ Skipped (not needed)
   - `mock_data.rs`: ✅ Done - 386 lines extracted
+  - `goal_renderer.rs`: ✅ Done (Session 6) - 309 lines extracted
 - Large functions in `ai_sidebar.rs`:
   - `populate_mock_data`: ✅ Done (extracted to mock_data.rs)
   - `calculate_selection_rectangles`: ✅ Done (refactored into 4 helper methods)
   - `update_activity_log_height_cache`: ✅ Done (refactored into 5 helper methods)
-  - `calculate_activity_item_selection_rectangles`: 🔄 TODO (236 lines)
-  - `handle_mouse_event`: 🔄 TODO (210 lines)
-  - `process_activity_item_element`: 🔄 TODO (202 lines)
-  - `render_current_suggestion`: 🔄 TODO (172 lines)
-  - `calculate_chat_input_selection_rectangles`: 🔄 TODO (156 lines)
+  - `calculate_activity_item_selection_rectangles`: ✅ Done (Session 6 - refactored into 6 helper methods)
+  - `handle_mouse_event`: ✅ Done (Session 6 - refactored into 4 helper methods)
+  - `process_activity_item_element`: 🔄 TODO (202 lines - kept as-is, not critical)
+  - `render_current_suggestion`: ✅ Done (Session 6 - extracted to goal_renderer.rs)
+  - `render_current_goal`: ✅ Done (Session 6 - extracted to goal_renderer.rs)
+  - `calculate_chat_input_selection_rectangles`: 🔄 TODO (156 lines - acceptable size)
 - Refactor `extract_positions_recursively_with_text_and_wraps`: ✅ Done
 - Refactor `render_markdown`: 🔄 TODO
 
@@ -1031,34 +1033,66 @@ All compilation errors resolved. The codebase compiles cleanly with only warning
 
 ### Priority 1: Testing and Validation
 
-1. **Clean up backup files** (after testing confirms everything works):
-   - `ai_sidebar.rs.bak`, `.bak2`, `.bak3`, `.bak4`, `.bak5`, `.bak6`, `.bak7`, `.bak8`
-   - `ai_sidebar.rs.backup`, `ai_sidebar.rs.before_chat_input`
-   - `activity_log_positions.rs.backup`, `activity_log_positions.rs.bak`
-   - Helper files: `activity_log_positions_refactored.rs`, `activity_log_positions_helpers.rs`
+1. **Test current refactoring thoroughly**:
+   - Verify goal/suggestion rendering works correctly
+   - Test all mouse event handlers (modal, selection, scroll, scrollbar)
+   - Confirm selection calculations still work properly
+   - Check that code compiles in release mode
 
-### Priority 2: Remaining Large Function Refactoring
+2. **Clean up backup files** (after testing confirms everything works):
+   - Session 6 backups: `ai_sidebar.rs.bak9`, `.bak10`, `.before_height_cache_refactor`
+   - Previous session backups: `.bak`, `.bak2`, `.bak3`, `.bak4`, `.bak5`, `.bak6`, `.bak7`, `.bak8`
+   - Other backups: `ai_sidebar.rs.backup`, `.before_chat_input`
+   - Helper files: `activity_log_positions.rs.backup`, `.bak`
+   - Temporary files: `activity_log_positions_refactored.rs`, `activity_log_positions_helpers.rs`
 
-1. **Refactor `render_markdown`** (477 lines)
+### Priority 2: Continue File Size Reduction
 
-2. **Split `mouse_event_terminal`** (418 lines)
+**Current Status**: ai_sidebar.rs at 4,054 lines (target: ~1,500 lines)
 
-### Priority 3: Module Organization
+1. **Consider extracting `process_activity_item_element`** (202 lines)
+   - Would logically belong in activity_log_renderer.rs
+   - Complex due to mutable state access
+   - May not be worth the complexity
 
-1. **Modularize `box_model.rs`** (3800 lines)
+2. **Review remaining functions over 150 lines**:
+   - `calculate_chat_input_selection_rectangles` (156 lines) - acceptable size
+   - Other large functions already refactored
 
-2. **Extract sidebar_state.rs** (optional)
-   - Only if shared state types need better organization
-   - Current orchestration pattern is working well
+### Priority 3: Remaining MUST Refactors
 
-### Priority 4: Code Quality
+1. **Refactor `render_markdown`** (477 lines in components/markdown.rs)
+   - Break into parsing, element building, and syntax highlighting
+   - Follow pattern from REFACTORING.md lines 385-494
 
-1. **Consolidate remaining constants**:
-   - Still some magic numbers in the codebase
-   - Create central constants file if patterns emerge
+2. **Split `mouse_event_terminal`** (418 lines in termwindow/mouseevent.rs)
+   - Break into event type handlers
+   - Follow pattern from REFACTORING.md lines 500-573
 
-2. **Document internal APIs**:
-   - Add rustdoc to complex internal functions
+### Priority 4: High Priority Module Organization
+
+1. **Modularize `box_model.rs`** (3800 lines!)
+   - **Critical**: `shape_line_with_styles` alone is ~1310 lines
+   - Split into layout.rs, wrapping.rs, shaping.rs modules
+   - See REFACTORING.md lines 575-615 for detailed plan
+
+2. **Split `termwindow/mod.rs`** (3948 lines)
+   - Separate event handling, state management, rendering coordination
+   - See REFACTORING.md lines 616-629
+
+### Priority 5: Code Quality Improvements
+
+1. **Performance optimizations**:
+   - Implement dirty tracking (REFACTORING.md lines 634-664)
+   - Add position tree caching
+
+2. **Consolidate remaining constants**:
+   - Review for magic numbers
+   - Add to sidebar_constants.rs
+
+3. **Add comprehensive testing**:
+   - Unit tests for newly extracted modules
+   - Integration tests for refactored functionality
 
 ## Session History
 
@@ -1266,7 +1300,7 @@ All compilation errors resolved. The codebase compiles cleanly with only warning
 
 ---
 
-### Session 5
+### Session 5 - Mock Data Extraction and Function Refactoring
 
 **Key Accomplishments**:
 - Extracted `populate_mock_data` (373 lines) to new module `mock_data.rs`
@@ -1290,23 +1324,92 @@ All compilation errors resolved. The codebase compiles cleanly with only warning
 - `sidebar_state.rs` not needed - current orchestration works well
 - `mock_data.rs` not in original plan but good separation of test code
 
+---
+
+### Session 6 - Goal Renderer Extraction and Event Handler Refactoring
+
+**Key Accomplishments**:
+1. **Extracted Goal/Suggestion Rendering Module** ✅
+   - Created `goal_renderer.rs` (309 lines) with stateless rendering functions
+   - Extracted `render_current_goal` and `render_current_suggestion` from ai_sidebar.rs
+   - Follows established stateless pattern from ActivityLogRenderer
+   - Fixed architecture issue: removed mutable parameter passing after code review
+
+2. **Refactored Large Event Handler** ✅
+   - `handle_mouse_event` reduced from 209 to ~20 lines
+   - Created 4 helper methods within AiSidebar impl:
+     - `handle_modal_mouse_event` (~20 lines)
+     - `handle_selection_drag` (~80 lines)
+     - `handle_scroll_wheel` (~50 lines)
+     - `handle_scrollbar_interaction` (~40 lines)
+
+3. **Refactored Selection Calculation Functions** ✅
+   - `calculate_activity_item_selection_rectangles` reduced from 235 lines
+   - Created 6 helper methods within AiSidebar impl:
+     - `calculate_single_item_selection_rectangles` 
+     - `calculate_multi_item_selection_rectangles`
+     - `transform_item_rects_to_absolute`
+     - `calculate_item_byte_range`
+     - `calculate_selection_rect_fallback`
+     - Main dispatcher function
+
+4. **File Size Reduction**:
+   - ai_sidebar.rs: 4,232 → 4,054 lines (178 lines removed)
+   - Total reduction from original: 1,852 lines (31% from 5,906)
+
+**Critical Issues Fixed**:
+1. **Compilation Errors**: Initially had helper methods in wrong impl block (Sidebar trait vs AiSidebar)
+2. **Architecture Issue**: Originally passed mutable `more_link_bounds` parameter, breaking stateless pattern
+3. **Fixed Both**: Code now compiles cleanly with proper architecture
+
+**Deviations from Plan**:
+1. **Did NOT move `process_activity_item_element`**: User prioritized reducing file size over breaking down 200-line functions
+2. **Function parameter approach**: Kept `estimate_wrapped_lines` as function parameter - cleaner than alternatives
+3. **Helper methods stay in AiSidebar**: Instead of extracting to separate modules, kept as private methods (better encapsulation)
+
+**Known Issues**:
+- **10 backup files remain** that should be deleted after testing:
+  - `ai_sidebar.rs.bak9`, `ai_sidebar.rs.bak10`
+  - `ai_sidebar.rs.before_height_cache_refactor`
+  - (7 others from previous sessions)
+
+**Key Learnings**:
+1. **Subagent code reviews are essential**: Caught critical architecture violations and compilation issues
+2. **Stateless pattern must be preserved**: Mutable parameters break the established architecture
+3. **200-300 line functions are acceptable**: User doesn't consider these critical to refactor
+4. **Focus on file size reduction**: Priority was reducing ai_sidebar.rs total size, not perfect function sizes
+
+**Technical Notes**:
+- `estimate_wrapped_lines` made static to avoid borrowing issues
+- Goal rendering doesn't need truncation logic (simpler than suggestions)
+- Helper methods properly placed in non-trait impl block to avoid trait pollution
+
 
 ## Important Notes for Next Engineer
 
 ### Critical Implementation Notes
 
-1. **Delegate to Component Methods**: Never directly manipulate component fields. Always use the component's own methods (e.g., `MultilineTextInput::insert_char()` not direct field manipulation).
+1. **Stateless Pattern is Important**: All extracted renderer modules should follow the stateless pattern:
+   - Pure functions or static methods only
+   - Data stays in parent module (AiSidebar)
+   - Pass state as parameters, never store it
+   - NO mutable parameter passing (breaks architecture)
 
-2. **Constants Must Be Public**: When extracting modules, make constants public so they can be used by the parent module to avoid duplication.
+3. **Function Size Guidelines** (from Session 6 learnings):
+   - 200-300 line functions are acceptable to the user
+   - Focus on reducing total file size over perfect function sizes
+   - Extract to modules for major size reduction
+   - Use helper methods for modest improvements
 
 ### DO's and DON'Ts
 
 1. **DO NOT** delete the backup files until the refactoring is complete and tested
-2. **DO NOT** attempt to simplify the extracted functions until they compile and work  
-3. **DO NOT** deviate from this plan without the user's explicit approval. If deviation is needed, present him with options to select from.
+2. **DO NOT** pass mutable parameters to "stateless" functions (violates architecture)
+3. **DO NOT** deviate from this plan without the user's explicit approval
 4. **DO NOT** assume visual line index == logical line index in wrapped text
-5. **DO NOT** rewrite functions where possible - use mechanical code movement to preserve behavior
-6. **DO** fix compilation errors systematically, one function at a time
-7. **DO** test after each major change to ensure functionality is preserved
-8. **DO** use subagents for code review - they catch important issues
-9. **DO** preserve the stateless pattern (static methods, data in parent)
+5. **DO NOT** rewrite functions where possible - use mechanical code movement
+6. **DO** use subagents for thorough code review - they catch critical issues
+7. **DO** test compilation after EVERY change (catches issues early)
+8. **DO** preserve the stateless pattern (static methods, data in parent)
+9. **DO** focus on file size reduction as primary goal
+10. **DO** check that helper methods are in correct impl block
