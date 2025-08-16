@@ -85,17 +85,20 @@ pub mod ai_sidebar;
 pub mod animation;
 pub mod chat_input;
 pub mod components;
+pub mod mock_data;
 pub mod position_cache;
 pub mod settings_sidebar;
 pub mod sidebar_constants;
 pub mod text_selection;
 
-pub use activity_log_renderer::{ActivityLogRenderer, ActivityLogState, HeightTracker, VisualAnchor};
+pub use activity_log_renderer::{
+    ActivityLogRenderer, ActivityLogState, HeightTracker, VisualAnchor,
+};
 pub use ai_sidebar::{ActivityFilter, ActivityItem, AgentMode, AiSidebar, CommandStatus};
 pub use animation::{SidebarAnimation, SidebarPositionAnimation};
 pub use components::ScrollbarInfo;
-pub use text_selection::{SelectionState, SelectionTarget, TextSelectionManager};
 pub use settings_sidebar::SettingsSidebar;
+pub use text_selection::{SelectionState, SelectionTarget, TextSelectionManager};
 
 /// Information about scrollbars in a sidebar that need external rendering
 #[derive(Default)]

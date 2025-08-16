@@ -49,7 +49,6 @@ const HEIGHT_CHANGE_HYSTERESIS: f32 = 2.0; // Minimum height change to update ca
 // Activity item spacing constants (must match render_activity_item)
 const CARD_DEFAULT_MARGIN: f32 = 8.0; // Default card margin (for commands/suggestions)
 
-
 // Character width estimation for suggestion cards
 // This is tuned specifically for the sidebar's font (Roboto)
 // Activity log uses 0.6 which is more conservative
@@ -78,10 +77,11 @@ pub enum ActivityFilter {
 }
 
 // Text selection types are now in the text_selection module
-use super::text_selection::{SelectionState, SelectionTarget, TextSelectionManager};
-use super::activity_log_renderer::{ActivityLogRenderer, ActivityLogState, HeightTracker, VisualAnchor};
+use super::activity_log_renderer::{
+    ActivityLogRenderer, ActivityLogState, HeightTracker, VisualAnchor,
+};
 use super::chat_input::ChatInputHandler;
-
+use super::text_selection::{SelectionState, SelectionTarget, TextSelectionManager};
 
 /// Extract plain text from an activity item for selection
 fn get_item_text(item: &ActivityItem) -> String {
@@ -286,7 +286,11 @@ fn get_item_text_for_selection_impl(
     if let (Some(idx), Some(positions)) = (index, item_positions) {
         if let Some(position_data) = positions.get(&idx) {
             if !position_data.rendered_text.is_empty() {
-                log::debug!("Using stored rendered_text for item {}: len={}", idx, position_data.rendered_text.len());
+                log::debug!(
+                    "Using stored rendered_text for item {}: len={}",
+                    idx,
+                    position_data.rendered_text.len()
+                );
                 return position_data.rendered_text.clone();
             } else {
                 log::debug!("Item {} has empty rendered_text, using fallback", idx);
@@ -320,11 +324,17 @@ fn get_item_text_for_selection_impl(
                     );
                 });
 
-                log::debug!("FALLBACK: AI message using markdown conversion, len={}", rendered.len());
+                log::debug!(
+                    "FALLBACK: AI message using markdown conversion, len={}",
+                    rendered.len()
+                );
                 rendered
             } else {
                 // User messages are plain text
-                log::debug!("FALLBACK: User message using plain text, len={}", message.len());
+                log::debug!(
+                    "FALLBACK: User message using plain text, len={}",
+                    message.len()
+                );
                 message.clone()
             }
         }
@@ -456,12 +466,13 @@ pub enum CommandStatus {
     Failed(i32),
 }
 
+// Fields are public to allow mock_data module to populate test data
 pub struct CurrentGoal {
     pub text: String,
-    is_ai_inferred: bool,
-    is_confirmed: bool,
-    is_editing: bool,
-    edit_text: String,
+    pub is_ai_inferred: bool,
+    pub is_confirmed: bool,
+    pub is_editing: bool,
+    pub edit_text: String,
 }
 
 #[derive(Clone)]
@@ -486,7 +497,7 @@ pub struct AiSidebar {
     width: u16,
 
     // UI State
-    agent_mode: AgentMode,
+    pub(super) agent_mode: AgentMode, // pub(super) for mock_data module access
     agent_mode_enabled: bool,
     high_risk_mode_enabled: bool,
     pub activity_filter: ActivityFilter,
@@ -494,7 +505,7 @@ pub struct AiSidebar {
     // Data
     pub current_goal: Option<CurrentGoal>,
     pub current_suggestion: Option<CurrentSuggestion>,
-    activity_log: Vec<ActivityItem>,
+    pub(super) activity_log: Vec<ActivityItem>, // pub(super) for mock_data module access
 
     // UI Components
     pub chat_input: MultilineTextInput,
@@ -502,11 +513,10 @@ pub struct AiSidebar {
     // Activity log state and renderer
     activity_log_state: ActivityLogState,
     activity_log_renderer: ActivityLogRenderer,
-    
+
     // Chat input colors for filled rectangle rendering
     chat_input_bg_color: LinearRgba,
     chat_input_border_color: LinearRgba,
-
 
     // UI element bounds for hit testing
     filter_chip_bounds: Vec<(ActivityFilter, euclid::Rect<f32, window::PixelUnit>)>,
@@ -641,7 +651,6 @@ impl AiSidebar {
 
     /// Update activity log selection during drag, handling crossing item boundaries
     pub fn update_activity_log_selection_drag(&mut self, item_index: usize, byte_offset: usize) {
-
         if !self.selection_state.is_dragging {
             return;
         }
@@ -653,7 +662,6 @@ impl AiSidebar {
             ..
         }) = &self.selection_state.active_selection
         {
-
             // Update the selection to span from anchor to current position
             // This properly handles selection across multiple items
             self.selection_state.active_selection = Some(SelectionTarget::ActivityItem {
@@ -706,7 +714,6 @@ impl AiSidebar {
         if self.selection_state.is_dragging {
             return false;
         }
-
 
         // Check if clicking on existing selection to deselect
         if let Some(active) = &self.selection_state.active_selection {
@@ -855,381 +862,7 @@ impl AiSidebar {
         }
     }
 
-    // Mock data for development
-    pub fn populate_mock_data(&mut self) {
-        // Set a current goal
-        let goal_text = "Fix the build errors in the project".to_string();
-        log::debug!(
-            "GOAL TEXT DEBUG: Setting mock goal text: '{}', len={}",
-            goal_text,
-            goal_text.len()
-        );
-        self.current_goal = Some(CurrentGoal {
-            text: goal_text,
-            is_ai_inferred: true,
-            is_confirmed: false,
-            is_editing: false,
-            edit_text: String::new(),
-        });
-
-        // Set a current suggestion with very long content to test scrolling
-        let test_content = r#"It looks like the linker couldn't find OpenSSL. This is a common issue when building projects that depend on OpenSSL for cryptographic functionality. Let me provide a comprehensive guide to resolving this issue.
-
-## Quick Solution
-
-Run the following command to install OpenSSL:
-
-```bash
-brew install openssl@3
-```
-
-## If That Doesn't Work
-
-You may need to set environment variables to help the build system find OpenSSL:
-
-```bash
-export PKG_CONFIG_PATH="/opt/homebrew/opt/openssl@3/lib/pkgconfig"
-export LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib"
-export CPPFLAGS="-I/opt/homebrew/opt/openssl@3/include"
-```
-
-## Common Issues
-
-1. **Wrong OpenSSL version**: Some projects require openssl@1.1 instead of openssl@3
-2. **Multiple OpenSSL installations**: Check `brew list | grep openssl` to see all versions
-3. **Architecture mismatch**: On M1 Macs, ensure you're using the right architecture
-4. **Missing pkg-config**: Install with `brew install pkg-config`
-5. **Incorrect paths**: Verify paths with `brew --prefix openssl@3`
-
-## Detailed Troubleshooting Steps
-
-### Step 1: Check Current Installation
-First, let's check what OpenSSL versions you have installed:
-
-```bash
-brew list | grep openssl
-ls -la /opt/homebrew/opt/ | grep openssl
-which openssl
-openssl version
-```
-
-### Step 2: Clean Installation
-If you have conflicts, clean up first:
-
-```bash
-brew uninstall --ignore-dependencies openssl@3
-brew uninstall --ignore-dependencies openssl@1.1
-brew cleanup
-```
-
-### Step 3: Fresh Install
-Install the required version:
-
-```bash
-brew install openssl@3
-brew link openssl@3 --force
-```
-
-### Step 4: Verify Installation
-Check that everything is properly installed:
-
-```bash
-brew test openssl@3
-pkg-config --libs openssl
-```
-
-### Step 5: Configure Your Shell
-Add these to your shell configuration file (~/.zshrc or ~/.bashrc):
-
-```bash
-# OpenSSL Configuration
-export PATH="/opt/homebrew/opt/openssl@3/bin:$PATH"
-export LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib"
-export CPPFLAGS="-I/opt/homebrew/opt/openssl@3/include"
-export PKG_CONFIG_PATH="/opt/homebrew/opt/openssl@3/lib/pkgconfig"
-```
-
-### Step 6: Alternative Solutions
-
-#### Using MacPorts
-If Homebrew doesn't work, try MacPorts:
-
-```bash
-sudo port install openssl
-sudo port select --set openssl openssl3
-```
-
-#### Building from Source
-As a last resort, build OpenSSL from source:
-
-```bash
-wget https://www.openssl.org/source/openssl-3.0.7.tar.gz
-tar -xf openssl-3.0.7.tar.gz
-cd openssl-3.0.7
-./config --prefix=/usr/local/openssl --openssldir=/usr/local/openssl
-make
-sudo make install
-```
-
-## Platform-Specific Notes
-
-### macOS Monterey and Later
-Apple has deprecated OpenSSL in favor of their own crypto libraries. You may need to:
-
-1. Disable System Integrity Protection (not recommended)
-2. Use a different crypto library
-3. Explicitly specify OpenSSL paths in your build configuration
-
-### M1/M2 Mac Considerations
-On Apple Silicon, paths differ:
-- Intel: `/usr/local/opt/openssl@3`
-- Apple Silicon: `/opt/homebrew/opt/openssl@3`
-
-## Related Issues
-- libssl-dev on Linux: `sudo apt-get install libssl-dev`
-- Windows: Use vcpkg or download prebuilt binaries
-- Docker: Add `RUN apk add --no-cache openssl-dev` to Dockerfile
-
-This should resolve most OpenSSL-related build issues. If problems persist, check your project's specific requirements.
-
-If you're still having issues:
-
-1. Clean your build directory: `make clean`
-2. Check your PATH: `echo $PATH`
-3. Verify OpenSSL installation: `brew info openssl@3`
-4. Try linking manually: `brew link openssl@3 --force`
-
-## References
-
-- [Homebrew OpenSSL Formula](https://formulae.brew.sh/formula/openssl@3)
-- [Common macOS linking issues](https://github.com/openssl/openssl/issues)
-
-This should resolve your OpenSSL linking error. If problems persist, check your project's specific build documentation."#;
-
-        self.current_suggestion = Some(CurrentSuggestion {
-            title: "Install missing dependency".to_string(),
-            content: test_content.to_string(),
-            has_action: true,
-            action_type: Some("run".to_string()),
-        });
-
-        // Add some activity items
-        let now = SystemTime::now();
-        self.activity_log.push(ActivityItem::Command {
-            id: "cmd1".to_string(),
-            command: "make (~/project)".to_string(),
-            output: Some("Error: OpenSSL not found".to_string()),
-            pane_id: Some("pane1".to_string()),
-            status: CommandStatus::Failed(1),
-            timestamp: now - Duration::from_secs(60),
-            expanded: true, // Make it expanded to see if that's the tall content
-        });
-
-        self.activity_log.push(ActivityItem::Chat {
-            id: "chat1".to_string(),
-            message: "I'm trying to compile my Rust project but getting linker errors about OpenSSL. I've tried installing it before but it doesn't seem to be working. Can you help me understand what's going wrong and how to fix it properly?".to_string(),
-            is_user: true,
-            timestamp: now - Duration::from_secs(30),
-        });
-
-        // Add AI response with long markdown content to test text wrapping
-        self.activity_log.push(ActivityItem::Chat {
-            id: "chat2".to_string(),
-            message: r#"I see you're getting an **OpenSSL error**. This is a very common issue when building projects that depend on OpenSSL for cryptographic functionality. Let me provide you with a comprehensive guide to resolve this issue on macOS.
-
-## Quick Solution (Try This First)
-
-The fastest way to resolve this is usually:
-
-1. First, *check* if OpenSSL is installed:
-   ```bash
-   brew list openssl
-   brew list | grep openssl
-   ```
-
-2. If **not installed**, run:
-   ```bash
-   brew install openssl@3
-   # or for older projects:
-   brew install openssl@1.1
-   ```
-
-3. Then set the environment variables:
-   ```bash
-   export OPENSSL_DIR=$(brew --prefix openssl)
-   export PKG_CONFIG_PATH="$OPENSSL_DIR/lib/pkgconfig"
-   export LDFLAGS="-L$OPENSSL_DIR/lib"
-   export CPPFLAGS="-I$OPENSSL_DIR/include"
-   # This is a very long line that should definitely trigger horizontal scrolling in the code block - it contains many characters and should exceed the width of the sidebar
-   ```
-
-4. Try running `make` again.
-
-## Detailed Troubleshooting
-
-If the quick solution doesn't work, here are more comprehensive steps:
-
-### Step 1: Verify Your System
-First, let's understand your environment:
-```bash
-# Check macOS version
-sw_vers -productVersion
-
-# Check architecture (Intel vs Apple Silicon)
-uname -m
-
-# Check Homebrew installation
-brew --version
-brew config
-```
-
-### Step 2: Clean Up Existing Installations
-Sometimes conflicts arise from multiple OpenSSL installations:
-```bash
-# List all OpenSSL installations
-brew list | grep openssl
-ls -la /usr/local/opt/ | grep openssl
-ls -la /opt/homebrew/opt/ | grep openssl
-
-# If you have conflicts, uninstall all versions
-brew uninstall --ignore-dependencies openssl@3
-brew uninstall --ignore-dependencies openssl@1.1
-brew uninstall --ignore-dependencies openssl
-```
-
-### Step 3: Install the Correct Version
-Different projects require different OpenSSL versions:
-```bash
-# For modern projects (OpenSSL 3.x)
-brew install openssl@3
-
-# For older projects (OpenSSL 1.1)
-brew install openssl@1.1
-
-# Force link if needed
-brew link openssl@3 --force
-```
-
-### Step 4: Configure pkg-config
-The pkg-config tool helps compilers find libraries:
-```bash
-# Install pkg-config if missing
-brew install pkg-config
-
-# Verify it can find OpenSSL
-pkg-config --modversion openssl
-pkg-config --libs openssl
-pkg-config --cflags openssl
-```
-
-### Alternative Solution
-If the above doesn't work, you might need to:
-```bash
-# Install pkg-config
-brew install pkg-config
-
-# Or try using the system's built-in LibreSSL
-export LDFLAGS="-L/usr/lib"
-export CPPFLAGS="-I/usr/include"
-```
-
-## Platform-Specific Considerations
-
-### Apple Silicon (M1/M2) Macs
-Paths differ on Apple Silicon:
-- Intel Macs: `/usr/local/opt/openssl`
-- Apple Silicon: `/opt/homebrew/opt/openssl`
-
-### macOS Ventura and Later
-Apple has deprecated OpenSSL in favor of their own crypto libraries, which can cause additional complications.
-
-This comprehensive guide should resolve most OpenSSL linking issues on macOS!"#.to_string(),
-            is_user: false,
-            timestamp: now - Duration::from_secs(20),
-        });
-
-        self.activity_log.push(ActivityItem::Chat {
-            id: "chat3".to_string(),
-            message: "Great! That worked. Now I'm seeing some warnings about deprecated functions."
-                .to_string(),
-            is_user: true,
-            timestamp: now - Duration::from_secs(10),
-        });
-
-        // Add a Python example with indentation to test code block rendering
-        self.activity_log.push(ActivityItem::Chat {
-            id: "chat4".to_string(),
-            message: r#"Here's a Python example showing proper error handling with indentation:
-
-```python
-def process_data(filename):
-    """Process data from a file with proper error handling."""
-    try:
-        with open(filename, 'r') as file:
-            data = file.read()
-            # Process each line
-            for line in data.splitlines():
-                if line.strip():  # Skip empty lines
-                    result = parse_line(line)
-                    if result:
-                        yield result
-    except FileNotFoundError:
-        print(f"Error: File '{filename}' not found")
-        return None
-    except PermissionError:
-        print(f"Error: Permission denied for '{filename}'")
-        return None
-    finally:
-        print("Processing complete")
-```
-
-This example demonstrates:
-- Function definition with docstring
-- Context manager (`with` statement)
-- Nested indentation levels (up to 5 levels deep)
-- Error handling with multiple `except` blocks
-- The `finally` clause for cleanup"#
-                .to_string(),
-            is_user: false,
-            timestamp: now - Duration::from_secs(5),
-        });
-
-        // Add more mock items to test scrolling
-        for i in 0..20 {
-            if i % 3 == 0 {
-                self.activity_log.push(ActivityItem::Command {
-                    id: format!("cmd{}", i + 10),
-                    command: format!("test command {}", i),
-                    output: Some(format!("Output for command {}", i)),
-                    pane_id: Some("pane1".to_string()),
-                    status: if i % 2 == 0 {
-                        CommandStatus::Success
-                    } else {
-                        CommandStatus::Failed(1)
-                    },
-                    timestamp: now - Duration::from_secs(300 + i * 60),
-                    expanded: false,
-                });
-            } else {
-                self.activity_log.push(ActivityItem::Chat {
-                    id: format!("chat{}", i + 10),
-                    message: format!(
-                        "Test message {} from {}",
-                        i,
-                        if i % 2 == 0 { "user" } else { "AI" }
-                    ),
-                    is_user: i % 2 == 0,
-                    timestamp: now - Duration::from_secs(300 + i * 60),
-                });
-            }
-        }
-
-        self.agent_mode = AgentMode::Thinking;
-
-        // Clear code block registry since we've replaced all content
-        self.clear_code_block_registry();
-    }
-
+    // Mock data for development - see mock_data.rs
     fn render_header(&self, fonts: &SidebarFonts) -> Element {
         let title = Element::new(
             &fonts.heading,
@@ -1611,7 +1244,6 @@ This example demonstrates:
         )
     }
 
-
     /// Get filtered activity items based on current filter
 
     /// Get the number of display lines for chat input
@@ -1626,12 +1258,7 @@ This example demonstrates:
         width: f32,
         viewport_height: f32,
     ) -> Element {
-        ChatInputHandler::render_chat_input_text(
-            &mut self.chat_input,
-            font,
-            width,
-            viewport_height,
-        )
+        ChatInputHandler::render_chat_input_text(&mut self.chat_input, font, width, viewport_height)
     }
 
     fn render_chat_input(&mut self, fonts: &SidebarFonts) -> Element {
@@ -1734,7 +1361,9 @@ This example demonstrates:
         index: usize,
         bounds: euclid::Rect<f32, window::PixelUnit>,
     ) {
-        self.activity_log_state.activity_item_bounds.insert(index, bounds);
+        self.activity_log_state
+            .activity_item_bounds
+            .insert(index, bounds);
     }
 
     /// Store position data for an activity item
@@ -1772,9 +1401,12 @@ This example demonstrates:
         &self,
         index: usize,
     ) -> Option<euclid::Rect<f32, window::PixelUnit>> {
-        self.activity_log_state.activity_item_bounds.get(&index).copied()
+        self.activity_log_state
+            .activity_item_bounds
+            .get(&index)
+            .copied()
     }
-    
+
     /// Clear all activity item bounds (used when scrolling)
     pub fn clear_activity_item_bounds(&mut self) {
         self.activity_log_state.activity_item_bounds.clear();
@@ -1805,7 +1437,6 @@ This example demonstrates:
     ) -> Option<crate::sidebar::position_cache::HitResult> {
         use crate::sidebar::position_cache::{ItemCoord, ViewportCoord, WindowCoord};
         use euclid::Point2D;
-
 
         // 1. Window → Viewport transformation
         let viewport_point = self
@@ -1887,7 +1518,9 @@ This example demonstrates:
                     if let Some(position) = self.hit_test_item(&item_data.position_tree, item_point)
                     {
                         // Debug: Log what we're finding vs what we're rendering
-                        if let Some(bounds) = self.activity_log_state.activity_item_bounds.get(index) {
+                        if let Some(bounds) =
+                            self.activity_log_state.activity_item_bounds.get(index)
+                        {
                             log::debug!(
                                 "Hit test found position at byte_offset={} for click at item-relative ({:.1}, {:.1}), item bounds origin=({:.1}, {:.1})",
                                 position.byte_offset,
@@ -1902,10 +1535,14 @@ This example demonstrates:
                             index,
                             position.byte_offset
                         );
-                        
+
                         // Validate the position if we have access to the item's text
                         if let Some(item) = self.activity_log.get(*index) {
-                            let text = get_item_text_for_selection_with_positions(item, *index, &self.item_positions);
+                            let text = get_item_text_for_selection_with_positions(
+                                item,
+                                *index,
+                                &self.item_positions,
+                            );
                             if let Err(e) = position.validate(&text) {
                                 log::warn!("Invalid position from hit test: {}", e);
                                 continue; // Skip this invalid position
@@ -2072,497 +1709,564 @@ This example demonstrates:
         &self,
         selection: &SelectionTarget,
     ) -> Vec<euclid::Rect<f32, window::PixelUnit>> {
-        let mut rects = Vec::new();
-
         match selection {
             SelectionTarget::ActivityItem {
                 anchor_index,
                 anchor_byte,
                 current_index,
                 current_byte,
-            } => {
-                log::debug!(
-                    "ActivityItem selection: anchor=({}, {}), current=({}, {})",
-                    anchor_index,
-                    anchor_byte,
-                    current_index,
-                    current_byte
-                );
-                // For single-item selection
-                if anchor_index == current_index {
-                    // Get the cached position data for this item
-                    if let Some(position_data) = self.get_item_positions(*anchor_index) {
-                        // Get the activity item bounds for absolute positioning
-                        if let Some(bounds) = self.activity_log_state.activity_item_bounds.get(anchor_index) {
-                            let start_byte = anchor_byte.min(current_byte);
-                            let end_byte = anchor_byte.max(current_byte);
-
-                            // Don't show selection for zero-width (just a click position)
-                            if start_byte == end_byte {
-                                return rects;
-                            }
-
-                            // Calculate selection rectangles using the position tree
-                            // Use calculate_local_selection_rectangles since all positions are in the root element
-                            // after we removed the child element creation for headings/code blocks
-                            let item_rects =
-                                position_data.position_tree.calculate_local_selection_rectangles(
-                                    *start_byte,
-                                    *end_byte,
-                                    euclid::Vector2D::new(0.0, 0.0), // Element-relative coordinates
-                                );
-
-                            // Debug log to understand the rectangles
-
-                            // Positions are already stored in content coordinates (where text renders)
-                            // after the fix in extract_positions_from_activity_item which applies
-                            // content_offset during extraction. So we don't need to add it again here.
-
-                            // Transform item-relative rectangles to absolute screen coordinates
-                            for rect in item_rects {
-                                // Debug: Add visualization rectangles for position boundaries
-                                if std::env::var("WEZTERM_DEBUG_SELECTION").is_ok() {
-                                    // Draw position boundary in red
-                                    let debug_rect = euclid::Rect::new(
-                                        euclid::Point2D::new(
-                                            bounds.origin.x + rect.origin.x,
-                                            bounds.origin.y + rect.origin.y,
-                                        ),
-                                        euclid::Size2D::new(rect.size.width, 2.0), // Thin line
-                                    );
-                                    rects.push(debug_rect);
-                                }
-                                // The rect positions are already in content coordinates (where text renders)
-                                // We only need to add the activity item's window position
-                                let absolute_rect = euclid::rect(
-                                    bounds.origin.x + rect.origin.x,
-                                    bounds.origin.y + rect.origin.y,
-                                    rect.size.width,
-                                    rect.size.height,
-                                );
-
-                                rects.push(absolute_rect);
-
-                                log::debug!(
-                                    "Activity item {} selection rect: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
-                                    anchor_index,
-                                    absolute_rect.origin.x,
-                                    absolute_rect.origin.y,
-                                    absolute_rect.size.width,
-                                    absolute_rect.size.height
-                                );
-                            }
-                        }
-                    } else {
-                        // Fallback to character-based approximation if position data not available
-                        log::warn!(
-                            "No position data for activity item {} - using character approximation",
-                            anchor_index
-                        );
-
-                        // Debug: Check what items we have position data for
-                        log::debug!(
-                            "Available position data for items: {:?}",
-                            self.item_positions.keys().collect::<Vec<_>>()
-                        );
-
-                        log::warn!(
-                            "No position data available for activity item {}, using fallback",
-                            anchor_index
-                        );
-
-                        if let Some(bounds) = self.activity_log_state.activity_item_bounds.get(anchor_index) {
-                            if let Some(item) = self.activity_log.get(*anchor_index) {
-                                let start_byte = anchor_byte.min(current_byte);
-                                let end_byte = anchor_byte.max(current_byte);
-
-                                // Only show selection if there's actual text selected
-                                if start_byte != end_byte {
-                                    // For activity items, we need better selection rectangle calculation
-                                    let line_height = 20.0; // Approximate line height
-
-                                    // Get the message text to estimate selection position
-                                    let text = get_item_text_for_selection_with_positions(item, *anchor_index, &self.item_positions);
-
-                                    // Calculate more accurate selection rectangles
-                                    // Account for padding inside the activity item
-                                    let padding = if matches!(item, ActivityItem::Chat { .. }) {
-                                        CHAT_ITEM_PADDING
-                                    } else {
-                                        8.0 // Default card padding
-                                    };
-
-                                    // For now, use character-based approximation
-                                    let char_width = 8.5; // Approximate character width
-
-                                    // Calculate approximate x positions for selection
-                                    let start_char = text.chars().take(*start_byte).count();
-                                    let end_char = text.chars().take(*end_byte).count();
-
-                                    let start_x = bounds.origin.x
-                                        + padding
-                                        + (start_char as f32 * char_width);
-                                    let mut end_x =
-                                        bounds.origin.x + padding + (end_char as f32 * char_width);
-
-                                    // Ensure we don't exceed the bounds
-                                    let max_x = bounds.origin.x + bounds.size.width - padding;
-                                    end_x = end_x.min(max_x);
-
-                                    // For zero-width selections, show a cursor-width rectangle
-                                    let width = if start_byte == end_byte {
-                                        2.0 // Cursor width
-                                    } else {
-                                        end_x - start_x
-                                    };
-
-                                    let rect = euclid::rect(
-                                        start_x,
-                                        bounds.origin.y + padding,
-                                        width,
-                                        line_height,
-                                    );
-
-                                    rects.push(rect);
-                                }
-                            }
-                        } else {
-                            log::debug!("No bounds found for activity item {}", anchor_index);
-                        }
-                    }
-                } else {
-                    // Multi-item selection - generate rectangles for all items in range
-                    
-                    let start_index = anchor_index.min(current_index);
-                    let end_index = anchor_index.max(current_index);
-                    
-                    for item_index in *start_index..=*end_index {
-                        if let Some(position_data) = self.get_item_positions(item_index) {
-                            if let Some(bounds) = self.activity_log_state.activity_item_bounds.get(&item_index) {
-                                // Determine selection range for this item
-                                let (item_start_byte, item_end_byte) = if item_index == *anchor_index {
-                                    // Anchor item: from anchor_byte to end (or start if reversed)
-                                    if anchor_index < current_index {
-                                        (*anchor_byte, position_data.rendered_text.len())
-                                    } else {
-                                        (0, *anchor_byte)
-                                    }
-                                } else if item_index == *current_index {
-                                    // Current item: from start to current_byte (or end if reversed)
-                                    if anchor_index < current_index {
-                                        (0, *current_byte)
-                                    } else {
-                                        (*current_byte, position_data.rendered_text.len())
-                                    }
-                                } else {
-                                    // Middle item: select entire text
-                                    (0, position_data.rendered_text.len())
-                                };
-                                
-                                // Skip if nothing to select
-                                if item_start_byte >= item_end_byte {
-                                    continue;
-                                }
-                                
-                                // Calculate selection rectangles for this item
-                                // Use calculate_local_selection_rectangles since all positions are in the root element
-                                let item_rects = position_data.position_tree.calculate_local_selection_rectangles(
-                                    item_start_byte,
-                                    item_end_byte,
-                                    euclid::Vector2D::new(0.0, 0.0),
-                                );
-                                
-                                // Transform to absolute coordinates
-                                for rect in item_rects {
-                                    let absolute_rect = euclid::Rect::new(
-                                        euclid::Point2D::new(
-                                            bounds.origin.x + rect.origin.x,
-                                            bounds.origin.y + rect.origin.y,
-                                        ),
-                                        rect.size,
-                                    );
-                                    rects.push(absolute_rect);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            } => self.calculate_activity_item_selection_rectangles(
+                *anchor_index,
+                *anchor_byte,
+                *current_index,
+                *current_byte,
+            ),
             SelectionTarget::Suggestion {
                 anchor_byte,
                 current_byte,
-            } => {
-                if let Some(bounds) = &self.suggestion_bounds {
-                    let start = anchor_byte.min(current_byte);
-                    let end = anchor_byte.max(current_byte);
-                    if start != end {
-                        if let Some(suggestion) = self.get_current_suggestion() {
-                            // Calculate more accurate selection rectangles
-                            let padding = 8.0; // Suggestion card padding
-                            let char_width = 8.5; // Approximate character width
-                            let line_height = 20.0;
-
-                            // Calculate character positions
-                            let start_char = suggestion.content.chars().take(*start).count();
-                            let end_char = suggestion.content.chars().take(*end).count();
-
-                            let start_x =
-                                bounds.origin.x + padding + (start_char as f32 * char_width);
-                            let end_x = bounds.origin.x + padding + (end_char as f32 * char_width);
-
-                            // Ensure we don't exceed bounds
-                            let max_x = bounds.origin.x + bounds.size.width - padding;
-                            let end_x = end_x.min(max_x);
-
-                            rects.push(euclid::rect(
-                                start_x,
-                                bounds.origin.y + padding,
-                                end_x - start_x,
-                                line_height,
-                            ));
-                        }
-                    }
-                }
-            }
+            } => self.calculate_suggestion_selection_rectangles(*anchor_byte, *current_byte),
             SelectionTarget::Goal {
                 anchor_byte,
                 current_byte,
-            } => {
-                // log::debug!("SELECTION DEBUG: Goal selection - bounds available={}",
-                //     self.goal_bounds.is_some());
+            } => self.calculate_goal_selection_rectangles(*anchor_byte, *current_byte),
+            SelectionTarget::ChatInput {
+                anchor_line,
+                anchor_byte,
+                current_line,
+                current_byte,
+            } => self.calculate_chat_input_selection_rectangles(
+                *anchor_line,
+                *anchor_byte,
+                *current_line,
+                *current_byte,
+            ),
+        }
+    }
 
-                if let Some(bounds) = &self.goal_bounds {
-                    // log::debug!("SELECTION DEBUG: Goal bounds: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
-                    //     bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+    /// Calculate selection rectangles for ActivityItem selections
+    fn calculate_activity_item_selection_rectangles(
+        &self,
+        anchor_index: usize,
+        anchor_byte: usize,
+        current_index: usize,
+        current_byte: usize,
+    ) -> Vec<euclid::Rect<f32, window::PixelUnit>> {
+        let mut rects = Vec::new();
 
-                    let start = anchor_byte.min(current_byte);
-                    let end = anchor_byte.max(current_byte);
+        log::debug!(
+            "ActivityItem selection: anchor=({}, {}), current=({}, {})",
+            anchor_index,
+            anchor_byte,
+            current_index,
+            current_byte
+        );
+        // For single-item selection
+        if anchor_index == current_index {
+            // Get the cached position data for this item
+            if let Some(position_data) = self.get_item_positions(anchor_index) {
+                // Get the activity item bounds for absolute positioning
+                if let Some(bounds) = self
+                    .activity_log_state
+                    .activity_item_bounds
+                    .get(&anchor_index)
+                {
+                    let start_byte = anchor_byte.min(current_byte);
+                    let end_byte = anchor_byte.max(current_byte);
 
-                    // Only show selection if there's actual text selected
-                    if start != end {
-                        if let Some(goal) = &self.current_goal {
-                            // Use actual glyph positions if available
-                            let (start_x, end_x) = if let Some(positions) =
-                                &self.goal_char_positions
-                            {
-                                // Find x positions for the byte offsets
-                                let mut start_x_pos = bounds.origin.x + GOAL_CARD_PADDING;
-                                let mut end_x_pos = start_x_pos;
+                    // Don't show selection for zero-width (just a click position)
+                    if start_byte == end_byte {
+                        return rects;
+                    }
 
-                                // Find start position
-                                for &(x_start, _, byte_offset) in positions {
-                                    if byte_offset == *start {
-                                        start_x_pos = bounds.origin.x + GOAL_CARD_PADDING + x_start;
-                                        break;
-                                    }
-                                }
+                    // Calculate selection rectangles using the position tree
+                    // Use calculate_local_selection_rectangles since all positions are in the root element
+                    // after we removed the child element creation for headings/code blocks
+                    let item_rects = position_data
+                        .position_tree
+                        .calculate_local_selection_rectangles(
+                            start_byte,
+                            end_byte,
+                            euclid::Vector2D::new(0.0, 0.0), // Element-relative coordinates
+                        );
 
-                                // Find end position
-                                if start == end {
-                                    end_x_pos = start_x_pos;
-                                } else {
-                                    // Look for the position just before the end byte
-                                    for &(x_start, x_end, byte_offset) in positions {
-                                        if byte_offset < *end {
-                                            // This character is included in the selection
-                                            end_x_pos = bounds.origin.x + GOAL_CARD_PADDING + x_end;
-                                        }
-                                    }
-                                }
+                    // Debug log to understand the rectangles
 
-                                (start_x_pos, end_x_pos)
+                    // Positions are already stored in content coordinates (where text renders)
+                    // after the fix in extract_positions_from_activity_item which applies
+                    // content_offset during extraction. So we don't need to add it again here.
+
+                    // Transform item-relative rectangles to absolute screen coordinates
+                    for rect in item_rects {
+                        // Debug: Add visualization rectangles for position boundaries
+                        if std::env::var("WEZTERM_DEBUG_SELECTION").is_ok() {
+                            // Draw position boundary in red
+                            let debug_rect = euclid::Rect::new(
+                                euclid::Point2D::new(
+                                    bounds.origin.x + rect.origin.x,
+                                    bounds.origin.y + rect.origin.y,
+                                ),
+                                euclid::Size2D::new(rect.size.width, 2.0), // Thin line
+                            );
+                            rects.push(debug_rect);
+                        }
+                        // The rect positions are already in content coordinates (where text renders)
+                        // We only need to add the activity item's window position
+                        let absolute_rect = euclid::rect(
+                            bounds.origin.x + rect.origin.x,
+                            bounds.origin.y + rect.origin.y,
+                            rect.size.width,
+                            rect.size.height,
+                        );
+
+                        rects.push(absolute_rect);
+
+                        log::debug!(
+                            "Activity item {} selection rect: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+                            anchor_index,
+                            absolute_rect.origin.x,
+                            absolute_rect.origin.y,
+                            absolute_rect.size.width,
+                            absolute_rect.size.height
+                        );
+                    }
+                }
+            } else {
+                // Fallback to character-based approximation if position data not available
+                log::warn!(
+                    "No position data for activity item {} - using character approximation",
+                    anchor_index
+                );
+
+                // Debug: Check what items we have position data for
+                log::debug!(
+                    "Available position data for items: {:?}",
+                    self.item_positions.keys().collect::<Vec<_>>()
+                );
+
+                log::warn!(
+                    "No position data available for activity item {}, using fallback",
+                    anchor_index
+                );
+
+                if let Some(bounds) = self
+                    .activity_log_state
+                    .activity_item_bounds
+                    .get(&anchor_index)
+                {
+                    if let Some(item) = self.activity_log.get(anchor_index) {
+                        let start_byte = anchor_byte.min(current_byte);
+                        let end_byte = anchor_byte.max(current_byte);
+
+                        // Only show selection if there's actual text selected
+                        if start_byte != end_byte {
+                            // For activity items, we need better selection rectangle calculation
+                            let line_height = 20.0; // Approximate line height
+
+                            // Get the message text to estimate selection position
+                            let text = get_item_text_for_selection_with_positions(
+                                item,
+                                anchor_index,
+                                &self.item_positions,
+                            );
+
+                            // Calculate more accurate selection rectangles
+                            // Account for padding inside the activity item
+                            let padding = if matches!(item, ActivityItem::Chat { .. }) {
+                                CHAT_ITEM_PADDING
                             } else {
-                                // Fallback to character-based calculation
-                                let start_char = goal.text.chars().take(*start).count();
-                                let end_char = goal.text.chars().take(*end).count();
-
-                                let start_x = bounds.origin.x
-                                    + GOAL_CARD_PADDING
-                                    + (start_char as f32 * SELECTION_CHAR_WIDTH);
-                                let end_x = bounds.origin.x
-                                    + GOAL_CARD_PADDING
-                                    + (end_char as f32 * SELECTION_CHAR_WIDTH);
-
-                                (start_x, end_x)
+                                8.0 // Default card padding
                             };
 
-                            // Ensure we don't exceed bounds
-                            let max_x = bounds.origin.x + bounds.size.width - GOAL_CARD_PADDING;
-                            let end_x = end_x.min(max_x);
+                            // For now, use character-based approximation
+                            let char_width = 8.5; // Approximate character width
+
+                            // Calculate approximate x positions for selection
+                            let start_char = text.chars().take(start_byte).count();
+                            let end_char = text.chars().take(end_byte).count();
+
+                            let start_x =
+                                bounds.origin.x + padding + (start_char as f32 * char_width);
+                            let mut end_x =
+                                bounds.origin.x + padding + (end_char as f32 * char_width);
+
+                            // Ensure we don't exceed the bounds
+                            let max_x = bounds.origin.x + bounds.size.width - padding;
+                            end_x = end_x.min(max_x);
 
                             // For zero-width selections, show a cursor-width rectangle
-                            let width = if start == end {
-                                SELECTION_CURSOR_WIDTH
+                            let width = if start_byte == end_byte {
+                                2.0 // Cursor width
                             } else {
                                 end_x - start_x
                             };
 
                             let rect = euclid::rect(
                                 start_x,
-                                bounds.origin.y + GOAL_CARD_PADDING + SELECTION_VERTICAL_OFFSET,
+                                bounds.origin.y + padding,
                                 width,
-                                SELECTION_LINE_HEIGHT,
+                                line_height,
                             );
-
-                            // log::debug!("SELECTION DEBUG: Creating goal rectangle at x={:.1}, y={:.1}, w={:.1}, h={:.1}",
-                            //     rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
 
                             rects.push(rect);
                         }
                     }
                 } else {
-                    // log::warn!("SELECTION DEBUG: No goal bounds available!");
+                    log::debug!("No bounds found for activity item {}", anchor_index);
                 }
             }
-            SelectionTarget::ChatInput {
-                anchor_line,
-                anchor_byte,
-                current_line,
-                current_byte,
-            } => {
-                // log::debug!("SELECTION DEBUG: ChatInput selection - bounds available={}, exact_positions count={}",
-                //     self.chat_input_bounds.is_some(),
-                //     self.chat_input.exact_glyph_positions.len());
+        } else {
+            // Multi-item selection - generate rectangles for all items in range
 
-                if let Some(bounds) = &self.chat_input_bounds {
-                    // log::debug!("SELECTION DEBUG: ChatInput bounds: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
-                    //     bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
-                    if !self.chat_input.exact_glyph_positions.is_empty() {
-                        // Calculate selection rectangles for each line
-                        let start_line = anchor_line.min(current_line);
-                        let end_line = anchor_line.max(current_line);
+            let start_index = anchor_index.min(current_index);
+            let end_index = anchor_index.max(current_index);
 
-                        let line_height = 20.0; // TODO: Get from font metrics
-                        let line_height_with_spacing = line_height * 1.1;
+            for item_index in start_index..=end_index {
+                if let Some(position_data) = self.get_item_positions(item_index) {
+                    if let Some(bounds) = self
+                        .activity_log_state
+                        .activity_item_bounds
+                        .get(&item_index)
+                    {
+                        // Determine selection range for this item
+                        let (item_start_byte, item_end_byte) = if item_index == anchor_index {
+                            // Anchor item: from anchor_byte to end (or start if reversed)
+                            if anchor_index < current_index {
+                                (anchor_byte, position_data.rendered_text.len())
+                            } else {
+                                (0, anchor_byte)
+                            }
+                        } else if item_index == current_index {
+                            // Current item: from start to current_byte (or end if reversed)
+                            if anchor_index < current_index {
+                                (0, current_byte)
+                            } else {
+                                (current_byte, position_data.rendered_text.len())
+                            }
+                        } else {
+                            // Middle item: select entire text
+                            (0, position_data.rendered_text.len())
+                        };
 
-                        // Account for padding and border
-                        let text_padding = 8.0;
-                        let border_thickness = 1.0;
-                        let vertical_padding = 6.0;
-                        let text_offset_x = border_thickness + text_padding;
-                        let text_offset_y = border_thickness + vertical_padding;
+                        // Skip if nothing to select
+                        if item_start_byte >= item_end_byte {
+                            continue;
+                        }
 
-                        log::debug!(
-                            "ChatInput selection: bounds={:?}, start_line={}, end_line={}",
-                            bounds,
-                            start_line,
-                            end_line
-                        );
+                        // Calculate selection rectangles for this item
+                        // Use calculate_local_selection_rectangles since all positions are in the root element
+                        let item_rects = position_data
+                            .position_tree
+                            .calculate_local_selection_rectangles(
+                                item_start_byte,
+                                item_end_byte,
+                                euclid::Vector2D::new(0.0, 0.0),
+                            );
 
-                        for line_idx in *start_line..=*end_line {
-                            if line_idx < self.chat_input.exact_glyph_positions.len()
-                                && line_idx < self.chat_input.lines.len()
-                            {
-                                let line_positions =
-                                    &self.chat_input.exact_glyph_positions[line_idx];
-                                let line_text = &self.chat_input.lines[line_idx];
+                        // Transform to absolute coordinates
+                        for rect in item_rects {
+                            let absolute_rect = euclid::Rect::new(
+                                euclid::Point2D::new(
+                                    bounds.origin.x + rect.origin.x,
+                                    bounds.origin.y + rect.origin.y,
+                                ),
+                                rect.size,
+                            );
+                            rects.push(absolute_rect);
+                        }
+                    }
+                }
+            }
+        }
 
-                                log::debug!(
-                                    "Line {}: positions count={}, text len={}",
-                                    line_idx,
-                                    line_positions.len(),
-                                    line_text.len()
-                                );
+        rects
+    }
 
-                                // Calculate x range for this line
-                                let (x_start, x_end) =
-                                    if line_idx == *start_line && line_idx == *end_line {
-                                        // Selection within single line
-                                        let start_byte = if *anchor_line == *start_line {
-                                            *anchor_byte
-                                        } else {
-                                            *current_byte
-                                        };
-                                        let end_byte = if *anchor_line == *start_line {
-                                            *current_byte
-                                        } else {
-                                            *anchor_byte
-                                        };
-                                        let min_byte = start_byte.min(end_byte);
-                                        let max_byte = start_byte.max(end_byte);
+    /// Calculate selection rectangles for Suggestion selections
+    fn calculate_suggestion_selection_rectangles(
+        &self,
+        anchor_byte: usize,
+        current_byte: usize,
+    ) -> Vec<euclid::Rect<f32, window::PixelUnit>> {
+        let mut rects = Vec::new();
 
-                                        log::debug!(
-                                            "Single line selection: min_byte={}, max_byte={}",
-                                            min_byte,
-                                            max_byte
-                                        );
+        if let Some(bounds) = &self.suggestion_bounds {
+            let start = anchor_byte.min(current_byte);
+            let end = anchor_byte.max(current_byte);
+            if start != end {
+                if let Some(suggestion) = self.get_current_suggestion() {
+                    // Calculate more accurate selection rectangles
+                    let padding = 8.0; // Suggestion card padding
+                    let char_width = 8.5; // Approximate character width
+                    let line_height = 20.0;
 
-                                        // For chat input, byte offsets are character indices
-                                        let x_start = self
-                                            .find_x_for_byte_offset(&line_positions, min_byte)
-                                            .unwrap_or(0.0);
-                                        let x_end = self
-                                            .find_x_for_byte_offset(&line_positions, max_byte)
-                                            .unwrap_or_else(|| {
-                                                // If we can't find the position, use the last glyph's end position
-                                                line_positions
-                                                    .last()
-                                                    .map(|(_, end, _)| *end)
-                                                    .unwrap_or(100.0)
-                                            });
-                                        (x_start, x_end)
-                                    } else if line_idx == *start_line {
-                                        // First line of multi-line selection
-                                        let start_byte = if *anchor_line == *start_line {
-                                            *anchor_byte
-                                        } else {
-                                            *current_byte
-                                        };
-                                        let x_start = self
-                                            .find_x_for_byte_offset(&line_positions, start_byte)
-                                            .unwrap_or(0.0);
-                                        let x_end = line_positions
-                                            .last()
-                                            .map(|(_, end, _)| *end)
-                                            .unwrap_or(100.0);
-                                        (x_start, x_end)
-                                    } else if line_idx == *end_line {
-                                        // Last line of multi-line selection
-                                        let end_byte = if *anchor_line == *end_line {
-                                            *anchor_byte
-                                        } else {
-                                            *current_byte
-                                        };
-                                        let x_end = self
-                                            .find_x_for_byte_offset(&line_positions, end_byte)
-                                            .unwrap_or_else(|| {
-                                                line_positions
-                                                    .last()
-                                                    .map(|(_, end, _)| *end)
-                                                    .unwrap_or(100.0)
-                                            });
-                                        (0.0, x_end)
-                                    } else {
-                                        // Middle line - select entire line
-                                        let x_end = line_positions
-                                            .last()
-                                            .map(|(_, end, _)| *end)
-                                            .unwrap_or(100.0);
-                                        (0.0, x_end)
-                                    };
+                    // Calculate character positions
+                    let start_char = suggestion.content.chars().take(start).count();
+                    let end_char = suggestion.content.chars().take(end).count();
 
-                                log::debug!(
-                                    "Line {} selection x_start={}, x_end={}",
-                                    line_idx,
-                                    x_start,
-                                    x_end
-                                );
+                    let start_x = bounds.origin.x + padding + (start_char as f32 * char_width);
+                    let end_x = bounds.origin.x + padding + (end_char as f32 * char_width);
 
-                                // Adjust for scroll offset
-                                let y_offset = line_idx as f32 * line_height_with_spacing
-                                    - self.chat_input.scroll_pixel_offset;
+                    // Ensure we don't exceed bounds
+                    let max_x = bounds.origin.x + bounds.size.width - padding;
+                    let end_x = end_x.min(max_x);
 
-                                // Only add rectangle if it's visible
-                                if y_offset + line_height > 0.0 && y_offset < bounds.size.height {
-                                    let rect = euclid::rect(
-                                        bounds.origin.x + text_offset_x + x_start,
-                                        bounds.origin.y + text_offset_y + y_offset,
-                                        x_end - x_start,
-                                        line_height,
-                                    );
-                                    rects.push(rect);
+                    rects.push(euclid::rect(
+                        start_x,
+                        bounds.origin.y + padding,
+                        end_x - start_x,
+                        line_height,
+                    ));
+                }
+            }
+        }
+
+        rects
+    }
+
+    /// Calculate selection rectangles for Goal selections
+    fn calculate_goal_selection_rectangles(
+        &self,
+        anchor_byte: usize,
+        current_byte: usize,
+    ) -> Vec<euclid::Rect<f32, window::PixelUnit>> {
+        let mut rects = Vec::new();
+
+        // log::debug!("SELECTION DEBUG: Goal selection - bounds available={}",
+        //     self.goal_bounds.is_some());
+
+        if let Some(bounds) = &self.goal_bounds {
+            // log::debug!("SELECTION DEBUG: Goal bounds: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+            //     bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+
+            let start = anchor_byte.min(current_byte);
+            let end = anchor_byte.max(current_byte);
+
+            // Only show selection if there's actual text selected
+            if start != end {
+                if let Some(goal) = &self.current_goal {
+                    // Use actual glyph positions if available
+                    let (start_x, end_x) = if let Some(positions) = &self.goal_char_positions {
+                        // Find x positions for the byte offsets
+                        let mut start_x_pos = bounds.origin.x + GOAL_CARD_PADDING;
+                        let mut end_x_pos = start_x_pos;
+
+                        // Find start position
+                        for &(x_start, _, byte_offset) in positions {
+                            if byte_offset == start {
+                                start_x_pos = bounds.origin.x + GOAL_CARD_PADDING + x_start;
+                                break;
+                            }
+                        }
+
+                        // Find end position
+                        if start == end {
+                            end_x_pos = start_x_pos;
+                        } else {
+                            // Look for the position just before the end byte
+                            for &(x_start, x_end, byte_offset) in positions {
+                                if byte_offset < end {
+                                    // This character is included in the selection
+                                    end_x_pos = bounds.origin.x + GOAL_CARD_PADDING + x_end;
                                 }
                             }
+                        }
+
+                        (start_x_pos, end_x_pos)
+                    } else {
+                        // Fallback to character-based calculation
+                        let start_char = goal.text.chars().take(start).count();
+                        let end_char = goal.text.chars().take(end).count();
+
+                        let start_x = bounds.origin.x
+                            + GOAL_CARD_PADDING
+                            + (start_char as f32 * SELECTION_CHAR_WIDTH);
+                        let end_x = bounds.origin.x
+                            + GOAL_CARD_PADDING
+                            + (end_char as f32 * SELECTION_CHAR_WIDTH);
+
+                        (start_x, end_x)
+                    };
+
+                    // Ensure we don't exceed bounds
+                    let max_x = bounds.origin.x + bounds.size.width - GOAL_CARD_PADDING;
+                    let end_x = end_x.min(max_x);
+
+                    // For zero-width selections, show a cursor-width rectangle
+                    let width = if start == end {
+                        SELECTION_CURSOR_WIDTH
+                    } else {
+                        end_x - start_x
+                    };
+
+                    let rect = euclid::rect(
+                        start_x,
+                        bounds.origin.y + GOAL_CARD_PADDING + SELECTION_VERTICAL_OFFSET,
+                        width,
+                        SELECTION_LINE_HEIGHT,
+                    );
+
+                    // log::debug!("SELECTION DEBUG: Creating goal rectangle at x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+                    //     rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+
+                    rects.push(rect);
+                }
+            }
+        } else {
+            // log::warn!("SELECTION DEBUG: No goal bounds available!");
+        }
+
+        rects
+    }
+
+    /// Calculate selection rectangles for ChatInput selections
+    fn calculate_chat_input_selection_rectangles(
+        &self,
+        anchor_line: usize,
+        anchor_byte: usize,
+        current_line: usize,
+        current_byte: usize,
+    ) -> Vec<euclid::Rect<f32, window::PixelUnit>> {
+        let mut rects = Vec::new();
+
+        // log::debug!("SELECTION DEBUG: ChatInput selection - bounds available={}, exact_positions count={}",
+        //     self.chat_input_bounds.is_some(),
+        //     self.chat_input.exact_glyph_positions.len());
+
+        if let Some(bounds) = &self.chat_input_bounds {
+            // log::debug!("SELECTION DEBUG: ChatInput bounds: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+            //     bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+            if !self.chat_input.exact_glyph_positions.is_empty() {
+                // Calculate selection rectangles for each line
+                let start_line = anchor_line.min(current_line);
+                let end_line = anchor_line.max(current_line);
+
+                let line_height = 20.0; // TODO: Get from font metrics
+                let line_height_with_spacing = line_height * 1.1;
+
+                // Account for padding and border
+                let text_padding = 8.0;
+                let border_thickness = 1.0;
+                let vertical_padding = 6.0;
+                let text_offset_x = border_thickness + text_padding;
+                let text_offset_y = border_thickness + vertical_padding;
+
+                log::debug!(
+                    "ChatInput selection: bounds={:?}, start_line={}, end_line={}",
+                    bounds,
+                    start_line,
+                    end_line
+                );
+
+                for line_idx in start_line..=end_line {
+                    if line_idx < self.chat_input.exact_glyph_positions.len()
+                        && line_idx < self.chat_input.lines.len()
+                    {
+                        let line_positions = &self.chat_input.exact_glyph_positions[line_idx];
+                        let line_text = &self.chat_input.lines[line_idx];
+
+                        log::debug!(
+                            "Line {}: positions count={}, text len={}",
+                            line_idx,
+                            line_positions.len(),
+                            line_text.len()
+                        );
+
+                        // Calculate x range for this line
+                        let (x_start, x_end) = if line_idx == start_line && line_idx == end_line {
+                            // Selection within single line
+                            let start_byte = if anchor_line == start_line {
+                                anchor_byte
+                            } else {
+                                current_byte
+                            };
+                            let end_byte = if anchor_line == start_line {
+                                current_byte
+                            } else {
+                                anchor_byte
+                            };
+                            let min_byte = start_byte.min(end_byte);
+                            let max_byte = start_byte.max(end_byte);
+
+                            log::debug!(
+                                "Single line selection: min_byte={}, max_byte={}",
+                                min_byte,
+                                max_byte
+                            );
+
+                            // For chat input, byte offsets are character indices
+                            let x_start = self
+                                .find_x_for_byte_offset(&line_positions, min_byte)
+                                .unwrap_or(0.0);
+                            let x_end = self
+                                .find_x_for_byte_offset(&line_positions, max_byte)
+                                .unwrap_or_else(|| {
+                                    // If we can't find the position, use the last glyph's end position
+                                    line_positions
+                                        .last()
+                                        .map(|(_, end, _)| *end)
+                                        .unwrap_or(100.0)
+                                });
+                            (x_start, x_end)
+                        } else if line_idx == start_line {
+                            // First line of multi-line selection
+                            let start_byte = if anchor_line == start_line {
+                                anchor_byte
+                            } else {
+                                current_byte
+                            };
+                            let x_start = self
+                                .find_x_for_byte_offset(&line_positions, start_byte)
+                                .unwrap_or(0.0);
+                            let x_end = line_positions
+                                .last()
+                                .map(|(_, end, _)| *end)
+                                .unwrap_or(100.0);
+                            (x_start, x_end)
+                        } else if line_idx == end_line {
+                            // Last line of multi-line selection
+                            let end_byte = if anchor_line == end_line {
+                                anchor_byte
+                            } else {
+                                current_byte
+                            };
+                            let x_end = self
+                                .find_x_for_byte_offset(&line_positions, end_byte)
+                                .unwrap_or_else(|| {
+                                    line_positions
+                                        .last()
+                                        .map(|(_, end, _)| *end)
+                                        .unwrap_or(100.0)
+                                });
+                            (0.0, x_end)
+                        } else {
+                            // Middle line - select entire line
+                            let x_end = line_positions
+                                .last()
+                                .map(|(_, end, _)| *end)
+                                .unwrap_or(100.0);
+                            (0.0, x_end)
+                        };
+
+                        log::debug!(
+                            "Line {} selection x_start={}, x_end={}",
+                            line_idx,
+                            x_start,
+                            x_end
+                        );
+
+                        // Adjust for scroll offset
+                        let y_offset = line_idx as f32 * line_height_with_spacing
+                            - self.chat_input.scroll_pixel_offset;
+
+                        // Only add rectangle if it's visible
+                        if y_offset + line_height > 0.0 && y_offset < bounds.size.height {
+                            let rect = euclid::rect(
+                                bounds.origin.x + text_offset_x + x_start,
+                                bounds.origin.y + text_offset_y + y_offset,
+                                x_end - x_start,
+                                line_height,
+                            );
+                            rects.push(rect);
                         }
                     }
                 }
@@ -3298,7 +3002,9 @@ impl Sidebar for AiSidebar {
             log::debug!(
                 "Scroll wheel event: amount={}, has_renderer={}",
                 amount,
-                self.activity_log_state.activity_log_scrollbar_renderer.is_some()
+                self.activity_log_state
+                    .activity_log_scrollbar_renderer
+                    .is_some()
             );
 
             // Check if we have a scrollbar renderer to get scroll metrics
@@ -3317,9 +3023,11 @@ impl Sidebar for AiSidebar {
 
                 // Constrain to valid range using actual content metrics
                 let max_scroll = (renderer.total_size() - renderer.viewport_size()).max(0.0);
-                self.activity_log_state.activity_log_scroll_offset = new_offset.clamp(0.0, max_scroll);
+                self.activity_log_state.activity_log_scroll_offset =
+                    new_offset.clamp(0.0, max_scroll);
 
-                let actually_scrolled = (self.activity_log_state.activity_log_scroll_offset - old_offset).abs() > 0.1;
+                let actually_scrolled =
+                    (self.activity_log_state.activity_log_scroll_offset - old_offset).abs() > 0.1;
                 log::debug!(
                     "Scroll wheel: old_offset={}, new_offset={}, max_scroll={}, amount={}, scroll_amount={}, actually_moved={}",
                     old_offset, self.activity_log_state.activity_log_scroll_offset, max_scroll, amount, scroll_amount, actually_scrolled
@@ -3363,12 +3071,12 @@ impl Sidebar for AiSidebar {
         // Check if we need to handle scrollbar events
         // Always process mouse events if the scrollbar is currently being dragged,
         // even if the mouse is outside the scrollbar bounds
-        let should_handle_scrollbar = if let Some(renderer) = &self.activity_log_state.activity_log_scrollbar_renderer
-        {
-            renderer.state().is_dragging || self.is_scrollbar_event(event)
-        } else {
-            false
-        };
+        let should_handle_scrollbar =
+            if let Some(renderer) = &self.activity_log_state.activity_log_scrollbar_renderer {
+                renderer.state().is_dragging || self.is_scrollbar_event(event)
+            } else {
+                false
+            };
 
         if should_handle_scrollbar {
             if let Some(renderer) = &mut self.activity_log_state.activity_log_scrollbar_renderer {
@@ -3378,7 +3086,8 @@ impl Sidebar for AiSidebar {
                         // Update scroll position with proper bounds checking
                         let max_scroll =
                             (renderer.total_size() - renderer.viewport_size()).max(0.0);
-                        self.activity_log_state.activity_log_scroll_offset = new_scroll_offset.clamp(0.0, max_scroll);
+                        self.activity_log_state.activity_log_scroll_offset =
+                            new_scroll_offset.clamp(0.0, max_scroll);
 
                         // Clear visual anchor when user interacts with scrollbar
                         self.activity_log_state.visual_anchor = None;
@@ -3438,7 +3147,11 @@ impl Sidebar for AiSidebar {
                     // Check if Shift is held
                     if modifiers.contains(KeyModifiers::SHIFT) {
                         // Shift+Enter should insert a newline - let ChatInputHandler handle it
-                        let handled = ChatInputHandler::handle_key_event(&mut self.chat_input, key, modifiers);
+                        let handled = ChatInputHandler::handle_key_event(
+                            &mut self.chat_input,
+                            key,
+                            modifiers,
+                        );
                         log::debug!(
                             "ChatInputHandler::handle_key_event (Shift+Enter) returned: {}",
                             handled
@@ -3446,7 +3159,10 @@ impl Sidebar for AiSidebar {
                         return Ok(handled);
                     } else {
                         // Enter without shift sends the message
-                        if !ChatInputHandler::get_text(&self.chat_input).trim().is_empty() {
+                        if !ChatInputHandler::get_text(&self.chat_input)
+                            .trim()
+                            .is_empty()
+                        {
                             self.handle_chat_send();
                         }
                         return Ok(true);
@@ -3454,7 +3170,8 @@ impl Sidebar for AiSidebar {
                 }
                 _ => {
                     // Let ChatInputHandler handle all other keys
-                    let handled = ChatInputHandler::handle_key_event(&mut self.chat_input, key, modifiers);
+                    let handled =
+                        ChatInputHandler::handle_key_event(&mut self.chat_input, key, modifiers);
                     log::debug!("ChatInputHandler::handle_key_event returned: {}", handled);
                     return Ok(handled);
                 }
@@ -3518,13 +3235,15 @@ impl AiSidebar {
         use crate::sidebar::chat_input::{
             CHAT_INPUT_BORDER_THICKNESS, CHAT_INPUT_TEXT_PADDING, CHAT_INPUT_VERTICAL_PADDING,
         };
-        
+
         // Focus the input
         self.focus_chat_input();
 
         // Calculate relative position within the chat input text area
-        let relative_x = click_x - bounds.origin.x - CHAT_INPUT_BORDER_THICKNESS - CHAT_INPUT_TEXT_PADDING;
-        let relative_y = click_y - bounds.origin.y - CHAT_INPUT_BORDER_THICKNESS - CHAT_INPUT_VERTICAL_PADDING;
+        let relative_x =
+            click_x - bounds.origin.x - CHAT_INPUT_BORDER_THICKNESS - CHAT_INPUT_TEXT_PADDING;
+        let relative_y =
+            click_y - bounds.origin.y - CHAT_INPUT_BORDER_THICKNESS - CHAT_INPUT_VERTICAL_PADDING;
 
         // Delegate to ChatInputHandler for cursor positioning
         if relative_x >= 0.0 && relative_y >= 0.0 {
@@ -3535,8 +3254,8 @@ impl AiSidebar {
                 relative_x,
                 relative_y,
                 &line_positions,
-                false,  // not a drag
-                false,  // no shift held
+                false, // not a drag
+                false, // no shift held
             );
         }
     }
@@ -3550,36 +3269,219 @@ impl AiSidebar {
         is_drag: bool,
         shift_held: bool,
     ) {
-        use crate::sidebar::chat_input::{CHAT_INPUT_TEXT_PADDING, CHAT_INPUT_VERTICAL_PADDING};
-        
+        log::debug!(
+            "handle_chat_input_click_with_positions: relative_x={}, relative_y={}, line_positions_count={}, is_drag={}, shift_held={}",
+            relative_x, relative_y, line_positions.len(), is_drag, shift_held
+        );
+
+        // Debug: log what positions we received
+        for (line_idx, line_pos) in line_positions.iter().enumerate().take(2) {
+            log::debug!("  Line {} has {} positions", line_idx, line_pos.len());
+            for (i, &(x_start, x_end, byte_offset)) in line_pos.iter().enumerate().take(5) {
+                log::debug!(
+                    "    Pos[{}]: x=({:.1}, {:.1}), byte_offset={}",
+                    i,
+                    x_start,
+                    x_end,
+                    byte_offset
+                );
+            }
+        }
+
         // Store the exact positions for cursor positioning
         self.chat_input.exact_glyph_positions = line_positions.clone();
-        
+
         // Focus the input
         self.focus_chat_input();
-        
-        // Account for padding - delegate calculation to ChatInputHandler
-        let adjusted_x = relative_x - CHAT_INPUT_TEXT_PADDING;
-        let adjusted_y = relative_y - CHAT_INPUT_VERTICAL_PADDING - 2.0;
-        
-        // Delegate all click handling logic to ChatInputHandler
-        ChatInputHandler::handle_click(
-            &mut self.chat_input,
+
+        // Account for padding inside the chat input
+        // Container has 8px top padding, and we need to account for that
+        let container_padding_top = 8.0;
+        let text_padding = 4.0; // Per-line text element padding
+        let adjusted_x = relative_x - text_padding;
+        let adjusted_y = relative_y - container_padding_top - 2.0; // Container + per-line padding
+
+        log::debug!(
+            "Adjusted coordinates: x={}, y={}, text_padding={}",
             adjusted_x,
             adjusted_y,
-            line_positions,
-            is_drag,
-            shift_held,
+            text_padding
         );
+
+        // Only position cursor if click is within the text area
+        if adjusted_x >= 0.0 && adjusted_y >= 0.0 {
+            // Use actual line height with spacing
+            let line_height_with_spacing = 20.0 * 1.1; // 22px as shown in logs
+
+            // Calculate which line was clicked (accounting for scroll offset)
+            let clicked_line = ((adjusted_y + self.chat_input.scroll_pixel_offset)
+                / line_height_with_spacing) as usize;
+
+            log::debug!(
+                "Line calculation: adjusted_y={}, scroll_offset={}, line_height={}, clicked_line={}",
+                adjusted_y, self.chat_input.scroll_pixel_offset, line_height_with_spacing, clicked_line
+            );
+
+            if clicked_line < line_positions.len() {
+                // Find character position in the visual line using exact glyph positions
+                let line_glyph_positions = &line_positions[clicked_line];
+
+                log::debug!(
+                    "Visual line {}: glyph_positions_count={}",
+                    clicked_line,
+                    line_glyph_positions.len()
+                );
+
+                // Debug log the glyph positions
+                if line_glyph_positions.len() > 0 {
+                    log::debug!(
+                        "First glyph position: ({}, {}), Last glyph position: ({}, {})",
+                        line_glyph_positions[0].0,
+                        line_glyph_positions[0].1,
+                        line_glyph_positions.last().unwrap().0,
+                        line_glyph_positions.last().unwrap().1
+                    );
+                }
+
+                // Find which character was clicked using exact glyph positions
+                let clicked_document_byte_offset = if line_glyph_positions.is_empty() {
+                    0
+                } else {
+                    // Find the glyph that contains the click position
+                    let mut found_offset = None;
+                    for (x_start, x_end, byte_offset) in line_glyph_positions.iter() {
+                        if adjusted_x < *x_start {
+                            // Click is before this glyph
+                            found_offset = Some(*byte_offset);
+                            break;
+                        } else if adjusted_x >= *x_start && adjusted_x <= *x_end {
+                            // Click is within this glyph - decide if it's closer to start or end
+                            let mid = (*x_start + *x_end) / 2.0;
+                            if adjusted_x < mid {
+                                found_offset = Some(*byte_offset);
+                            } else {
+                                // Find the next glyph's byte offset
+                                let next_idx = line_glyph_positions
+                                    .iter()
+                                    .position(|(s, _, _)| *s == *x_start)
+                                    .and_then(|idx| line_glyph_positions.get(idx + 1))
+                                    .map(|(_, _, next_offset)| *next_offset);
+                                found_offset = next_idx.or(Some(*byte_offset + 1));
+                            }
+                            break;
+                        }
+                    }
+
+                    // If click is past all glyphs, position at end of visual line
+                    if found_offset.is_none() {
+                        if let Some((_, _, last_offset)) = line_glyph_positions.last() {
+                            // Use the last offset + 1 for "after last character"
+                            found_offset = Some(*last_offset + 1);
+                        }
+                    }
+
+                    found_offset.unwrap_or(0)
+                };
+
+                // Now map the document byte offset to logical line and column
+                let mut current_byte = 0;
+                let mut found_logical_position = false;
+                let mut logical_line = 0;
+                let mut logical_col = 0;
+
+                for (logical_line_idx, line_text) in self.chat_input.lines.iter().enumerate() {
+                    let line_start = current_byte;
+                    let line_end = current_byte + line_text.len();
+
+                    if clicked_document_byte_offset >= line_start
+                        && clicked_document_byte_offset <= line_end
+                    {
+                        // Found the logical line containing this byte offset
+                        let line_relative_byte = clicked_document_byte_offset - line_start;
+
+                        // Convert byte offset to character index
+                        let char_index = line_text
+                            .char_indices()
+                            .take_while(|(byte_idx, _)| *byte_idx < line_relative_byte)
+                            .count();
+
+                        log::debug!(
+                            "[CLICK_DEBUG] Mapped click to logical line {}, char {}, doc_byte_offset={}",
+                            logical_line_idx,
+                            char_index,
+                            clicked_document_byte_offset
+                        );
+
+                        logical_line = logical_line_idx;
+                        logical_col = char_index;
+                        found_logical_position = true;
+                        break;
+                    }
+
+                    current_byte = line_end + 1; // +1 for newline
+                }
+
+                if found_logical_position {
+                    // Handle selection logic
+                    if is_drag {
+                        // Update selection during drag
+                        self.update_chat_input_selection(logical_line, logical_col);
+                    } else if shift_held {
+                        // Extend selection with shift+click
+                        if let Some(SelectionTarget::ChatInput { .. }) =
+                            &self.selection_state.active_selection
+                        {
+                            // Update current position to extend selection
+                            self.update_chat_input_selection(logical_line, logical_col);
+                        } else {
+                            // Start new selection from cursor to clicked position
+                            let cursor_line = self.chat_input.cursor_line;
+                            let cursor_col = self.chat_input.cursor_col;
+                            self.start_chat_input_selection(cursor_line, cursor_col);
+                            self.update_chat_input_selection(logical_line, logical_col);
+                        }
+                    } else {
+                        // Regular click - clear selection and move cursor
+                        self.selection_state.clear();
+                        self.chat_input.cursor_line = logical_line;
+                        self.chat_input.cursor_col = logical_col;
+
+                        // Start potential selection (for drag)
+                        self.selection_state.prepared_selection =
+                            Some(SelectionTarget::ChatInput {
+                                anchor_line: logical_line,
+                                anchor_byte: logical_col,
+                                current_line: logical_line,
+                                current_byte: logical_col,
+                            });
+                    }
+                } else {
+                    log::warn!(
+                        "[CLICK_DEBUG] Could not map document byte offset {} to logical line",
+                        clicked_document_byte_offset
+                    );
+                }
+            } else {
+                log::warn!(
+                    "[CLICK_DEBUG] Click outside valid lines: clicked_line={}, total_lines={}",
+                    clicked_line,
+                    self.chat_input.lines.len()
+                );
+            }
+        } else {
+            log::warn!(
+                "[CLICK_DEBUG] Click outside text area: adjusted_x={}, adjusted_y={}",
+                adjusted_x,
+                adjusted_y
+            );
+        }
     }
 
     /// Handle mouse wheel events for chat input (simplified without font access)
     pub fn handle_chat_input_wheel_simple(&mut self, amount: i16) -> bool {
-        use crate::sidebar::chat_input::{ESTIMATED_LINE_HEIGHT, LINE_HEIGHT_MULTIPLIER};
-        
         // Convert wheel amount to pixel delta
         // Negative amount means scroll up, positive means scroll down
-        let line_height = ESTIMATED_LINE_HEIGHT * LINE_HEIGHT_MULTIPLIER;
+        let line_height = 20.0 * 1.1; // Estimated line height with rendering multiplier
         let delta = amount as f32 * 3.0; // Multiply for smoother scrolling
         ChatInputHandler::handle_wheel_scroll(&mut self.chat_input, delta, line_height)
     }
@@ -3597,10 +3499,14 @@ impl AiSidebar {
         }
 
         // Check sidebar selection state
-        eprintln!("🔔 COPY: Checking selection state, item_positions.len()={}", self.item_positions.len());
+        eprintln!(
+            "🔔 COPY: Checking selection state, item_positions.len()={}",
+            self.item_positions.len()
+        );
         if let Some(text) = self.selection_state.get_selected_text(self) {
-            eprintln!("🔔 COPY: Got text: {} chars, preview: '{}'", 
-                text.len(), 
+            eprintln!(
+                "🔔 COPY: Got text: {} chars, preview: '{}'",
+                text.len(),
                 &text.chars().take(50).collect::<String>()
             );
             window.set_clipboard(window::Clipboard::Clipboard, text);
@@ -3681,19 +3587,12 @@ impl AiSidebar {
         // Removed +20px hack - virtual scrolling with accurate height caching handles this correctly
     }
 
-    /// Update height cache from rendered ComputedElement
-    /// This extracts the actual rendered heights from the computed element tree
-    pub fn update_activity_log_height_cache(
-        &mut self,
-        activity_log_computed: &crate::termwindow::box_model::ComputedElement,
-        viewport_height: f32,
-    ) {
-        use crate::termwindow::box_model::ComputedElementContent;
-
-        // Remember if we were at the bottom before updating
-        let was_at_bottom = if let Some(scrollbar) = &self.activity_log_state.activity_log_scrollbar {
+    /// Check if the activity log was at the bottom before an update
+    fn was_activity_log_at_bottom(&self) -> bool {
+        if let Some(scrollbar) = &self.activity_log_state.activity_log_scrollbar {
             let max_scroll = (scrollbar.content_height - scrollbar.viewport_height).max(0.0);
-            let at_bottom = max_scroll > 0.0 && self.activity_log_state.activity_log_scroll_offset >= max_scroll - 1.0;
+            let at_bottom = max_scroll > 0.0
+                && self.activity_log_state.activity_log_scroll_offset >= max_scroll - 1.0;
             if at_bottom {
                 log::debug!(
                     "[VSCROLL] was_at_bottom=true (scroll={:.0}, max={:.0}, content={:.0})",
@@ -3705,21 +3604,249 @@ impl AiSidebar {
             at_bottom
         } else {
             false
-        };
+        }
+    }
 
-        // Remember the old total height
-        let old_total_height = self
-            .activity_log_state.activity_log_scrollbar
+    /// Get the old total height before updating
+    fn get_old_total_height(&self) -> f32 {
+        self.activity_log_state
+            .activity_log_scrollbar
             .as_ref()
             .map(|s| s.content_height)
-            .unwrap_or(0.0);
+            .unwrap_or(0.0)
+    }
 
-        // The activity log computed element structure is:
-        // - Root container (with margin for scrolling)
-        //   - Content area (with children for each visible item)
+    /// Get filtered items based on current activity filter
+    fn get_filtered_activity_items(&self) -> Vec<(usize, &ActivityItem)> {
+        self.activity_log
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| match self.activity_filter {
+                ActivityFilter::All => true,
+                ActivityFilter::Commands => {
+                    matches!(item, ActivityItem::Command { .. })
+                }
+                ActivityFilter::Chat => {
+                    matches!(item, ActivityItem::Chat { .. })
+                }
+                ActivityFilter::Suggestions => {
+                    matches!(item, ActivityItem::Suggestion { .. })
+                }
+            })
+            .collect()
+    }
 
-        // Track if we need sticky bottom (currently disabled)
-        let sticky_bottom_needed = was_at_bottom;
+    /// Process a single activity item element and update its height cache
+    fn process_activity_item_element(
+        &mut self,
+        computed_item: &crate::termwindow::box_model::ComputedElement,
+        item: &ActivityItem,
+        viewport_height: f32,
+    ) {
+        use crate::termwindow::box_model::ComputedElementContent;
+
+        // Get the item ID
+        let item_id = match item {
+            ActivityItem::Command { id, .. } => id.clone(),
+            ActivityItem::Chat { id, .. } => id.clone(),
+            ActivityItem::Suggestion { id, .. } => id.clone(),
+            ActivityItem::Goal { id, .. } => id.clone(),
+        };
+
+        // Extract the rendered height
+        // Use border_rect height which includes the full rendered height with padding/borders
+        let rendered_height = computed_item.border_rect.size.height;
+
+        // DEBUG: Log height comparison
+        log::debug!(
+            "[VSCROLL] HEIGHT DEBUG {}: calculated={:.0}, border_rect.h={:.0}, content_rect.h={:.0}, y_pos={:.0}",
+            item_id,
+            rendered_height,
+            computed_item.border_rect.size.height,
+            computed_item.content_rect.size.height,
+            computed_item.content_rect.origin.y
+        );
+
+        // Special logging for tall items
+        if item_id.contains("chat2") || computed_item.border_rect.size.height > 1000.0 {
+            log::debug!(
+                "[VSCROLL] TALL ITEM {}: border_rect.h={:.0} (vs viewport={:.0}), clipped={}",
+                item_id,
+                computed_item.border_rect.size.height,
+                viewport_height,
+                computed_item.border_rect.size.height > viewport_height
+            );
+        }
+
+        // DEBUG: Log detailed element information
+        log::debug!("[VSCROLL] Item {} element debug:", item_id);
+        log::debug!(
+            "  CALCULATED height: {:.0}px (position-based)",
+            rendered_height
+        );
+        log::debug!(
+            "  content_rect: origin=({:.0}, {:.0}) size=({:.0} x {:.0})",
+            computed_item.content_rect.origin.x,
+            computed_item.content_rect.origin.y,
+            computed_item.content_rect.size.width,
+            computed_item.content_rect.size.height
+        );
+        log::debug!(
+            "  bounds: origin=({:.0}, {:.0}) size=({:.0} x {:.0})",
+            computed_item.bounds.origin.x,
+            computed_item.bounds.origin.y,
+            computed_item.bounds.size.width,
+            computed_item.bounds.size.height
+        );
+
+        // Log the margin/padding info if the height seems wrong
+        if computed_item.content_rect.size.height > 2000.0 {
+            let padding_height =
+                computed_item.padding.height() - computed_item.content_rect.height();
+            let border_height = computed_item.border_rect.height() - computed_item.padding.height();
+            let margin_height = computed_item.bounds.height() - computed_item.border_rect.height();
+
+            log::debug!(
+                "  HEIGHT BREAKDOWN: content={:.0}, +padding={:.0}, +border={:.0}, +margin={:.0}",
+                computed_item.content_rect.size.height,
+                padding_height,
+                border_height,
+                margin_height
+            );
+        }
+        log::debug!(
+            "  border_rect: origin=({:.0}, {:.0}) size=({:.0} x {:.0})",
+            computed_item.border_rect.origin.x,
+            computed_item.border_rect.origin.y,
+            computed_item.border_rect.size.width,
+            computed_item.border_rect.size.height
+        );
+
+        // Check what type of content this element has
+        match &computed_item.content {
+            ComputedElementContent::Text(_) => {
+                log::debug!("  content type: Text");
+            }
+            ComputedElementContent::Children(children) => {
+                log::debug!("  content type: Children (count: {})", children.len());
+
+                // For elements with children, try to calculate height from children
+                if !children.is_empty() {
+                    let first_child_y = children.first().unwrap().content_rect.origin.y;
+                    let last_child = children.last().unwrap();
+                    let last_child_bottom =
+                        last_child.content_rect.origin.y + last_child.content_rect.size.height;
+                    let calculated_height = last_child_bottom - first_child_y;
+
+                    log::debug!(
+                        "  calculated height from children: {:.0} (first_y: {:.0}, last_bottom: {:.0})",
+                        calculated_height, first_child_y, last_child_bottom
+                    );
+                }
+            }
+            _ => {
+                log::debug!("  content type: Other");
+            }
+        }
+
+        // Calculate this item's position in the viewport
+        // The computed element's bounds.origin.y tells us where it is positioned
+        // relative to the viewport (after scroll transform is applied)
+
+        let item_top = computed_item.content_rect.origin.y;
+        let item_bottom = item_top + rendered_height;
+
+        // Check if this item is visible at all
+        let is_visible = item_bottom > 0.0 && item_top < viewport_height;
+
+        // Get height tracker for this item
+        let tracker = self
+            .activity_log_state
+            .height_trackers
+            .entry(item_id.clone())
+            .or_default();
+
+        if is_visible {
+            // Cache height for any visible item (partial or full)
+            // IMPORTANT: We cache partially visible items because border_rect provides
+            // the full unclipped height. This is critical for preventing jumps when
+            // tall items go in/out of the render buffer.
+            let old_height = self
+                .activity_log_state
+                .activity_log_height_cache
+                .get(&item_id)
+                .copied();
+
+            // Only update if change is significant (hysteresis)
+            let should_update = if let Some(old) = old_height {
+                let diff: f32 = old - rendered_height;
+                diff.abs() > HEIGHT_CHANGE_HYSTERESIS
+            } else {
+                true // Always cache if we don't have a height yet
+            };
+
+            if should_update {
+                // Calculate height diff for scroll adjustment
+                let height_diff = if let Some(old) = old_height {
+                    rendered_height - old
+                } else {
+                    // First time caching - don't adjust scroll
+                    0.0
+                };
+
+                // If this item extends above the viewport, adjust scroll to maintain position
+                if item_top < 0.0 && height_diff.abs() > HEIGHT_CHANGE_HYSTERESIS {
+                    self.activity_log_state.activity_log_scroll_offset += height_diff;
+                    log::info!(
+                        "[VSCROLL] Adjusting scroll by {:.0}px for item {} above viewport (old={:.0}, new={:.0}, was_cached={})",
+                        height_diff, item_id, old_height.unwrap_or(0.0), rendered_height, old_height.is_some()
+                    );
+                }
+
+                self.activity_log_state
+                    .activity_log_height_cache
+                    .insert(item_id.clone(), rendered_height);
+                tracker.seen_full_height = true;
+                tracker.measured_height = Some(rendered_height);
+
+                if let Some(old) = old_height {
+                    log::info!(
+                        "[VSCROLL] Height updated for {}: {:.0}px -> {:.0}px (delta: {:.1}px)",
+                        item_id,
+                        old,
+                        rendered_height,
+                        rendered_height - old
+                    );
+                }
+            }
+
+            // Log tall items for debugging
+            if rendered_height >= viewport_height {
+                log::debug!(
+                    "[VSCROLL] Tall item {} cached: height={:.0}px, viewport={:.0}px",
+                    item_id,
+                    rendered_height,
+                    viewport_height
+                );
+            }
+        } else {
+            // Item is not visible at all
+            log::trace!(
+                "Item {} not visible (top: {}, bottom: {}), skipping cache",
+                item_id,
+                item_top,
+                item_bottom
+            );
+        }
+    }
+
+    /// Traverse the element tree and process activity items
+    fn traverse_and_process_activity_items(
+        &mut self,
+        activity_log_computed: &crate::termwindow::box_model::ComputedElement,
+        viewport_height: f32,
+    ) {
+        use crate::termwindow::box_model::ComputedElementContent;
 
         // First, try to find the content area with the visible items
         // The structure is: root → viewport → content_area → [items]
@@ -3767,253 +3894,60 @@ impl AiSidebar {
                             );
 
                             // Get the filtered items to match against
-                            let filtered_items: Vec<(usize, &ActivityItem)> = self
-                                .activity_log
-                                .iter()
-                                .enumerate()
-                                .filter(|(_, item)| match self.activity_filter {
-                                    ActivityFilter::All => true,
-                                    ActivityFilter::Commands => {
-                                        matches!(item, ActivityItem::Command { .. })
-                                    }
-                                    ActivityFilter::Chat => {
-                                        matches!(item, ActivityItem::Chat { .. })
-                                    }
-                                    ActivityFilter::Suggestions => {
-                                        matches!(item, ActivityItem::Suggestion { .. })
-                                    }
-                                })
-                                .collect();
+                            let filtered_items = self.get_filtered_activity_items();
 
                             // Debug: Check if we have the expected number of elements
                             if item_elements.len()
-                                != self.activity_log_state.activity_log_visible_range.clone().count()
+                                != self
+                                    .activity_log_state
+                                    .activity_log_visible_range
+                                    .clone()
+                                    .count()
                             {
                                 log::warn!(
                                     "[VSCROLL] Mismatch: expected {} item elements, found {}",
-                                    self.activity_log_state.activity_log_visible_range.clone().count(),
+                                    self.activity_log_state
+                                        .activity_log_visible_range
+                                        .clone()
+                                        .count(),
                                     item_elements.len()
                                 );
                             }
 
-                            // For each computed element in the visible range
+                            // Collect items to process first to avoid borrowing conflicts
+                            let mut items_to_process = Vec::new();
                             for (relative_idx, computed_item) in item_elements.iter().enumerate() {
                                 // Map relative index to actual index in visible range
-                                if let Some(visible_idx) =
-                                    self.activity_log_state.activity_log_visible_range.clone().nth(relative_idx)
+                                if let Some(visible_idx) = self
+                                    .activity_log_state
+                                    .activity_log_visible_range
+                                    .clone()
+                                    .nth(relative_idx)
                                 {
                                     if let Some((_, item)) = filtered_items.get(visible_idx) {
-                                        // Get the item ID
-                                        let item_id = match item {
-                                            ActivityItem::Command { id, .. } => id.clone(),
-                                            ActivityItem::Chat { id, .. } => id.clone(),
-                                            ActivityItem::Suggestion { id, .. } => id.clone(),
-                                            ActivityItem::Goal { id, .. } => id.clone(),
-                                        };
-
-                                        // Extract the rendered height
-                                        // Use border_rect height which includes the full rendered height with padding/borders
-                                        let rendered_height = computed_item.border_rect.size.height;
-
-                                        // DEBUG: Log height comparison
-                                        log::debug!(
-                                    "[VSCROLL] HEIGHT DEBUG {}: calculated={:.0}, border_rect.h={:.0}, content_rect.h={:.0}, y_pos={:.0}",
-                                    item_id,
-                                    rendered_height,
-                                    computed_item.border_rect.size.height,
-                                    computed_item.content_rect.size.height,
-                                    computed_item.content_rect.origin.y
-                                );
-
-                                        // Special logging for tall items
-                                        if item_id.contains("chat2")
-                                            || computed_item.border_rect.size.height > 1000.0
-                                        {
-                                            log::debug!(
-                                        "[VSCROLL] TALL ITEM {}: border_rect.h={:.0} (vs viewport={:.0}), clipped={}",
-                                        item_id,
-                                        computed_item.border_rect.size.height,
-                                        viewport_height,
-                                        computed_item.border_rect.size.height > viewport_height
-                                    );
-                                        }
-
-                                        // DEBUG: Log detailed element information
-                                        log::debug!(
-                                            "[VSCROLL] Item {} element #{} debug:",
-                                            item_id,
-                                            relative_idx
-                                        );
-                                        log::debug!(
-                                            "  CALCULATED height: {:.0}px (position-based)",
-                                            rendered_height
-                                        );
-                                        log::debug!(
-                                    "  content_rect: origin=({:.0}, {:.0}) size=({:.0} x {:.0})",
-                                    computed_item.content_rect.origin.x,
-                                    computed_item.content_rect.origin.y,
-                                    computed_item.content_rect.size.width,
-                                    computed_item.content_rect.size.height
-                                );
-                                        log::debug!(
-                                            "  bounds: origin=({:.0}, {:.0}) size=({:.0} x {:.0})",
-                                            computed_item.bounds.origin.x,
-                                            computed_item.bounds.origin.y,
-                                            computed_item.bounds.size.width,
-                                            computed_item.bounds.size.height
-                                        );
-
-                                        // Log the margin/padding info if the height seems wrong
-                                        if computed_item.content_rect.size.height > 2000.0 {
-                                            let padding_height = computed_item.padding.height()
-                                                - computed_item.content_rect.height();
-                                            let border_height = computed_item.border_rect.height()
-                                                - computed_item.padding.height();
-                                            let margin_height = computed_item.bounds.height()
-                                                - computed_item.border_rect.height();
-
-                                            log::debug!(
-                                        "  HEIGHT BREAKDOWN: content={:.0}, +padding={:.0}, +border={:.0}, +margin={:.0}",
-                                        computed_item.content_rect.size.height,
-                                        padding_height,
-                                        border_height,
-                                        margin_height
-                                    );
-                                        }
-                                        log::debug!(
-                                    "  border_rect: origin=({:.0}, {:.0}) size=({:.0} x {:.0})",
-                                    computed_item.border_rect.origin.x,
-                                    computed_item.border_rect.origin.y,
-                                    computed_item.border_rect.size.width,
-                                    computed_item.border_rect.size.height
-                                );
-
-                                        // Check what type of content this element has
-                                        match &computed_item.content {
-                                            ComputedElementContent::Text(_) => {
-                                                log::debug!("  content type: Text");
-                                            }
-                                            ComputedElementContent::Children(children) => {
-                                                log::debug!(
-                                                    "  content type: Children (count: {})",
-                                                    children.len()
-                                                );
-
-                                                // For elements with children, try to calculate height from children
-                                                if !children.is_empty() {
-                                                    let first_child_y = children
-                                                        .first()
-                                                        .unwrap()
-                                                        .content_rect
-                                                        .origin
-                                                        .y;
-                                                    let last_child = children.last().unwrap();
-                                                    let last_child_bottom =
-                                                        last_child.content_rect.origin.y
-                                                            + last_child.content_rect.size.height;
-                                                    let calculated_height =
-                                                        last_child_bottom - first_child_y;
-
-                                                    log::debug!(
-                                                "  calculated height from children: {:.0} (first_y: {:.0}, last_bottom: {:.0})",
-                                                calculated_height, first_child_y, last_child_bottom
-                                            );
-                                                }
-                                            }
-                                            _ => {
-                                                log::debug!("  content type: Other");
-                                            }
-                                        }
-
-                                        // Calculate this item's position in the viewport
-                                        // The computed element's bounds.origin.y tells us where it is positioned
-                                        // relative to the viewport (after scroll transform is applied)
-
-                                        let item_top = computed_item.content_rect.origin.y;
-                                        let item_bottom = item_top + rendered_height;
-
-                                        // Check if this item is visible at all
-                                        let is_visible =
-                                            item_bottom > 0.0 && item_top < viewport_height;
-
-                                        // Get height tracker for this item
-                                        let tracker = self
-                                            .activity_log_state.height_trackers
-                                            .entry(item_id.clone())
-                                            .or_default();
-
-                                        if is_visible {
-                                            // Cache height for any visible item (partial or full)
-                                            // IMPORTANT: We cache partially visible items because border_rect provides
-                                            // the full unclipped height. This is critical for preventing jumps when
-                                            // tall items go in/out of the render buffer.
-                                            let old_height = self
-                                                .activity_log_state.activity_log_height_cache
-                                                .get(&item_id)
-                                                .copied();
-
-                                            // Only update if change is significant (hysteresis)
-                                            let should_update = if let Some(old) = old_height {
-                                                let diff: f32 = old - rendered_height;
-                                                diff.abs() > HEIGHT_CHANGE_HYSTERESIS
-                                            } else {
-                                                true // Always cache if we don't have a height yet
-                                            };
-
-                                            if should_update {
-                                                // Calculate height diff for scroll adjustment
-                                                let height_diff = if let Some(old) = old_height {
-                                                    rendered_height - old
-                                                } else {
-                                                    // First time caching - don't adjust scroll
-                                                    0.0
-                                                };
-
-                                                // If this item extends above the viewport, adjust scroll to maintain position
-                                                if item_top < 0.0
-                                                    && height_diff.abs() > HEIGHT_CHANGE_HYSTERESIS
-                                                {
-                                                    self.activity_log_state.activity_log_scroll_offset += height_diff;
-                                                    log::info!(
-                                                "[VSCROLL] Adjusting scroll by {:.0}px for item {} above viewport (old={:.0}, new={:.0}, was_cached={})",
-                                                height_diff, item_id, old_height.unwrap_or(0.0), rendered_height, old_height.is_some()
-                                            );
-                                                }
-
-                                                self.activity_log_state.activity_log_height_cache
-                                                    .insert(item_id.clone(), rendered_height);
-                                                tracker.seen_full_height = true;
-                                                tracker.measured_height = Some(rendered_height);
-
-                                                if let Some(old) = old_height {
-                                                    log::info!(
-                                                "[VSCROLL] Height updated for {}: {:.0}px -> {:.0}px (delta: {:.1}px)",
-                                                item_id, old, rendered_height, rendered_height - old
-                                            );
-                                                }
-                                            }
-
-                                            // Log tall items for debugging
-                                            if rendered_height >= viewport_height {
-                                                log::debug!(
-                                            "[VSCROLL] Tall item {} cached: height={:.0}px, viewport={:.0}px",
-                                            item_id, rendered_height, viewport_height
-                                        );
-                                            }
-                                        } else {
-                                            // Item is not visible at all
-                                            log::trace!(
-                                        "Item {} not visible (top: {}, bottom: {}), skipping cache",
-                                        item_id, item_top, item_bottom
-                                    );
-                                        }
+                                        items_to_process.push((computed_item, (*item).clone()));
                                     }
                                 }
                             }
 
+                            // Drop filtered_items to release the immutable borrow
+                            drop(filtered_items);
+
+                            // Store count before consuming the vector
+                            let items_count = items_to_process.len();
+
+                            // Now process items with mutable access
+                            for (computed_item, item) in items_to_process {
+                                self.process_activity_item_element(
+                                    computed_item,
+                                    &item,
+                                    viewport_height,
+                                );
+                            }
+
                             log::debug!(
                                 "Updated {} height cache entries from rendered elements (total cache size: {})",
-                                item_elements.len(),
+                                items_count,
                                 self.activity_log_state.activity_log_height_cache.len()
                             );
 
@@ -4023,6 +3957,30 @@ impl AiSidebar {
                 }
             }
         }
+    }
+
+    /// Update height cache from rendered ComputedElement
+    /// This extracts the actual rendered heights from the computed element tree
+    pub fn update_activity_log_height_cache(
+        &mut self,
+        activity_log_computed: &crate::termwindow::box_model::ComputedElement,
+        viewport_height: f32,
+    ) {
+        // Remember if we were at the bottom before updating
+        let was_at_bottom = self.was_activity_log_at_bottom();
+
+        // Remember the old total height
+        let old_total_height = self.get_old_total_height();
+
+        // The activity log computed element structure is:
+        // - Root container (with margin for scrolling)
+        //   - Content area (with children for each visible item)
+
+        // Track if we need sticky bottom (currently disabled)
+        let sticky_bottom_needed = was_at_bottom;
+
+        // Traverse the element tree and process activity items
+        self.traverse_and_process_activity_items(activity_log_computed, viewport_height);
 
         // STICKY BOTTOM DISABLED - This feature was causing scroll jumps because:
         // 1. It uses hardcoded line_height (20.0) vs actual font metrics
@@ -4160,9 +4118,7 @@ fn render_activity_item_static(
             } else {
                 // AI messages - render with markdown
                 MarkdownRenderer::render_with_fonts(
-                    message, 
-                    fonts, 
-                    None, // max_width
+                    message, fonts, None, // max_width
                     None, // registry
                     None, // context
                     None, // palette - not available in this helper

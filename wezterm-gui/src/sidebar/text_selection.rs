@@ -3,12 +3,12 @@
 //! This module handles text selection state, hit testing, and rendering
 //! for selectable text across all sidebar components.
 
+use crate::sidebar::ai_sidebar::{CurrentGoal, CurrentSuggestion};
 use crate::sidebar::position_cache::{
-    ItemPosition, ItemPositionData, TextAffinity, TextPosition, ElementType
+    ElementType, ItemPosition, ItemPositionData, TextAffinity, TextPosition,
 };
 use crate::sidebar::sidebar_constants::*;
 use crate::sidebar::{ActivityItem, AiSidebar};
-use crate::sidebar::ai_sidebar::{CurrentGoal, CurrentSuggestion};
 use euclid::{Point2D, Rect};
 use std::collections::HashMap;
 use window::PixelUnit;
@@ -80,7 +80,7 @@ impl SelectionState {
                         item_positions.get(anchor_index).and_then(|position_data| {
                             let start = anchor_byte.min(current_byte);
                             let end = anchor_byte.max(current_byte);
-                            
+
                             // Use the smart text extraction that skips artificial newlines
                             let selected = position_data.get_selection_text(*start, *end);
                             if !selected.is_empty() {
@@ -88,7 +88,9 @@ impl SelectionState {
                             } else {
                                 log::warn!(
                                     "Empty selection: start={}, end={}, text_len={}",
-                                    start, end, position_data.rendered_text.len()
+                                    start,
+                                    end,
+                                    position_data.rendered_text.len()
                                 );
                                 None
                             }
@@ -103,11 +105,17 @@ impl SelectionState {
                             if let Some(position_data) = item_positions.get(&index) {
                                 if index == *start_index && index == *anchor_index {
                                     // First item, from anchor_byte to end
-                                    let text = position_data.get_selection_text(*anchor_byte, position_data.rendered_text.len());
+                                    let text = position_data.get_selection_text(
+                                        *anchor_byte,
+                                        position_data.rendered_text.len(),
+                                    );
                                     selected_text.push_str(&text);
                                 } else if index == *start_index {
                                     // First item, from current_byte to end
-                                    let text = position_data.get_selection_text(*current_byte, position_data.rendered_text.len());
+                                    let text = position_data.get_selection_text(
+                                        *current_byte,
+                                        position_data.rendered_text.len(),
+                                    );
                                     selected_text.push_str(&text);
                                 } else if index == *end_index && index == *anchor_index {
                                     // Last item, from start to anchor_byte
@@ -119,7 +127,8 @@ impl SelectionState {
                                     selected_text.push_str(&text);
                                 } else {
                                     // Middle items, entire text (without artificial newlines)
-                                    let text = position_data.get_selection_text(0, position_data.rendered_text.len());
+                                    let text = position_data
+                                        .get_selection_text(0, position_data.rendered_text.len());
                                     selected_text.push_str(&text);
                                 }
 
@@ -180,7 +189,7 @@ impl SelectionState {
                     }
 
                     // Calculate start and end byte offsets
-                    let (start_line, start_byte, end_line, end_byte) = 
+                    let (start_line, start_byte, end_line, end_byte) =
                         if (anchor_line, anchor_byte) <= (current_line, current_byte) {
                             (*anchor_line, *anchor_byte, *current_line, *current_byte)
                         } else {
@@ -192,7 +201,7 @@ impl SelectionState {
                         if line_idx >= lines.len() {
                             break;
                         }
-                        
+
                         let line = lines[line_idx];
                         if line_idx == start_line && line_idx == end_line {
                             // Selection within single line
@@ -223,7 +232,7 @@ impl SelectionState {
                         Some(result)
                     }
                 }
-            }
+            },
         }
     }
 }
@@ -365,29 +374,30 @@ impl TextSelectionManager {
                         if let Some(bounds) = sidebar.get_activity_item_bounds(index) {
                             if let Some(position_data) = sidebar.item_positions.get(&index) {
                                 // Determine byte range for this item
-                                let (item_start_byte, item_end_byte) = if index == *start_index && index == *end_index {
-                                    // Single item selection
-                                    let start = anchor_byte.min(current_byte);
-                                    let end = anchor_byte.max(current_byte);
-                                    (*start, *end)
-                                } else if index == *start_index {
-                                    // First item in multi-item selection
-                                    if start_index == anchor_index {
-                                        (*anchor_byte, position_data.rendered_text.len())
+                                let (item_start_byte, item_end_byte) =
+                                    if index == *start_index && index == *end_index {
+                                        // Single item selection
+                                        let start = anchor_byte.min(current_byte);
+                                        let end = anchor_byte.max(current_byte);
+                                        (*start, *end)
+                                    } else if index == *start_index {
+                                        // First item in multi-item selection
+                                        if start_index == anchor_index {
+                                            (*anchor_byte, position_data.rendered_text.len())
+                                        } else {
+                                            (*current_byte, position_data.rendered_text.len())
+                                        }
+                                    } else if index == *end_index {
+                                        // Last item in multi-item selection
+                                        if end_index == anchor_index {
+                                            (0, *anchor_byte)
+                                        } else {
+                                            (0, *current_byte)
+                                        }
                                     } else {
-                                        (*current_byte, position_data.rendered_text.len())
-                                    }
-                                } else if index == *end_index {
-                                    // Last item in multi-item selection
-                                    if end_index == anchor_index {
-                                        (0, *anchor_byte)
-                                    } else {
-                                        (0, *current_byte)
-                                    }
-                                } else {
-                                    // Middle item - select entire text
-                                    (0, position_data.rendered_text.len())
-                                };
+                                        // Middle item - select entire text
+                                        (0, position_data.rendered_text.len())
+                                    };
 
                                 // Skip if no actual selection
                                 if item_start_byte >= item_end_byte {
@@ -395,11 +405,13 @@ impl TextSelectionManager {
                                 }
 
                                 // Calculate selection rectangles for this item
-                                let item_rects = position_data.position_tree.calculate_local_selection_rectangles(
-                                    item_start_byte,
-                                    item_end_byte,
-                                    euclid::Vector2D::new(0.0, 0.0),
-                                );
+                                let item_rects = position_data
+                                    .position_tree
+                                    .calculate_local_selection_rectangles(
+                                        item_start_byte,
+                                        item_end_byte,
+                                        euclid::Vector2D::new(0.0, 0.0),
+                                    );
 
                                 // Transform to absolute coordinates
                                 for rect in item_rects {
@@ -433,8 +445,10 @@ impl TextSelectionManager {
                                 let start_char = suggestion.content.chars().take(*start).count();
                                 let end_char = suggestion.content.chars().take(*end).count();
 
-                                let start_x = bounds.origin.x + padding + (start_char as f32 * char_width);
-                                let end_x = bounds.origin.x + padding + (end_char as f32 * char_width);
+                                let start_x =
+                                    bounds.origin.x + padding + (start_char as f32 * char_width);
+                                let end_x =
+                                    bounds.origin.x + padding + (end_char as f32 * char_width);
 
                                 let max_x = bounds.origin.x + bounds.size.width - padding;
                                 let end_x = end_x.min(max_x);
@@ -460,14 +474,17 @@ impl TextSelectionManager {
                         if start != end {
                             if let Some(goal) = &sidebar.current_goal {
                                 // Use actual glyph positions if available
-                                let (start_x, end_x) = if let Some(positions) = &sidebar.goal_char_positions {
+                                let (start_x, end_x) = if let Some(positions) =
+                                    &sidebar.goal_char_positions
+                                {
                                     let mut start_x_pos = bounds.origin.x + GOAL_CARD_PADDING;
                                     let mut end_x_pos = start_x_pos;
 
                                     // Find positions for byte offsets
                                     for &(x_start, x_end, byte_offset) in positions {
                                         if byte_offset == *start {
-                                            start_x_pos = bounds.origin.x + GOAL_CARD_PADDING + x_start;
+                                            start_x_pos =
+                                                bounds.origin.x + GOAL_CARD_PADDING + x_start;
                                         }
                                         if byte_offset < *end {
                                             end_x_pos = bounds.origin.x + GOAL_CARD_PADDING + x_end;
@@ -480,10 +497,14 @@ impl TextSelectionManager {
                                     let char_width = 8.5;
                                     let start_char = goal.text.chars().take(*start).count();
                                     let end_char = goal.text.chars().take(*end).count();
-                                    
-                                    let start_x = bounds.origin.x + GOAL_CARD_PADDING + (start_char as f32 * char_width);
-                                    let end_x = bounds.origin.x + GOAL_CARD_PADDING + (end_char as f32 * char_width);
-                                    
+
+                                    let start_x = bounds.origin.x
+                                        + GOAL_CARD_PADDING
+                                        + (start_char as f32 * char_width);
+                                    let end_x = bounds.origin.x
+                                        + GOAL_CARD_PADDING
+                                        + (end_char as f32 * char_width);
+
                                     (start_x, end_x)
                                 };
 
@@ -503,7 +524,7 @@ impl TextSelectionManager {
                 SelectionTarget::ChatInput { .. } => {
                     // Chat input selection is handled by the chat input component itself
                 }
-            }
+            },
         }
 
         rects

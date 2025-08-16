@@ -13,7 +13,7 @@ pub const CODE_LINE_HEIGHT: f32 = 20.0;
 /// Padding and margin constants
 pub const CODE_BLOCK_PADDING: f32 = 12.0;
 pub const CODE_BLOCK_BORDER: f32 = 1.0;
-pub const CODE_BLOCK_TOP_MARGIN: f32 = 8.0;  // Top margin for code blocks (from markdown.rs line 1260)
+pub const CODE_BLOCK_TOP_MARGIN: f32 = 8.0; // Top margin for code blocks (from markdown.rs line 1260)
 pub const INLINE_CODE_PADDING: f32 = 4.0;
 
 /// Background colors for markdown elements

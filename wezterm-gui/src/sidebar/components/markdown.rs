@@ -233,7 +233,7 @@ impl MarkdownRenderer {
     }
 
     /// Render markdown text with fonts and optional configuration
-    /// 
+    ///
     /// # Arguments
     /// * `text` - The markdown text to render
     /// * `fonts` - The sidebar fonts configuration
@@ -250,13 +250,13 @@ impl MarkdownRenderer {
         palette: Option<&ColorPalette>,
     ) -> Element {
         let mut renderer = Self::new();
-        
+
         // Set up registry and context if provided
         if let Some(reg) = registry {
             renderer.code_block_registry = Some(reg);
             renderer.context_prefix = context.unwrap_or("").to_string();
         }
-        
+
         renderer.render_markdown(
             text,
             Some(fonts),
@@ -271,7 +271,10 @@ impl MarkdownRenderer {
     }
 
     /// Deprecated: Use render_with_fonts with registry parameter instead
-    #[deprecated(since = "0.1.0", note = "Use render_with_fonts with optional parameters")]
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use render_with_fonts with optional parameters"
+    )]
     pub fn render_with_fonts_and_registry(
         text: &str,
         fonts: &SidebarFonts,
@@ -283,7 +286,10 @@ impl MarkdownRenderer {
     }
 
     /// Deprecated: Use render_with_fonts with all parameters instead
-    #[deprecated(since = "0.1.0", note = "Use render_with_fonts with optional parameters")]
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use render_with_fonts with optional parameters"
+    )]
     pub fn render_with_fonts_registry_and_palette(
         text: &str,
         fonts: &SidebarFonts,
@@ -292,7 +298,14 @@ impl MarkdownRenderer {
         context: &str,
         palette: &ColorPalette,
     ) -> Element {
-        Self::render_with_fonts(text, fonts, max_width, Some(registry), Some(context), Some(palette))
+        Self::render_with_fonts(
+            text,
+            fonts,
+            max_width,
+            Some(registry),
+            Some(context),
+            Some(palette),
+        )
     }
 
     /// Internal render method

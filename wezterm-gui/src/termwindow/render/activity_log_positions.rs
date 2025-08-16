@@ -236,10 +236,10 @@ fn extract_positions_from_activity_item(
 
     // Track the actual rendered text
     let mut rendered_text = String::new();
-    
+
     // Track artificial newlines from text wrapping
     let mut wrap_newlines = std::collections::HashSet::new();
-    
+
     // Track global line index across all elements for proper selection
     let mut global_line_index = 0usize;
 
@@ -436,8 +436,7 @@ fn extract_children_element_positions(
 
         for (i, child) in children.iter().enumerate() {
             match &child.content {
-                ComputedElementContent::Text(_)
-                | ComputedElementContent::MultilineText { .. } => {
+                ComputedElementContent::Text(_) | ComputedElementContent::MultilineText { .. } => {
                     processed_count += 1;
 
                     // Add separators to rendered_text to match markdown structure
@@ -454,10 +453,8 @@ fn extract_children_element_positions(
                         child.bounds.min_x() - computed.content_rect.min_x(),
                         child.bounds.min_y() - computed.content_rect.min_y(),
                     );
-                    let child_offset = Point2D::new(
-                        offset.x + child_position.x,
-                        offset.y + child_position.y,
-                    );
+                    let child_offset =
+                        Point2D::new(offset.x + child_position.x, offset.y + child_position.y);
                     // Continue with cumulative tracking
                     extract_positions_recursively_with_text_and_wraps(
                         child,
@@ -472,21 +469,23 @@ fn extract_children_element_positions(
                 }
                 ComputedElementContent::Children(nested_children) => {
                     // Check if this is a code block that needs padding adjustment
-                    let is_code_block = child.semantic_type.as_ref()
-                        .map_or(false, |st| matches!(st, crate::termwindow::box_model::SemanticType::CodeBlock { .. }));
-                    
+                    let is_code_block = child.semantic_type.as_ref().map_or(false, |st| {
+                        matches!(
+                            st,
+                            crate::termwindow::box_model::SemanticType::CodeBlock { .. }
+                        )
+                    });
+
                     processed_count += 1;
                     // Process nested children that might contain more paragraphs
                     let child_position: Point2D<f32, PixelUnit> = Point2D::new(
                         child.bounds.min_x() - computed.content_rect.min_x(),
                         child.bounds.min_y() - computed.content_rect.min_y(),
                     );
-                    
-                    let mut child_offset = Point2D::new(
-                        offset.x + child_position.x,
-                        offset.y + child_position.y,
-                    );
-                    
+
+                    let mut child_offset =
+                        Point2D::new(offset.x + child_position.x, offset.y + child_position.y);
+
                     // If this is a code block, add padding AND top margin to the offset
                     if is_code_block {
                         let adjusted_offset = apply_code_block_offset_adjustment(child_offset);
@@ -497,7 +496,7 @@ fn extract_children_element_positions(
                         );
                         child_offset = adjusted_offset;
                     }
-                    
+
                     extract_positions_recursively_with_text_and_wraps(
                         child,
                         builder,
@@ -570,8 +569,8 @@ fn extract_children_element_positions(
                         6 => H6_FONT_SIZE_MULTIPLIER,
                         _ => 1.0,
                     };
-                    let font_size = fonts.body.metrics().cell_height.get() as f32
-                        * font_size_multiplier;
+                    let font_size =
+                        fonts.body.metrics().cell_height.get() as f32 * font_size_multiplier;
 
                     // Don't create a separate element for headings - this allows selection to span across
                     started_element = false;
@@ -582,19 +581,20 @@ fn extract_children_element_positions(
                         "  CodeBlock at cumulative offset: {}",
                         cumulative_byte_offset
                     );
-                    
+
                     // Account for code block padding AND top margin when processing its content
-                    let adjusted_child_offset = apply_code_block_offset_adjustment(child_absolute_offset);
-                    
+                    let adjusted_child_offset =
+                        apply_code_block_offset_adjustment(child_absolute_offset);
+
                     log::trace!(
                         "🔲 BRANCH 2 (PURE): Adjusting code block offset for padding+margin: original=({:.1}, {:.1}), adjusted=({:.1}, {:.1})",
                         child_absolute_offset.x, child_absolute_offset.y,
                         adjusted_child_offset.x, adjusted_child_offset.y
                     );
-                    
+
                     // Don't create a separate element for code blocks
                     started_element = false;
-                    
+
                     // Use the adjusted offset when recursing
                     child_absolute_offset = adjusted_child_offset;
                 }
@@ -681,7 +681,9 @@ fn extract_multiline_element_positions(
                 }
                 ElementCell::Glyph(_) => {
                     // Regular glyph without cluster - this is the problem!
-                    log::warn!("  ⚠️ Found Glyph without cluster in sidebar text! This should not happen.");
+                    log::warn!(
+                        "  ⚠️ Found Glyph without cluster in sidebar text! This should not happen."
+                    );
                 }
                 _ => {}
             }
@@ -693,15 +695,16 @@ fn extract_multiline_element_positions(
         // Get the byte length from the last wrapped line
         if let Some(last_line) = wrapped_lines.last() {
             paragraph_byte_length = last_line.byte_end;
-            log::debug!("  ✓ Using WrappedLine info: paragraph has {} bytes (accurate from byte_end)", paragraph_byte_length);
+            log::debug!(
+                "  ✓ Using WrappedLine info: paragraph has {} bytes (accurate from byte_end)",
+                paragraph_byte_length
+            );
         } else {
             log::warn!("  ⚠️ WrappedLine info present but empty!");
         }
     } else {
         // This should not happen for sidebar text - all text wrapping should provide WrappedLine info
-        log::error!(
-            "  ❌ ERROR: WrappedLine info missing for MultilineText! This is a bug."
-        );
+        log::error!("  ❌ ERROR: WrappedLine info missing for MultilineText! This is a bug.");
         log::error!("     Falling back to unreliable cluster-based estimation.");
 
         // Fallback to estimation from cells (unreliable for multi-byte chars)
@@ -729,7 +732,7 @@ fn extract_multiline_element_positions(
             if let Some(wrapped_line) = wrapped_lines.get(local_line_index) {
                 // Track actual position in rendered_text
                 let line_start_in_rendered = rendered_text.len();
-                
+
                 log::debug!(
                     "    Line {} (global {}): wrapped.byte_offset={} (original text), rendered_pos={} (actual), text='{}'",
                     local_line_index,
@@ -741,7 +744,7 @@ fn extract_multiline_element_positions(
 
                 // Collect the shaped_text - this is the actual rendered text!
                 rendered_text.push_str(&wrapped_line.shaped_text);
-                
+
                 // Extract positions using the correct byte offset
                 extract_positions_from_cells_with_wrapped_line_and_offset(
                     line,
@@ -751,10 +754,10 @@ fn extract_multiline_element_positions(
                     wrapped_line,
                     line_start_in_rendered,
                 );
-                
+
                 // Increment global line index after processing this line
                 *global_line_index += 1;
-                
+
                 // Add newline between lines (but not after the last line)
                 if local_line_index < lines.len() - 1 {
                     let newline_pos = rendered_text.len();
@@ -825,7 +828,7 @@ fn extract_text_element_positions(
     );
     let text_offset: Point2D<f32, PixelUnit> =
         Point2D::new(offset.x + element_padding.x, offset.y + element_padding.y);
-    
+
     // Extract positions at the actual text rendering position
     extract_positions_from_cells_with_byte_offset(
         cells,
@@ -1090,8 +1093,7 @@ fn extract_positions_from_cells_with_wrapped_line_and_offset(
         // We no longer add wrapped_line.byte_offset because that's relative to original text
         // Just use the cluster offset within the line plus the line's start position
         let result = cluster as usize + byte_offset_adjustment;
-        if line_index == 0 && cluster < 5 {
-        }
+        if line_index == 0 && cluster < 5 {}
         result
     });
 }
@@ -1167,7 +1169,6 @@ fn extract_cell_positions_internal(
             }
         }
     }
-
 }
 
 /// Extract positions from a line of cells with line index
@@ -1213,8 +1214,7 @@ fn extract_positions_from_cells_with_wrapped_line(
     // The safest approach is to just add the line offset directly since
     // clusters should already be line-relative after adjustment.
     // Log critical information about this line
-    if line_index == 0 {
-    }
+    if line_index == 0 {}
 
     extract_cell_positions_internal(cells, builder, offset, line_index, |cluster| {
         // Clusters are now NOT adjusted (we disabled cluster offset adjustment).
@@ -1467,11 +1467,16 @@ pub fn store_activity_item_positions_with_text(
         viewport_x
     );
 
-    
     if !position_tree.text_positions.is_empty() {
         // Show first and last position byte offsets
-        let first_pos = position_tree.text_positions.iter().min_by_key(|p| p.byte_offset);
-        let last_pos = position_tree.text_positions.iter().max_by_key(|p| p.byte_offset);
+        let first_pos = position_tree
+            .text_positions
+            .iter()
+            .min_by_key(|p| p.byte_offset);
+        let last_pos = position_tree
+            .text_positions
+            .iter()
+            .max_by_key(|p| p.byte_offset);
     }
 
     let position_data = ItemPositionData {

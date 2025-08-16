@@ -501,9 +501,9 @@ impl super::TermWindow {
                         ai_sidebar.activate_prepared_selection();
                     }
                     // Update selection with new position
-                    eprintln!("🎯 HIT TEST: item={}, byte_offset={}", 
-                        hit.item_index, 
-                        hit.position_in_item.byte_offset
+                    eprintln!(
+                        "🎯 HIT TEST: item={}, byte_offset={}",
+                        hit.item_index, hit.position_in_item.byte_offset
                     );
                     ai_sidebar.update_activity_log_selection_drag(
                         hit.item_index,

@@ -6,6 +6,43 @@ This document provides a comprehensive refactoring plan for the WezTerm AI sideb
 
 The AI sidebar implementation has grown organically during development, resulting in several files and functions that exceed maintainability thresholds. This guide categorizes refactoring tasks by priority and provides detailed implementation plans.
 
+## Refactoring Status
+
+### MUST Refactor (Critical)
+- Split `ai_sidebar.rs`: ✅ Partially Done (5 modules extracted, currently 4,232 lines)
+  - `text_selection.rs`: ✅ Done
+  - `activity_log_renderer.rs`: ✅ Done
+  - `chat_input.rs`: ✅ Done
+  - `modal_manager.rs`: ✅ Done (in components/modal/)
+  - `sidebar_state.rs`: ⏭️ Skipped (not needed)
+  - `mock_data.rs`: ✅ Done - 386 lines extracted
+- Large functions in `ai_sidebar.rs`:
+  - `populate_mock_data`: ✅ Done (extracted to mock_data.rs)
+  - `calculate_selection_rectangles`: ✅ Done (refactored into 4 helper methods)
+  - `update_activity_log_height_cache`: ✅ Done (refactored into 5 helper methods)
+  - `calculate_activity_item_selection_rectangles`: 🔄 TODO (236 lines)
+  - `handle_mouse_event`: 🔄 TODO (210 lines)
+  - `process_activity_item_element`: 🔄 TODO (202 lines)
+  - `render_current_suggestion`: 🔄 TODO (172 lines)
+  - `calculate_chat_input_selection_rectangles`: 🔄 TODO (156 lines)
+- Refactor `extract_positions_recursively_with_text_and_wraps`: ✅ Done
+- Refactor `render_markdown`: 🔄 TODO
+
+### SHOULD Refactor (High Priority)
+- Split `mouse_event_terminal`: 🔄 TODO
+- Modularize `box_model.rs`: 🔄 TODO
+- Split `termwindow/mod.rs`: 🔄 TODO
+- Extract Performance Optimizations: 🔄 TODO
+- Consolidate Constants: ✅ Partially Done
+
+### COULD Refactor (Optional)
+- Complete Text Selection System Architecture: ⏸️ Deferred
+- Add Comprehensive Testing: 🔄 TODO
+- Improve Type Safety: 🔄 TODO
+- Extract Components from `forms.rs`: 🔄 TODO
+- Improve Error Handling: 🔄 TODO
+- Document Internal APIs: ✅ Partially Done
+
 ## Refactoring Categories
 
 ### MUST Refactor (Critical - Blocking Maintainability)
@@ -24,7 +61,7 @@ These are optional improvements that would enhance code quality but aren't block
 
 ## MUST Refactor - Critical Items
 
-### 1. Split `ai_sidebar.rs` (5906 lines → ~5 modules)
+### 1. Split `ai_sidebar.rs` (Originally 5906 lines → Target ~1500 lines)
 
 **Current State**: Single monolithic file containing all sidebar logic including rendering, event handling, text selection, chat input, modals, and activity log management.
 
@@ -1229,7 +1266,30 @@ All compilation errors resolved. The codebase compiles cleanly with only warning
 
 ---
 
-*End of Session 4 Documentation*
+### Session 5
+
+**Key Accomplishments**:
+- Extracted `populate_mock_data` (373 lines) to new module `mock_data.rs`
+- Refactored `calculate_selection_rectangles` (503 lines) into 4 helper methods
+- Refactored `update_activity_log_height_cache` (410 lines) into 5 helper methods
+- Reduced ai_sidebar.rs from 5,906 to 4,232 lines (28% reduction)
+
+**Known Issues**:
+- Made `CurrentGoal` fields and some `AiSidebar` fields `pub(super)` to allow mock_data module access
+- Helper functions created by subagents still exceed 150 lines:
+  - `calculate_activity_item_selection_rectangles`: 236 lines
+  - `handle_mouse_event`: 210 lines
+  - `process_activity_item_element`: 202 lines
+  - `render_current_suggestion`: 172 lines
+  - `calculate_chat_input_selection_rectangles`: 156 lines
+- Multiple .bak files need cleanup after testing
+
+**Key Learning**: When using subagents for code review, must explicitly specify `git diff HEAD` to see uncommitted changes
+
+**Deviations from Plan**: 
+- `sidebar_state.rs` not needed - current orchestration works well
+- `mock_data.rs` not in original plan but good separation of test code
+
 
 ## Important Notes for Next Engineer
 

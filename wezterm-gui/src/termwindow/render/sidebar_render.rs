@@ -1013,9 +1013,8 @@ impl crate::TermWindow {
                 use crate::sidebar::text_selection::SelectionTarget;
                 let zindex = match selection {
                     SelectionTarget::ActivityItem { .. } => 12, // Activity log content z-index
-                    SelectionTarget::Goal { .. } | 
-                    SelectionTarget::Suggestion { .. } => 14,    // Main sidebar content z-index
-                    SelectionTarget::ChatInput { .. } => 12,     // Chat input at same level as activity log
+                    SelectionTarget::Goal { .. } | SelectionTarget::Suggestion { .. } => 14, // Main sidebar content z-index
+                    SelectionTarget::ChatInput { .. } => 12, // Chat input at same level as activity log
                 };
 
                 let layer = gl_state.layer_for_zindex(zindex)?;

@@ -1,5 +1,5 @@
 //! Chat input handling for the AI sidebar
-//! 
+//!
 //! This module provides a stateless chat input handler that manages text input,
 //! cursor positioning, selection, and scrolling for the chat interface.
 
@@ -7,8 +7,8 @@ use crate::color::LinearRgba;
 use crate::sidebar::components::forms::MultilineTextInput;
 use crate::sidebar::SidebarFonts;
 use crate::termwindow::box_model::{
-    BorderColor, BoxDimension, ComputedElement, Corners, DisplayType, Element,
-    ElementColors, ElementContent, LayoutContext, SizedPoly, StyleSpan,
+    BorderColor, BoxDimension, ComputedElement, Corners, DisplayType, Element, ElementColors,
+    ElementContent, LayoutContext, SizedPoly, StyleSpan,
 };
 use crate::termwindow::UIItemType;
 use config::Dimension;
@@ -18,12 +18,12 @@ use wezterm_font::LoadedFont;
 use window::PixelUnit;
 
 // Constants to eliminate magic numbers
-pub const LINE_HEIGHT_MULTIPLIER: f32 = 1.1;  // Consistent line spacing multiplier
-pub const ESTIMATED_LINE_HEIGHT: f32 = 20.0;   // Default line height for estimations
-pub const ESTIMATED_CHAR_WIDTH: f32 = 8.5;     // Default character width for estimations
-pub const SCROLLBAR_WIDTH: f32 = 6.0;          // Width of the scrollbar
-pub const SCROLLBAR_THUMB_HEIGHT: f32 = 40.0;  // Height of scrollbar thumb
-pub const CHAT_INPUT_PADDING: f32 = 12.0;      // Horizontal padding in chat input
+pub const LINE_HEIGHT_MULTIPLIER: f32 = 1.1; // Consistent line spacing multiplier
+pub const ESTIMATED_LINE_HEIGHT: f32 = 20.0; // Default line height for estimations
+pub const ESTIMATED_CHAR_WIDTH: f32 = 8.5; // Default character width for estimations
+pub const SCROLLBAR_WIDTH: f32 = 6.0; // Width of the scrollbar
+pub const SCROLLBAR_THUMB_HEIGHT: f32 = 40.0; // Height of scrollbar thumb
+pub const CHAT_INPUT_PADDING: f32 = 12.0; // Horizontal padding in chat input
 pub const CHAT_INPUT_VERTICAL_PADDING: f32 = 8.0; // Vertical padding in chat input
 pub const CHAT_INPUT_TEXT_PADDING: f32 = 4.0; // Per-line text element padding
 pub const CHAT_INPUT_BORDER_THICKNESS: f32 = 1.0; // Border thickness for chat input
@@ -56,7 +56,8 @@ impl ChatInputHandler {
         );
 
         // Calculate scroll offset
-        let max_scroll = ((line_count as f32 * line_height_with_spacing) - viewport_height).max(0.0);
+        let max_scroll =
+            ((line_count as f32 * line_height_with_spacing) - viewport_height).max(0.0);
         let scroll_offset = if !chat_input.user_has_scrolled {
             // Auto-scroll to bottom for new content
             max_scroll
@@ -70,9 +71,8 @@ impl ChatInputHandler {
         // Prepare text content (not used currently but kept for reference)
 
         // Check if we should show placeholder
-        let is_placeholder = chat_input.lines.len() == 1
-            && chat_input.lines[0].is_empty()
-            && !chat_input.focused;
+        let is_placeholder =
+            chat_input.lines.len() == 1 && chat_input.lines[0].is_empty() && !chat_input.focused;
 
         let combined_text = if is_placeholder {
             chat_input.placeholder.clone()
@@ -133,9 +133,10 @@ impl ChatInputHandler {
         let font = &fonts.body;
         let metrics = font.metrics();
         let line_height = metrics.cell_height.get() as f32;
-        
+
         // Calculate viewport height based on display lines
-        let viewport_height = chat_input.display_lines as f32 * line_height * LINE_HEIGHT_MULTIPLIER;
+        let viewport_height =
+            chat_input.display_lines as f32 * line_height * LINE_HEIGHT_MULTIPLIER;
 
         // Store line positions for click detection
         let line_positions = vec![];
@@ -157,25 +158,26 @@ impl ChatInputHandler {
 
         if needs_scrollbar {
             // Calculate scrollbar position
-            let scroll_ratio = chat_input.scroll_pixel_offset / (content_height - viewport_height).max(1.0);
+            let scroll_ratio =
+                chat_input.scroll_pixel_offset / (content_height - viewport_height).max(1.0);
             let thumb_position = scroll_ratio * (viewport_height - SCROLLBAR_THUMB_HEIGHT);
 
             // Create scrollbar element using a filled rectangle
             let scrollbar = Element::new(&font, ElementContent::Text(String::new()))
-            .colors(ElementColors {
-                border: BorderColor::default(),
-                bg: LinearRgba::with_components(0.5, 0.5, 0.5, 0.3).into(),
-                text: LinearRgba::TRANSPARENT.into(),
-            })
-            .min_width(Some(Dimension::Pixels(SCROLLBAR_WIDTH)))
-            .min_height(Some(Dimension::Pixels(SCROLLBAR_THUMB_HEIGHT)))
-            .margin(BoxDimension {
-                top: Dimension::Pixels(thumb_position),
-                left: Dimension::Pixels(width - SCROLLBAR_WIDTH - 4.0),
-                right: Dimension::Pixels(0.0),
-                bottom: Dimension::Pixels(0.0),
-            })
-            .zindex(16);
+                .colors(ElementColors {
+                    border: BorderColor::default(),
+                    bg: LinearRgba::with_components(0.5, 0.5, 0.5, 0.3).into(),
+                    text: LinearRgba::TRANSPARENT.into(),
+                })
+                .min_width(Some(Dimension::Pixels(SCROLLBAR_WIDTH)))
+                .min_height(Some(Dimension::Pixels(SCROLLBAR_THUMB_HEIGHT)))
+                .margin(BoxDimension {
+                    top: Dimension::Pixels(thumb_position),
+                    left: Dimension::Pixels(width - SCROLLBAR_WIDTH - 4.0),
+                    right: Dimension::Pixels(0.0),
+                    bottom: Dimension::Pixels(0.0),
+                })
+                .zindex(16);
 
             container_children.push(scrollbar);
         }
@@ -233,7 +235,7 @@ impl ChatInputHandler {
             // Enter without shift should submit (handled by parent)
             return false;
         }
-        
+
         // Delegate all other key handling to MultilineTextInput
         // which properly handles cursor movement, text editing, etc.
         match chat_input.handle_key_event(key, modifiers) {
@@ -250,31 +252,35 @@ impl ChatInputHandler {
     }
 
     /// Handle mouse wheel scrolling
-    pub fn handle_wheel_scroll(chat_input: &mut MultilineTextInput, delta: f32, line_height: f32) -> bool {
+    pub fn handle_wheel_scroll(
+        chat_input: &mut MultilineTextInput,
+        delta: f32,
+        line_height: f32,
+    ) -> bool {
         // Negative delta scrolls up, positive scrolls down
         let old_offset = chat_input.scroll_pixel_offset;
-        
+
         // Calculate content height
         let content_height = chat_input.lines.len() as f32 * line_height * 1.1;
         let viewport_height = chat_input.display_lines as f32 * line_height * 1.1;
-        
+
         if content_height <= viewport_height {
             // No scrolling needed
             return false;
         }
-        
+
         // Update scroll offset
         let max_scroll = (content_height - viewport_height).max(0.0);
         chat_input.scroll_pixel_offset = (chat_input.scroll_pixel_offset + delta)
             .max(0.0)
             .min(max_scroll);
-        
+
         // Mark that user has scrolled
         if chat_input.scroll_pixel_offset != old_offset {
             chat_input.user_has_scrolled = true;
             return true;
         }
-        
+
         false
     }
 
@@ -289,12 +295,13 @@ impl ChatInputHandler {
     ) -> bool {
         // Find which visual line was clicked
         let line_height = ESTIMATED_LINE_HEIGHT * LINE_HEIGHT_MULTIPLIER;
-        let clicked_visual_line = ((relative_y + chat_input.scroll_pixel_offset) / line_height) as usize;
-        
+        let clicked_visual_line =
+            ((relative_y + chat_input.scroll_pixel_offset) / line_height) as usize;
+
         // Check if click is within valid visual lines (from line_positions)
         if clicked_visual_line < line_positions.len() {
             let line_glyph_positions = &line_positions[clicked_visual_line];
-            
+
             // Find which character was clicked using exact glyph positions
             let clicked_document_byte_offset = if line_glyph_positions.is_empty() {
                 0
@@ -323,67 +330,72 @@ impl ChatInputHandler {
                         break;
                     }
                 }
-                
+
                 // If click is past all glyphs, position at end of visual line
                 if found_offset.is_none() {
                     if let Some((_, _, last_offset)) = line_glyph_positions.last() {
                         found_offset = Some(*last_offset + 1);
                     }
                 }
-                
+
                 found_offset.unwrap_or(0)
             };
-            
+
             // Now map the document byte offset to logical line and column
             let mut current_byte = 0;
             let mut found_logical_position = false;
-            
+
             for (logical_line_idx, line_text) in chat_input.lines.iter().enumerate() {
                 let line_start = current_byte;
                 let line_end = current_byte + line_text.len();
-                
-                if clicked_document_byte_offset >= line_start && clicked_document_byte_offset <= line_end {
+
+                if clicked_document_byte_offset >= line_start
+                    && clicked_document_byte_offset <= line_end
+                {
                     // Found the logical line containing this byte offset
                     let line_relative_byte = clicked_document_byte_offset - line_start;
-                    
+
                     // Convert byte offset to character index
                     let char_index = line_text
                         .char_indices()
                         .take_while(|(byte_idx, _)| *byte_idx < line_relative_byte)
                         .count();
-                    
+
                     // Update cursor position
                     chat_input.cursor_line = logical_line_idx;
                     chat_input.cursor_col = char_index;
                     found_logical_position = true;
-                    
+
                     log::debug!(
                         "Mapped click to logical line {}, col {}, doc_byte={}",
-                        logical_line_idx, char_index, clicked_document_byte_offset
+                        logical_line_idx,
+                        char_index,
+                        clicked_document_byte_offset
                     );
                     break;
                 }
-                
+
                 current_byte = line_end + 1; // +1 for newline
             }
-            
+
             // If we couldn't map to a logical position, fallback to end of last line
             if !found_logical_position {
                 chat_input.cursor_line = chat_input.lines.len().saturating_sub(1);
                 chat_input.cursor_col = chat_input.lines[chat_input.cursor_line].len();
             }
-            
+
             // Handle selection
             if shift_held {
                 // Extend selection
                 if chat_input.selection_start.is_none() {
-                    chat_input.selection_start = Some((chat_input.cursor_line, chat_input.cursor_col));
+                    chat_input.selection_start =
+                        Some((chat_input.cursor_line, chat_input.cursor_col));
                 }
             } else if !is_drag {
                 // Clear selection on non-drag click
                 chat_input.selection_start = None;
             }
-            
+
             chat_input.focused = true;
             return true;
         } else if clicked_visual_line < chat_input.lines.len() {
@@ -391,20 +403,21 @@ impl ChatInputHandler {
             chat_input.cursor_line = clicked_visual_line;
             chat_input.cursor_col = ((relative_x / ESTIMATED_CHAR_WIDTH) as usize)
                 .min(chat_input.lines[clicked_visual_line].len());
-            
+
             // Handle selection
             if shift_held {
                 if chat_input.selection_start.is_none() {
-                    chat_input.selection_start = Some((chat_input.cursor_line, chat_input.cursor_col));
+                    chat_input.selection_start =
+                        Some((chat_input.cursor_line, chat_input.cursor_col));
                 }
             } else if !is_drag {
                 chat_input.selection_start = None;
             }
-            
+
             chat_input.focused = true;
             return true;
         }
-        
+
         false
     }
 
@@ -416,7 +429,7 @@ impl ChatInputHandler {
         if !chat_input.focused {
             return None;
         }
-        
+
         let metrics = font.metrics();
         let line_height = metrics.cell_height.get() as f32;
         let line_height_with_spacing = line_height * LINE_HEIGHT_MULTIPLIER;

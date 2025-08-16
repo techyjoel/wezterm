@@ -3,17 +3,19 @@
 //! This module handles the rendering of activity items including commands,
 //! chat messages, suggestions, and goals with virtual scrolling support.
 
-use super::components::{Card, CardState, Chip, ChipSize, ChipStyle, MarkdownRenderer, ScrollbarInfo};
 use super::components::markdown::CodeBlockContainer;
+use super::components::{
+    Card, CardState, Chip, ChipSize, ChipStyle, MarkdownRenderer, ScrollbarInfo,
+};
 use super::position_cache::{ItemPositionData, TextPositionCache};
 use super::sidebar_constants::*;
 use super::{ActivityFilter, ActivityItem, AgentMode, CommandStatus, SidebarFonts};
+use crate::color::LinearRgba;
 use crate::sidebar::ai_sidebar::CurrentGoal;
 use crate::sidebar::text_selection::SelectionTarget;
-use std::sync::{Arc, Mutex};
-use crate::color::LinearRgba;
 use crate::termwindow::box_model::*;
 use crate::termwindow::render::scrollbar_renderer::{ScrollbarOrientation, ScrollbarRenderer};
+use std::sync::{Arc, Mutex};
 // Note: extract_positions_from_content is not used in this module
 use crate::termwindow::UIItemType;
 use chrono::{DateTime, Local};
@@ -65,19 +67,19 @@ pub struct ActivityLogState {
     pub activity_log_height_cache: HashMap<String, f32>,
     pub height_trackers: HashMap<String, HeightTracker>,
     pub activity_log_last_width: Option<f32>,
-    
+
     // Visible range for virtual scrolling
     pub activity_log_visible_range: Range<usize>,
-    
+
     // Scrollbar state
     pub activity_log_scrollbar: Option<crate::sidebar::components::ScrollbarInfo>,
     pub activity_log_scrollbar_renderer: Option<ScrollbarRenderer>,
     pub activity_log_scrollbar_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
     pub activity_log_scroll_offset: f32,
-    
+
     // Visual anchor for maintaining position during height changes
     pub visual_anchor: Option<VisualAnchor>,
-    
+
     // UI element bounds for hit testing
     pub activity_item_bounds: HashMap<usize, euclid::Rect<f32, window::PixelUnit>>,
 }
@@ -97,7 +99,7 @@ impl ActivityLogState {
             activity_item_bounds: HashMap::new(),
         }
     }
-    
+
     /// Clear cached data (should be called when content changes)
     pub fn clear_caches(&mut self) {
         self.activity_log_height_cache.clear();
@@ -113,7 +115,7 @@ impl ActivityLogRenderer {
     pub fn new() -> Self {
         ActivityLogRenderer
     }
-    
+
     /// Main render function for activity log  
     /// Note: ActivityLogRenderer is stateless - all data is passed as parameters
     pub fn render_activity_log(
@@ -128,7 +130,9 @@ impl ActivityLogRenderer {
         item_positions: &mut HashMap<usize, ItemPositionData>,
         width: u16,
         selection_state: &crate::sidebar::text_selection::SelectionState,
-        code_block_registry: Option<Arc<Mutex<HashMap<String, super::components::markdown::CodeBlockContainer>>>>,
+        code_block_registry: Option<
+            Arc<Mutex<HashMap<String, super::components::markdown::CodeBlockContainer>>>,
+        >,
     ) -> Element {
         // Check if width has changed and invalidate cache if needed
         if let Some(last_width) = state.activity_log_last_width {
@@ -194,7 +198,8 @@ impl ActivityLogRenderer {
                 ActivityItem::Goal { id, .. } => id.clone(),
             };
 
-            let item_height = Self::get_activity_item_height(state, item, line_height, available_width);
+            let item_height =
+                Self::get_activity_item_height(state, item, line_height, available_width);
             let item_start = current_y;
             let item_end = current_y + item_height;
 
@@ -466,8 +471,11 @@ impl ActivityLogRenderer {
         );
 
         // Calculate total content height
-        let total_content_height =
-            Self::calculate_total_activity_log_height(&filtered_items, line_height, available_width);
+        let total_content_height = Self::calculate_total_activity_log_height(
+            &filtered_items,
+            line_height,
+            available_width,
+        );
 
         // Log height information
         log::debug!(
@@ -668,7 +676,7 @@ impl ActivityLogRenderer {
 
         viewport
     }
-    
+
     // Helper function copied from ai_sidebar.rs
     fn render_activity_item(
         state: &ActivityLogState,
@@ -831,8 +839,8 @@ impl ActivityLogRenderer {
                         // When there's a selection, we still use markdown but the selection
                         // will be rendered as an overlay
                         MarkdownRenderer::render_with_fonts(
-                            message, 
-                            fonts, 
+                            message,
+                            fonts,
                             Some(content_width),
                             code_block_registry.clone(),
                             Some(&format!("activity_{}", item_index)),
@@ -1070,20 +1078,20 @@ fn estimate_activity_item_height(
                 effective_width,
                 avg_char_width,
             );
-            
+
             lines * line_height + spacing
         }
         ActivityItem::Goal { text, .. } => {
             // Goals are typically short
             let effective_width = available_width - spacing;
             let avg_char_width = line_height * 0.6;
-            
+
             let lines = crate::termwindow::box_model::estimate_wrapped_lines(
                 text,
                 effective_width,
                 avg_char_width,
             );
-            
+
             lines * line_height + spacing
         }
     }
@@ -1101,12 +1109,11 @@ fn calculate_total_activity_log_height(
         .map(|(index, item)| {
             let item_id = get_item_id(item);
             // Use cached height if available, otherwise estimate
-            state.activity_log_height_cache
+            state
+                .activity_log_height_cache
                 .get(&item_id)
                 .copied()
-                .unwrap_or_else(|| {
-                    estimate_activity_item_height(item, line_height, viewport_width)
-                })
+                .unwrap_or_else(|| estimate_activity_item_height(item, line_height, viewport_width))
         })
         .sum()
 }
