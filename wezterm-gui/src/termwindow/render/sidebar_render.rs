@@ -999,20 +999,28 @@ impl crate::TermWindow {
         sidebar: &Arc<std::sync::Mutex<dyn crate::sidebar::Sidebar>>,
         sidebar_x: f32,
     ) -> Result<()> {
-        log::debug!("render_sidebar_selection_overlays called");
+        // log::debug!("render_sidebar_selection_overlays called");
         let mut sidebar_locked = sidebar.lock().unwrap();
         if let Some(ai_sidebar) = sidebar_locked
             .as_any_mut()
             .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>()
         {
             let gl_state = self.render_state.as_ref().unwrap();
-            // Use z-index 12 (same as activity log content) with sub-layer 0 for selection rectangles
-            // Sub-layer 0 renders behind text (which uses sub-layer 1), following terminal selection pattern
-            let layer = gl_state.layer_for_zindex(12)?;
-            let mut layers = layer.quad_allocator();
 
             // Get selection state
             if let Some(selection) = ai_sidebar.get_active_selection() {
+                // Determine the appropriate z-index based on selection type
+                use crate::sidebar::text_selection::SelectionTarget;
+                let zindex = match selection {
+                    SelectionTarget::ActivityItem { .. } => 12, // Activity log content z-index
+                    SelectionTarget::Goal { .. } | 
+                    SelectionTarget::Suggestion { .. } => 14,    // Main sidebar content z-index
+                    SelectionTarget::ChatInput { .. } => 12,     // Chat input at same level as activity log
+                };
+
+                let layer = gl_state.layer_for_zindex(zindex)?;
+                let mut layers = layer.quad_allocator();
+
                 // Get selection rectangles from the sidebar
                 let selection_rects = ai_sidebar.calculate_selection_rectangles(selection);
 
@@ -1021,14 +1029,14 @@ impl crate::TermWindow {
 
                 // Render each selection rectangle
                 for (i, rect) in selection_rects.iter().enumerate() {
-                    log::debug!(
-                        "SELECTION DEBUG: Rectangle {}: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
-                        i,
-                        rect.origin.x,
-                        rect.origin.y,
-                        rect.size.width,
-                        rect.size.height
-                    );
+                    // log::debug!(
+                    //     "SELECTION DEBUG: Rectangle {}: x={:.1}, y={:.1}, w={:.1}, h={:.1}",
+                    //     i,
+                    //     rect.origin.x,
+                    //     rect.origin.y,
+                    //     rect.size.width,
+                    //     rect.size.height
+                    // );
 
                     // Sanity check rectangle dimensions
                     if rect.size.width <= 0.0 || rect.size.height <= 0.0 {

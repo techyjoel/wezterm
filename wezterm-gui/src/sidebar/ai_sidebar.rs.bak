@@ -49,6 +49,32 @@ const HEIGHT_CHANGE_HYSTERESIS: f32 = 2.0; // Minimum height change to update ca
 // Activity item spacing constants (must match render_activity_item)
 const CARD_DEFAULT_MARGIN: f32 = 8.0; // Default card margin (for commands/suggestions)
 
+/// Tracks height measurement state for activity items
+#[derive(Debug, Clone, Default)]
+struct HeightTracker {
+    /// For tall items - scroll offset when top edge entered viewport
+    top_entered_at: Option<f32>,
+
+    /// For tall items - scroll offset when bottom edge entered viewport  
+    bottom_entered_at: Option<f32>,
+
+    /// Whether we've seen this item's full height (unclipped)
+    seen_full_height: bool,
+
+    /// Final measured height (from rendering or scroll tracking)
+    measured_height: Option<f32>,
+}
+
+/// Visual anchor for maintaining scroll position stability
+#[derive(Debug, Clone)]
+struct VisualAnchor {
+    /// Index of the anchored item in filtered items
+    item_index: usize,
+    /// Offset within the item (0 = top of item)
+    offset_within_item: f32,
+    /// Position on screen where anchor appears (0 = top of viewport)
+    screen_position: f32,
+}
 
 // Character width estimation for suggestion cards
 // This is tuned specifically for the sidebar's font (Roboto)
@@ -79,8 +105,188 @@ pub enum ActivityFilter {
 
 // Text selection types are now in the text_selection module
 use super::text_selection::{SelectionState, SelectionTarget, TextSelectionManager};
-use super::activity_log_renderer::{ActivityLogRenderer, ActivityLogState, HeightTracker, VisualAnchor};
 
+impl SelectionState {
+    pub fn get_selected_text(&self, sidebar: &AiSidebar) -> Option<String> {
+        self.get_selected_text_with_positions(sidebar, &sidebar.item_positions)
+    }
+
+    pub fn get_selected_text_with_positions(
+        &self,
+        sidebar: &AiSidebar,
+        item_positions: &HashMap<usize, crate::sidebar::position_cache::ItemPositionData>,
+    ) -> Option<String> {
+        match &self.active_selection {
+            None => None,
+            Some(selection) => match selection {
+                SelectionTarget::ActivityItem {
+                    anchor_index,
+                    anchor_byte,
+                    current_index,
+                    current_byte,
+                } => {
+                    // Handle single-item or multi-item selection
+                    if anchor_index == current_index {
+                        // Single item selection
+                        item_positions.get(anchor_index).and_then(|position_data| {
+                            let start = anchor_byte.min(current_byte);
+                            let end = anchor_byte.max(current_byte);
+                            
+                            // Use the smart text extraction that skips artificial newlines
+                            let selected = position_data.get_selection_text(*start, *end);
+                            if !selected.is_empty() {
+                                Some(selected)
+                            } else {
+                                log::warn!(
+                                    "Empty selection: start={}, end={}, text_len={}",
+                                    start, end, position_data.rendered_text.len()
+                                );
+                                None
+                            }
+                        })
+                    } else {
+                        // Multi-item selection
+                        let start_index = anchor_index.min(current_index);
+                        let end_index = anchor_index.max(current_index);
+                        let mut selected_text = String::new();
+
+                        for index in *start_index..=*end_index {
+                            if let Some(position_data) = item_positions.get(&index) {
+                                if index == *start_index && index == *anchor_index {
+                                    // First item, from anchor_byte to end
+                                    let text = position_data.get_selection_text(*anchor_byte, position_data.rendered_text.len());
+                                    selected_text.push_str(&text);
+                                } else if index == *start_index {
+                                    // First item, from current_byte to end
+                                    let text = position_data.get_selection_text(*current_byte, position_data.rendered_text.len());
+                                    selected_text.push_str(&text);
+                                } else if index == *end_index && index == *anchor_index {
+                                    // Last item, from start to anchor_byte
+                                    let text = position_data.get_selection_text(0, *anchor_byte);
+                                    selected_text.push_str(&text);
+                                } else if index == *end_index {
+                                    // Last item, from start to current_byte
+                                    let text = position_data.get_selection_text(0, *current_byte);
+                                    selected_text.push_str(&text);
+                                } else {
+                                    // Middle items, entire text (without artificial newlines)
+                                    let text = position_data.get_selection_text(0, position_data.rendered_text.len());
+                                    selected_text.push_str(&text);
+                                }
+
+                                // Add newline between items (this is a REAL newline between different activity items)
+                                if index < *end_index {
+                                    selected_text.push('\n');
+                                }
+                            }
+                        }
+
+                        if selected_text.is_empty() {
+                            None
+                        } else {
+                            Some(selected_text)
+                        }
+                    }
+                }
+                SelectionTarget::Suggestion {
+                    anchor_byte,
+                    current_byte,
+                } => {
+                    if let Some(suggestion) = &sidebar.current_suggestion {
+                        let start = anchor_byte.min(current_byte);
+                        let end = anchor_byte.max(current_byte);
+                        suggestion.content.get(*start..*end).map(|s| s.to_string())
+                    } else {
+                        None
+                    }
+                }
+                SelectionTarget::Goal {
+                    anchor_byte,
+                    current_byte,
+                } => {
+                    if let Some(goal) = &sidebar.current_goal {
+                        let start = anchor_byte.min(current_byte);
+                        let end = anchor_byte.max(current_byte);
+                        goal.text.get(*start..*end).map(|s| s.to_string())
+                    } else {
+                        None
+                    }
+                }
+                SelectionTarget::ChatInput {
+                    anchor_line,
+                    anchor_byte,
+                    current_line,
+                    current_byte,
+                } => {
+                    // Get selected text from chat input
+                    let lines = &sidebar.chat_input.lines;
+
+                    if *anchor_line == *current_line {
+                        // Single line selection
+                        if let Some(line) = lines.get(*anchor_line) {
+                            let start = anchor_byte.min(current_byte);
+                            let end = anchor_byte.max(current_byte);
+                            line.get(*start..*end).map(|s| s.to_string())
+                        } else {
+                            None
+                        }
+                    } else {
+                        // Multi-line selection
+                        let start_line = anchor_line.min(current_line);
+                        let end_line = anchor_line.max(current_line);
+                        let mut selected = String::new();
+
+                        for (idx, line) in lines.iter().enumerate() {
+                            if idx >= *start_line && idx <= *end_line {
+                                if idx == *start_line {
+                                    // First line - from byte offset to end
+                                    let start_byte = if *anchor_line == *start_line {
+                                        *anchor_byte
+                                    } else {
+                                        *current_byte
+                                    };
+                                    if let Some(text) = line.get(start_byte..) {
+                                        selected.push_str(text);
+                                    }
+                                } else if idx == *end_line {
+                                    // Last line - from start to byte offset
+                                    let end_byte = if *anchor_line == *end_line {
+                                        *anchor_byte
+                                    } else {
+                                        *current_byte
+                                    };
+                                    if let Some(text) = line.get(..end_byte) {
+                                        selected.push_str(text);
+                                    }
+                                } else {
+                                    // Middle lines - entire line
+                                    selected.push_str(line);
+                                }
+
+                                // Add newline between lines (except after last line)
+                                if idx < *end_line {
+                                    selected.push('\n');
+                                }
+                            }
+                        }
+
+                        if selected.is_empty() {
+                            None
+                        } else {
+                            Some(selected)
+                        }
+                    }
+                }
+            },
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.active_selection = None;
+        self.prepared_selection = None;
+        self.is_dragging = false;
+    }
+}
 
 /// Extract plain text from an activity item for selection
 fn get_item_text(item: &ActivityItem) -> String {
@@ -456,7 +662,7 @@ pub enum CommandStatus {
 }
 
 pub struct CurrentGoal {
-    pub text: String,
+    text: String,
     is_ai_inferred: bool,
     is_confirmed: bool,
     is_editing: bool,
@@ -496,16 +702,37 @@ pub struct AiSidebar {
     activity_log: Vec<ActivityItem>,
 
     // UI Components
-    pub chat_input: MultilineTextInput,
+    chat_input: MultilineTextInput,
 
-    // Activity log state and renderer
-    activity_log_state: ActivityLogState,
-    activity_log_renderer: ActivityLogRenderer,
-    
+    // Height caching for virtual scrolling
+    activity_log_height_cache: HashMap<String, f32>,
+
+    // Height tracking state for each item
+    height_trackers: HashMap<String, HeightTracker>,
+
+    // Last known width for cache invalidation
+    activity_log_last_width: Option<f32>,
+
+    // Visible range for virtual scrolling
+    activity_log_visible_range: Range<usize>,
     // Chat input colors for filled rectangle rendering
     chat_input_bg_color: LinearRgba,
     chat_input_border_color: LinearRgba,
 
+    // Scrollbar info for external rendering
+    activity_log_scrollbar: Option<ScrollbarInfo>,
+
+    // Scrollbar renderer for handling events
+    activity_log_scrollbar_renderer: Option<ScrollbarRenderer>,
+
+    // Scrollbar bounds for hit testing
+    activity_log_scrollbar_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
+
+    // Scroll state
+    activity_log_scroll_offset: f32,
+
+    // Visual anchor for maintaining position during height changes
+    visual_anchor: Option<VisualAnchor>,
 
     // UI element bounds for hit testing
     filter_chip_bounds: Vec<(ActivityFilter, euclid::Rect<f32, window::PixelUnit>)>,
@@ -525,12 +752,13 @@ pub struct AiSidebar {
 
     // Position tracking for text selection
     position_cache: crate::sidebar::position_cache::TextPositionCache,
-    pub item_positions: HashMap<usize, crate::sidebar::position_cache::ItemPositionData>,
+    item_positions: HashMap<usize, crate::sidebar::position_cache::ItemPositionData>,
     coordinate_transform: crate::sidebar::position_cache::CoordinateTransform,
 
-    // Track bounds for hit testing (non-activity items)
-    pub suggestion_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
-    pub goal_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
+    // Track bounds for hit testing
+    activity_item_bounds: HashMap<usize, euclid::Rect<f32, window::PixelUnit>>,
+    suggestion_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
+    goal_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
 
     // Last known window height for mouse event handling
     last_viewport_height: Option<f32>,
@@ -539,7 +767,7 @@ pub struct AiSidebar {
     chat_input_bounds: Option<euclid::Rect<f32, window::PixelUnit>>,
 
     // Goal text character positions for accurate selection
-    pub goal_char_positions: Option<Vec<(f32, f32, usize)>>,
+    goal_char_positions: Option<Vec<(f32, f32, usize)>>,
 }
 
 impl AiSidebar {
@@ -828,8 +1056,15 @@ impl AiSidebar {
             current_suggestion: None,
             activity_log: Vec::new(),
             chat_input: MultilineTextInput::new(2).with_placeholder("Type a message..."),
-            activity_log_state: ActivityLogState::new(),
-            activity_log_renderer: ActivityLogRenderer::new(),
+            activity_log_height_cache: HashMap::new(),
+            height_trackers: HashMap::new(),
+            activity_log_last_width: None,
+            activity_log_visible_range: 0..0,
+            activity_log_scrollbar: None,
+            activity_log_scrollbar_renderer: None,
+            activity_log_scrollbar_bounds: None,
+            activity_log_scroll_offset: 0.0,
+            visual_anchor: None,
             filter_chip_bounds: Vec::new(),
             more_link_bounds: None,
             sidebar_x_position: 0.0,
@@ -844,6 +1079,7 @@ impl AiSidebar {
                 sidebar_width: 0.0,
                 sidebar_height: 0.0,
             },
+            activity_item_bounds: HashMap::new(),
             suggestion_bounds: None,
             goal_bounds: None,
             chat_input_bg_color: LinearRgba::with_components(0.1, 0.1, 0.12, 1.0),
@@ -1610,8 +1846,812 @@ This example demonstrates:
         )
     }
 
+    pub fn render_activity_item(
+        &self,
+        item: &ActivityItem,
+        fonts: &SidebarFonts,
+        item_index: usize,
+        palette: &wezterm_term::color::ColorPalette,
+        global_byte_offset: usize,
+    ) -> Element {
+        match item {
+            ActivityItem::Command {
+                command,
+                output,
+                status,
+                expanded,
+                ..
+            } => {
+                let status_icon = match status {
+                    CommandStatus::Running => "◐",
+                    CommandStatus::Success => "✓",
+                    CommandStatus::Failed(_) => "✕",
+                };
+
+                let status_color = match status {
+                    CommandStatus::Running => LinearRgba::with_components(0.5, 0.7, 1.0, 1.0),
+                    CommandStatus::Success => LinearRgba::with_components(0.4, 0.8, 0.4, 1.0),
+                    CommandStatus::Failed(_) => LinearRgba::with_components(0.9, 0.4, 0.4, 1.0),
+                };
+
+                // Calculate available width for command content
+                let sidebar_width = self.width as f32;
+                let content_width = sidebar_width
+                    - CHAT_ITEM_HORIZONTAL_MARGIN
+                    - (CHAT_ITEM_PADDING * 2.0)
+                    - (CHAT_ITEM_BORDER * 2.0)
+                    - SCROLLBAR_SPACE;
+
+                // Create command element with status icon
+                // Commands don't contribute to selection offset, so don't set global_byte_offset
+                let command_text = format!("{} {}", status_icon, command);
+                let command_element = Element::new(
+                    &fonts.body,
+                    ElementContent::WrappedText(command_text.clone()),
+                )
+                .colors(ElementColors {
+                    text: status_color.into(),
+                    ..Default::default()
+                })
+                .max_width(Some(Dimension::Pixels(content_width)));
+
+                let mut content = vec![command_element];
+
+                // Add output if expanded
+                if *expanded && output.is_some() {
+                    // Commands don't contribute to selection, don't set global_byte_offset
+                    content.push(
+                        Element::new(
+                            &fonts.body,
+                            ElementContent::WrappedText(output.as_ref().unwrap().clone()),
+                        )
+                        .colors(ElementColors {
+                            text: LinearRgba::with_components(0.7, 0.7, 0.7, 1.0).into(),
+                            ..Default::default()
+                        })
+                        .padding(BoxDimension {
+                            top: Dimension::Pixels(8.0),
+                            ..Default::default()
+                        })
+                        .max_width(Some(Dimension::Pixels(content_width))),
+                    );
+                }
+
+                Card::new()
+                    .with_content(content)
+                    .render(&fonts.body)
+                    .item_type(UIItemType::ActivityItemText {
+                        index: item_index,
+                        char_positions: Vec::new(), // Position data extracted after rendering
+                    })
+            }
+            ActivityItem::Chat {
+                message, is_user, ..
+            } => {
+                // Calculate available width for chat content
+                let sidebar_width = self.width as f32;
+                let content_width = sidebar_width
+                    - CHAT_ITEM_HORIZONTAL_MARGIN
+                    - (CHAT_ITEM_PADDING * 2.0)
+                    - (CHAT_ITEM_BORDER * 2.0)
+                    - SCROLLBAR_SPACE;
+
+                let bg_color = if *is_user {
+                    LinearRgba::with_components(0.05, 0.15, 0.25, 1.0) // 50% darker, full opacity
+                } else {
+                    LinearRgba::with_components(0.15, 0.15, 0.17, 1.0)
+                };
+
+                // Check if this message has a selection
+                let selection = match &self.selection_state.active_selection {
+                    Some(SelectionTarget::ActivityItem {
+                        anchor_index,
+                        anchor_byte,
+                        current_index,
+                        current_byte,
+                    }) if *anchor_index == item_index || *current_index == item_index => {
+                        // Determine selection bounds for this item
+                        if *anchor_index == *current_index && *anchor_index == item_index {
+                            // Single item selection
+                            Some((
+                                *anchor_byte.min(current_byte),
+                                *anchor_byte.max(current_byte),
+                            ))
+                        } else if *anchor_index.min(current_index) == item_index {
+                            // This is the first item in multi-item selection
+                            let byte_start = if *anchor_index == item_index {
+                                *anchor_byte
+                            } else {
+                                *current_byte
+                            };
+                            Some((byte_start, usize::MAX)) // Select to end
+                        } else if *anchor_index.max(current_index) == item_index {
+                            // This is the last item in multi-item selection
+                            let byte_end = if *anchor_index == item_index {
+                                *anchor_byte
+                            } else {
+                                *current_byte
+                            };
+                            Some((0, byte_end)) // Select from start
+                        } else if item_index > *anchor_index.min(current_index)
+                            && item_index < *anchor_index.max(current_index)
+                        {
+                            // This is a middle item - select entire text
+                            Some((0, usize::MAX))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+
+                // Render message content with markdown if it's from AI
+                let content = if *is_user {
+                    // User messages - use WrappedText for proper width calculation
+                    // Selection is now rendered as an overlay, not inline styles
+                    Element::new(&fonts.body, ElementContent::WrappedText(message.clone()))
+                        .colors(ElementColors {
+                            text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
+                            ..Default::default()
+                        })
+                        .max_width(Some(Dimension::Pixels(content_width)))
+                        .global_byte_offset(0) // Use item-relative offset, not document-global
+                } else {
+                    // AI messages - use markdown rendering
+                    // Selection is now rendered as an overlay, not inline styles
+                    if selection.is_some() {
+                        // When there's a selection, we still use markdown but the selection
+                        // will be rendered as an overlay
+                        MarkdownRenderer::render_with_fonts(
+                            message, 
+                            fonts, 
+                            Some(content_width),
+                            self.code_block_registry.clone(),
+                            Some(&format!("activity_{}", item_index)),
+                            Some(palette),
+                        )
+                    } else {
+                        // AI messages use markdown rendering with code font support
+                        // Need to add width constraint for proper text wrapping
+                        let sidebar_width = self.width as f32;
+                        // Calculate available width accounting for all padding/margins:
+                        // - Activity log container: no explicit padding
+                        // - Chat message margin: CHAT_ITEM_HORIZONTAL_MARGIN on one side
+                        // - Chat message padding: CHAT_ITEM_PADDING * 2
+                        // - Chat message border: CHAT_ITEM_BORDER * 2
+                        // - Scrollbar space: SCROLLBAR_SPACE
+                        let spacing = CHAT_ITEM_HORIZONTAL_MARGIN
+                            + (CHAT_ITEM_PADDING * 2.0)
+                            + (CHAT_ITEM_BORDER * 2.0)
+                            + SCROLLBAR_SPACE;
+                        let content_width = sidebar_width - spacing;
+                        log::debug!(
+                            "Rendering markdown in activity log: sidebar_width={}, content_width={}",
+                            sidebar_width,
+                            content_width
+                        );
+
+                        // Use registry if available for horizontal scrolling support
+                        MarkdownRenderer::render_with_fonts(
+                            message,
+                            fonts,
+                            Some(content_width),
+                            self.code_block_registry.clone(),
+                            Some(&format!("activity_{}", item_index)),
+                            Some(palette),
+                        )
+                    }
+                };
+
+                Element::new(&fonts.body, ElementContent::Children(vec![content]))
+                    .display(DisplayType::Block)
+                    .colors(ElementColors {
+                        bg: bg_color.into(),
+                        ..Default::default()
+                    })
+                    .padding(BoxDimension::new(Dimension::Pixels(CHAT_ITEM_PADDING)))
+                    .margin(BoxDimension {
+                        left: if *is_user {
+                            Dimension::Pixels(CHAT_ITEM_HORIZONTAL_MARGIN)
+                        } else {
+                            Dimension::Pixels(0.0)
+                        },
+                        right: Dimension::Pixels(0.0), // No right margin for either
+                        bottom: Dimension::Pixels(CHAT_ITEM_BOTTOM_MARGIN),
+                        ..Default::default()
+                    })
+                    .item_type(UIItemType::ActivityItemText {
+                        index: item_index,
+                        char_positions: Vec::new(), // Position data extracted after rendering
+                    })
+            }
+            ActivityItem::Suggestion { title, content, .. } => {
+                // Add width constraint for proper text wrapping
+                let sidebar_width = self.width as f32;
+                // Calculate available width for suggestion card content:
+                // - Card margin: 8px each side = 16px
+                // - Card padding: 12px each side = 24px
+                // - Card border: 1px each side = 2px
+                // - Scrollbar space: ~12px
+                // Total: 16 + 24 + 2 + 12 = 54px
+                let content_width = sidebar_width - 54.0;
+                let markdown_content = MarkdownRenderer::render_with_fonts(
+                    content,
+                    fonts,
+                    Some(content_width),
+                    self.code_block_registry.clone(),
+                    Some(&format!("suggestion_{}", item_index)),
+                    Some(palette),
+                );
+
+                Card::new()
+                    .with_title(format!("Past: {}", title))
+                    .with_content(vec![markdown_content])
+                    .render(&fonts.heading)
+                    .item_type(UIItemType::ActivityItemText {
+                        index: item_index,
+                        char_positions: Vec::new(), // Position data extracted after rendering
+                    })
+            }
+            ActivityItem::Goal { text, .. } => Element::new(
+                &fonts.body,
+                ElementContent::WrappedText(format!("Goal: {}", text)),
+            )
+            .colors(ElementColors {
+                text: LinearRgba::with_components(0.8, 0.8, 0.8, 1.0).into(),
+                ..Default::default()
+            })
+            .padding(BoxDimension::new(Dimension::Pixels(8.0)))
+            .item_type(UIItemType::ActivityItemText {
+                index: item_index,
+                char_positions: Vec::new(), // Position data extracted after rendering
+            }),
+        }
+    }
 
     /// Get filtered activity items based on current filter
+    fn render_activity_log(
+        &mut self,
+        fonts: &SidebarFonts,
+        available_height: f32,
+        available_width: f32,
+        palette: &wezterm_term::color::ColorPalette,
+    ) -> Element {
+        // Check if width has changed and invalidate cache if needed
+        if let Some(last_width) = self.activity_log_last_width {
+            let width_change = (last_width - available_width).abs();
+            if width_change > WIDTH_CHANGE_THRESHOLD {
+                log::info!(
+                    "Significant width change from {} to {} (delta: {}), clearing height cache",
+                    last_width,
+                    available_width,
+                    width_change
+                );
+                self.activity_log_height_cache.clear();
+                self.height_trackers.clear();
+            } else if width_change > 0.1 {
+                log::trace!(
+                    "Minor width change: {} -> {} (delta: {}), keeping cache",
+                    last_width,
+                    available_width,
+                    width_change
+                );
+            }
+        }
+        self.activity_log_last_width = Some(available_width);
+
+        // Filter items based on current filter
+        let filtered_items: Vec<(usize, &ActivityItem)> = self
+            .activity_log
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| match self.activity_filter {
+                ActivityFilter::All => true,
+                ActivityFilter::Commands => matches!(item, ActivityItem::Command { .. }),
+                ActivityFilter::Chat => matches!(item, ActivityItem::Chat { .. }),
+                ActivityFilter::Suggestions => matches!(item, ActivityItem::Suggestion { .. }),
+            })
+            .collect();
+
+        let filtered_count = filtered_items.len();
+        log::debug!(
+            "Rendering activity log: {} total items, {} filtered items",
+            self.activity_log.len(),
+            filtered_count
+        );
+
+        // Get actual font metrics for accurate height calculations
+        let font_metrics = fonts.body.metrics();
+        let line_height = font_metrics.cell_height.get() as f32;
+
+        // Calculate visible range based on scroll offset
+        const BUFFER_ITEMS: usize = 3; // Render 3 items above and below viewport
+        let viewport_start = self.activity_log_scroll_offset;
+        let viewport_end = self.activity_log_scroll_offset + available_height;
+
+        let mut first_visible: Option<usize> = None;
+        let mut last_visible: Option<usize> = None;
+        let mut current_y = 0.0;
+
+        // Find which items are actually visible in the viewport
+        for (idx, (orig_idx, item)) in filtered_items.iter().enumerate() {
+            let item_id = match item {
+                ActivityItem::Command { id, .. } => id.clone(),
+                ActivityItem::Chat { id, .. } => id.clone(),
+                ActivityItem::Suggestion { id, .. } => id.clone(),
+                ActivityItem::Goal { id, .. } => id.clone(),
+            };
+
+            let item_height = self.get_activity_item_height(item, line_height, available_width);
+            let item_start = current_y;
+            let item_end = current_y + item_height;
+
+            // Check if this item overlaps with the actual viewport
+            let overlaps_viewport = item_end > viewport_start && item_start < viewport_end;
+
+            // Enhanced debug logging for items near the viewport
+            if idx < 3
+                || idx >= filtered_items.len() - 3
+                || (item_end >= viewport_start - 200.0 && item_start <= viewport_end + 200.0)
+            {
+                log::debug!(
+                    "[VSCROLL] Item {} (idx {}): y={:.0}-{:.0} (h={:.0}), viewport={:.0}-{:.0}, overlaps={}",
+                    item_id, idx, item_start, item_end, item_height, viewport_start, viewport_end, overlaps_viewport
+                );
+            }
+
+            // Special logging for items we expect but don't see
+            if idx >= 5 && idx <= 10 {
+                log::debug!(
+                    "[VSCROLL] DEBUG Item {} (idx {}): start={:.0}, end={:.0}, height={:.0}",
+                    item_id,
+                    idx,
+                    item_start,
+                    item_end,
+                    item_height
+                );
+            }
+
+            // Track height measurement for tall items using scroll positions
+            if item_height >= available_height
+                || !self
+                    .height_trackers
+                    .get(&item_id)
+                    .map(|t| t.seen_full_height)
+                    .unwrap_or(false)
+            {
+                let tracker = self.height_trackers.entry(item_id.clone()).or_default();
+
+                // Track when top edge enters viewport
+                if overlaps_viewport && tracker.top_entered_at.is_none() {
+                    tracker.top_entered_at = Some(self.activity_log_scroll_offset);
+                    log::debug!(
+                        "Item {} top entered viewport at scroll offset {}",
+                        item_id,
+                        self.activity_log_scroll_offset
+                    );
+                }
+
+                // Track when bottom edge becomes visible
+                if tracker.top_entered_at.is_some() && item_end <= viewport_end {
+                    if tracker.bottom_entered_at.is_none() {
+                        tracker.bottom_entered_at = Some(self.activity_log_scroll_offset);
+
+                        // Calculate height from scroll distance
+                        let top_offset = tracker.top_entered_at.unwrap();
+                        let bottom_offset = tracker.bottom_entered_at.unwrap();
+
+                        // Scroll tracking is disabled - it was incorrectly adding viewport height
+                        log::debug!(
+                            "[VSCROLL] Scroll tracking DISABLED for {} - scroll_distance={:.0}px",
+                            item_id,
+                            bottom_offset - top_offset
+                        );
+                    }
+                }
+            }
+
+            // Check if any part of the item overlaps with the actual viewport
+            if item_end > viewport_start && item_start < viewport_end {
+                if first_visible.is_none() {
+                    first_visible = Some(idx);
+                }
+                last_visible = Some(idx);
+            }
+
+            current_y = item_end; // Use item_end to be consistent
+
+            // Note: We used to have an optimization here to stop scanning early,
+            // but it was causing issues with calculating total height and finding all items.
+            // We need to scan all items to get accurate total height.
+        }
+
+        // Log the scan result with more detail
+        let total_content_height = current_y;
+        log::debug!(
+            "[VSCROLL] Scan complete: total_height={:.0}, viewport={:.0}-{:.0}, first_visible={:?}, last_visible={:?}",
+            total_content_height, viewport_start, viewport_end, first_visible, last_visible
+        );
+
+        // DEBUG: Check if we can theoretically scroll to see all content
+        let theoretical_max_scroll = (total_content_height - available_height).max(0.0);
+        if self.activity_log_scroll_offset > theoretical_max_scroll - 10.0 {
+            log::info!(
+                "[VSCROLL] Near bottom: scroll={:.0}, max={:.0}, last_item_bottom={:.0}, viewport_bottom={:.0}",
+                self.activity_log_scroll_offset, theoretical_max_scroll, total_content_height,
+                self.activity_log_scroll_offset + available_height
+            );
+        }
+
+        // Apply consistent pixel-based buffer around the visible items
+
+        let (start_idx, end_idx) = if let (Some(first), Some(last)) = (first_visible, last_visible)
+        {
+            // Find start index by going backwards from first_visible
+            // Always include at least one item before visible range, even if it's very tall
+            let mut start = first;
+            let mut accumulated_before = 0.0;
+            let mut items_before = 0;
+
+            while start > 0 && (accumulated_before < RENDER_MARGIN || items_before == 0) {
+                start -= 1;
+                items_before += 1;
+                if let Some((_, item)) = filtered_items.get(start) {
+                    let item_height =
+                        self.get_activity_item_height(item, line_height, available_width);
+                    accumulated_before += item_height;
+                }
+            }
+
+            // Find end index by going forward from last_visible
+            // Always include at least one item after visible range, even if it's very tall
+            let mut end = last + 1;
+            let mut accumulated_after = 0.0;
+            let mut items_after = 0;
+            while end < filtered_items.len()
+                && (accumulated_after < RENDER_MARGIN || items_after == 0)
+            {
+                if let Some((_, item)) = filtered_items.get(end) {
+                    accumulated_after +=
+                        self.get_activity_item_height(item, line_height, available_width);
+                }
+                end += 1;
+                items_after += 1;
+            }
+
+            log::debug!(
+                "[VSCROLL] Pixel-based buffer: {}..{} (first_vis={}, last_vis={}, before={:.0}px, after={:.0}px)",
+                start, end, first, last, accumulated_before, accumulated_after
+            );
+
+            (start, end)
+        } else {
+            // This should never happen if our heights are correct
+            log::error!(
+                "[VSCROLL] CRITICAL: No visible items found! viewport={:.0}-{:.0}, total_height={:.0}, item_count={}",
+                viewport_start, viewport_end, current_y, filtered_items.len()
+            );
+
+            // Handle empty list case
+            if filtered_items.is_empty() {
+                (0, 0)
+            } else {
+                // Just show first few items as a fallback
+                let count = BUFFER_ITEMS.min(filtered_items.len());
+                (0, count)
+            }
+        };
+
+        self.activity_log_visible_range = start_idx..end_idx;
+
+        // DEBUG: Enhanced visible range logging
+        log::debug!(
+            "[VSCROLL] Visible range: {:?} ({}..{}), First visible: {:?}, Last visible: {:?}",
+            self.activity_log_visible_range,
+            start_idx,
+            end_idx,
+            first_visible,
+            last_visible
+        );
+
+        log::debug!(
+            "[VSCROLL] Rendering {} items (indices {}..{}) of {} total, viewport: {:.0}-{:.0} pixels",
+            end_idx - start_idx,
+            start_idx,
+            end_idx,
+            filtered_items.len(),
+            viewport_start,
+            viewport_end
+        );
+
+        // Only render visible items
+        let mut rendered_items: Vec<Element> = Vec::new();
+
+        // Calculate Y offset for items before our render range
+        // IMPORTANT: We need the offset to start_idx (what we're actually rendering),
+        // not first_visible (what's in viewport), to position content correctly
+        let mut y_offset_before_visible = 0.0;
+        for idx in 0..start_idx {
+            if let Some((orig_idx, item)) = filtered_items.get(idx) {
+                y_offset_before_visible +=
+                    self.get_activity_item_height(item, line_height, available_width);
+            }
+        }
+
+        log::debug!(
+            "[VSCROLL] y_offset_before_visible={:.0} (sum of {} items before start_idx={})",
+            y_offset_before_visible,
+            start_idx,
+            start_idx
+        );
+
+        // Track global byte position for the entire document
+        // Only count items that contribute to selectable text
+        let mut document_byte_offset = 0usize;
+
+        // Calculate byte offset up to the first visible item
+        // Only include items that are part of selectable text (exclude commands)
+        for idx in 0..start_idx {
+            if let Some((_, item)) = filtered_items.get(idx) {
+                if should_include_item_in_selection_offset(item) {
+                    let item_text = get_item_text(item);
+                    document_byte_offset += item_text.len();
+                    // Add newline between items (except after the last one)
+                    if idx < filtered_items.len() - 1 {
+                        document_byte_offset += 1;
+                    }
+                }
+            }
+        }
+
+        // Render visible items with proper global byte offsets
+        for idx in self.activity_log_visible_range.clone() {
+            if let Some((orig_idx, item)) = filtered_items.get(idx) {
+                // Enhanced logging to debug offset issues
+                let mut element = self.render_activity_item(
+                    item,
+                    fonts,
+                    *orig_idx,
+                    palette,
+                    document_byte_offset,
+                );
+
+                // Update document byte offset for next item
+                // Only increment offset for items that contribute to selectable text
+                if should_include_item_in_selection_offset(item) {
+                    let item_text = get_item_text(item);
+                    document_byte_offset += item_text.len();
+                    // Add newline between items (except after the last one)
+                    if idx < filtered_items.len() - 1 {
+                        document_byte_offset += 1;
+                    }
+                }
+
+                // Attach cached height if available
+                let item_id = match item {
+                    ActivityItem::Command { id, .. } => id.clone(),
+                    ActivityItem::Chat { id, .. } => id.clone(),
+                    ActivityItem::Suggestion { id, .. } => id.clone(),
+                    ActivityItem::Goal { id, .. } => id.clone(),
+                };
+                if let Some(height) = self.activity_log_height_cache.get(&item_id) {
+                    element = element.with_computed_height(*height);
+                }
+
+                rendered_items.push(element);
+            }
+        }
+
+        log::debug!(
+            "[VSCROLL] Rendering {} visible items (of {} total), visible range: {:?}",
+            rendered_items.len(),
+            filtered_items.len(),
+            self.activity_log_visible_range.clone()
+        );
+
+        // Calculate total content height
+        let total_content_height =
+            self.calculate_total_activity_log_height(&filtered_items, line_height, available_width);
+
+        // Log height information
+        log::debug!(
+            "Total content height: {} pixels, scroll_offset: {}, max valid scroll: {}",
+            total_content_height,
+            self.activity_log_scroll_offset,
+            (total_content_height - available_height).max(0.0)
+        );
+
+        // Before updating total height, calculate visual anchor if heights are changing
+        let old_height = self
+            .activity_log_scrollbar
+            .as_ref()
+            .map(|s| s.content_height)
+            .unwrap_or(0.0);
+
+        let height_changing = (old_height - total_content_height).abs() > 1.0;
+
+        // TEMPORARILY DISABLED: Visual anchor system to fix scrolling jumps
+        // if height_changing {
+        //     // Calculate anchor before any changes
+        //     self.visual_anchor = self.calculate_visual_anchor(
+        //         &filtered_items,
+        //         line_height,
+        //         available_width,
+        //         available_height
+        //     );
+        //
+        //     log::info!(
+        //         "Total content height changing: {} -> {} (delta: {}, cache size: {})",
+        //         old_height,
+        //         total_content_height,
+        //         total_content_height - old_height,
+        //         self.activity_log_height_cache.len()
+        //     );
+        // }
+
+        // DEBUG: Log comprehensive state information
+        log::debug!(
+            "[VSCROLL] Total items: {}, Filtered: {}, Total height: {:.0}px, Scroll: {:.0}px, Viewport: {:.0}px, Max scroll: {:.0}px",
+            self.activity_log.len(),
+            filtered_items.len(),
+            total_content_height,
+            self.activity_log_scroll_offset,
+            available_height,
+            (total_content_height - available_height).max(0.0)
+        );
+
+        // Debug: Show what's at the end of the list
+        if let Some((idx, last_item)) = filtered_items.last() {
+            let last_height =
+                self.get_activity_item_height(last_item, line_height, available_width);
+            let last_id = match last_item {
+                ActivityItem::Command { id, .. } => id,
+                ActivityItem::Chat { id, .. } => id,
+                ActivityItem::Suggestion { id, .. } => id,
+                ActivityItem::Goal { id, .. } => id,
+            };
+            let is_cached = self.activity_log_height_cache.contains_key(last_id);
+            log::debug!(
+                "[VSCROLL] Last item: {} (idx={}, height={:.0}px, cached={}), can_reach_end={}",
+                last_id,
+                idx,
+                last_height,
+                is_cached,
+                self.activity_log_scroll_offset + available_height >= total_content_height - 10.0
+            );
+
+            // Check last few items to see if they have cached heights
+            let last_5_uncached = filtered_items
+                .iter()
+                .rev()
+                .take(5)
+                .filter(|(_, item)| {
+                    let id = match item {
+                        ActivityItem::Command { id, .. } => id,
+                        ActivityItem::Chat { id, .. } => id,
+                        ActivityItem::Suggestion { id, .. } => id,
+                        ActivityItem::Goal { id, .. } => id,
+                    };
+                    !self.activity_log_height_cache.contains_key(id)
+                })
+                .count();
+            if last_5_uncached > 0 {
+                log::debug!(
+                    "[VSCROLL] {} of last 5 items are using estimated heights (never been visible)",
+                    last_5_uncached
+                );
+
+                // Show which specific items are uncached
+                let uncached_info: Vec<String> = filtered_items
+                    .iter()
+                    .rev()
+                    .take(5)
+                    .filter_map(|(idx, item)| {
+                        let id = match item {
+                            ActivityItem::Command { id, .. } => id,
+                            ActivityItem::Chat { id, .. } => id,
+                            ActivityItem::Suggestion { id, .. } => id,
+                            ActivityItem::Goal { id, .. } => id,
+                        };
+                        if !self.activity_log_height_cache.contains_key(id) {
+                            Some(format!("{} (idx={})", id, idx))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                log::debug!("[VSCROLL] Uncached items: {:?}", uncached_info);
+            }
+        }
+
+        // Ensure scroll offset is within valid bounds
+        let max_valid_scroll = (total_content_height - available_height).max(0.0);
+        if self.activity_log_scroll_offset > max_valid_scroll {
+            log::warn!(
+                "Scroll offset {} exceeds max valid scroll {}, clamping",
+                self.activity_log_scroll_offset,
+                max_valid_scroll
+            );
+            self.activity_log_scroll_offset = max_valid_scroll;
+        }
+
+        // Update scrollbar state
+        let scrollbar_info = ScrollbarInfo {
+            should_show: total_content_height > available_height,
+            thumb_position: if total_content_height > available_height {
+                self.activity_log_scroll_offset / (total_content_height - available_height)
+            } else {
+                0.0
+            },
+            thumb_size: (available_height / total_content_height).min(1.0).max(0.1),
+            content_height: total_content_height,
+            viewport_height: available_height,
+            scroll_offset: self.activity_log_scroll_offset,
+            total_items: filtered_items.len(),
+            viewport_items: self.activity_log_visible_range.len(),
+        };
+
+        self.activity_log_scrollbar = Some(scrollbar_info.clone());
+
+        // Update scrollbar renderer
+        if scrollbar_info.should_show {
+            match &mut self.activity_log_scrollbar_renderer {
+                Some(renderer) => {
+                    renderer.update(
+                        total_content_height,
+                        available_height,
+                        self.activity_log_scroll_offset,
+                    );
+                }
+                None => {
+                    self.activity_log_scrollbar_renderer = Some(ScrollbarRenderer::new_vertical(
+                        total_content_height,
+                        available_height,
+                        self.activity_log_scroll_offset,
+                        20.0, // min thumb size
+                    ));
+                }
+            }
+        } else {
+            self.activity_log_scrollbar_renderer = None;
+        }
+
+        // Create scrollable container with only visible elements
+        let margin_top = -self.activity_log_scroll_offset + y_offset_before_visible;
+        log::debug!(
+            "[VSCROLL] Content positioning: scroll_offset={:.0}, y_offset_before_visible={:.0}, margin_top={:.0}, start_idx={}, first_visible={:?}",
+            self.activity_log_scroll_offset,
+            y_offset_before_visible,
+            margin_top,
+            start_idx,
+            first_visible
+        );
+
+        let content_area = Element::new(&fonts.body, ElementContent::Children(rendered_items))
+            .display(DisplayType::Block)
+            .margin(BoxDimension {
+                top: Dimension::Pixels(margin_top),
+                ..Default::default()
+            });
+
+        // Create viewport container with fixed height and clipping
+        let viewport = Element::new(&fonts.body, ElementContent::Children(vec![content_area]))
+            .display(DisplayType::Block)
+            .min_height(Some(Dimension::Pixels(available_height)));
+
+        // Log diagnostics when content might be invisible
+        if margin_top < -5000.0 || self.activity_log_scroll_offset > total_content_height {
+            log::debug!(
+                "Potential visibility issue: margin_top={}, scroll_offset={}, total_height={}, viewport_height={}",
+                margin_top,
+                self.activity_log_scroll_offset,
+                total_content_height,
+                available_height
+            );
+        }
+
+        viewport
+    }
 
     /// Get the number of display lines for chat input
     pub fn get_chat_input_display_lines(&self) -> usize {
@@ -1971,7 +3011,7 @@ This example demonstrates:
         index: usize,
         bounds: euclid::Rect<f32, window::PixelUnit>,
     ) {
-        self.activity_log_state.activity_item_bounds.insert(index, bounds);
+        self.activity_item_bounds.insert(index, bounds);
     }
 
     /// Store position data for an activity item
@@ -2009,12 +3049,7 @@ This example demonstrates:
         &self,
         index: usize,
     ) -> Option<euclid::Rect<f32, window::PixelUnit>> {
-        self.activity_log_state.activity_item_bounds.get(&index).copied()
-    }
-    
-    /// Clear all activity item bounds (used when scrolling)
-    pub fn clear_activity_item_bounds(&mut self) {
-        self.activity_log_state.activity_item_bounds.clear();
+        self.activity_item_bounds.get(&index).copied()
     }
 
     /// Get position data for an activity item
@@ -2124,7 +3159,7 @@ This example demonstrates:
                     if let Some(position) = self.hit_test_item(&item_data.position_tree, item_point)
                     {
                         // Debug: Log what we're finding vs what we're rendering
-                        if let Some(bounds) = self.activity_log_state.activity_item_bounds.get(index) {
+                        if let Some(bounds) = self.activity_item_bounds.get(index) {
                             log::debug!(
                                 "Hit test found position at byte_offset={} for click at item-relative ({:.1}, {:.1}), item bounds origin=({:.1}, {:.1})",
                                 position.byte_offset,
@@ -2198,7 +3233,7 @@ This example demonstrates:
         match &position_tree.element_type {
             ElementType::CodeBlock { .. } => {
                 // Positions already relative to code block content area
-                TextSelectionManager::hit_test_text_positions(
+                self.hit_test_text_positions(
                     &position_tree.text_positions,
                     hit_point.0,
                     &position_tree.element_type,
@@ -2220,7 +3255,7 @@ This example demonstrates:
                     }
                 }
                 // Then check own text
-                TextSelectionManager::hit_test_text_positions(
+                self.hit_test_text_positions(
                     &position_tree.text_positions,
                     euclid::Point2D::new(adjusted.x, adjusted.y),
                     &position_tree.element_type,
@@ -2228,7 +3263,7 @@ This example demonstrates:
             }
             ElementType::InlineCode { .. } => {
                 // Positions already relative to inline code content area
-                TextSelectionManager::hit_test_text_positions(
+                self.hit_test_text_positions(
                     &position_tree.text_positions,
                     hit_point.0,
                     &position_tree.element_type,
@@ -2256,7 +3291,7 @@ This example demonstrates:
                     "No hit in children, checking {} own positions",
                     position_tree.text_positions.len()
                 );
-                TextSelectionManager::hit_test_text_positions(
+                self.hit_test_text_positions(
                     &position_tree.text_positions,
                     hit_point.0,
                     &position_tree.element_type,
@@ -2266,6 +3301,166 @@ This example demonstrates:
     }
 
     /// Hit test within text positions
+    fn hit_test_text_positions(
+        &self,
+        positions: &[crate::sidebar::position_cache::TextPosition],
+        point: euclid::Point2D<f32, window::PixelUnit>,
+        element_type: &crate::sidebar::position_cache::ElementType,
+    ) -> Option<crate::sidebar::position_cache::ItemPosition> {
+        use crate::sidebar::position_cache::{ItemPosition, TextAffinity};
+
+        log::debug!(
+            "hit_test_text_positions: Testing point ({:.1}, {:.1}) against {} positions",
+            point.x,
+            point.y,
+            positions.len()
+        );
+
+        // Debug: Log the y-coordinate range of positions
+        if !positions.is_empty() {
+            let min_y = positions
+                .iter()
+                .map(|p| p.y)
+                .min_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap();
+            let max_y = positions
+                .iter()
+                .map(|p| p.y)
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap();
+            log::debug!(
+                "  Position y-range: {:.1} to {:.1}, click y: {:.1}",
+                min_y,
+                max_y,
+                point.y
+            );
+            if point.y > max_y + 20.0 {
+                log::warn!("  Click y={:.1} is beyond max position y={:.1}! This item may be taller than the viewport.", point.y, max_y);
+            }
+
+            // Find the nearest positions above and below the click point
+            let positions_before: Vec<_> = positions.iter().filter(|p| p.y <= point.y).collect();
+            let positions_after: Vec<_> = positions.iter().filter(|p| p.y > point.y).collect();
+
+            if !positions_before.is_empty() && !positions_after.is_empty() {
+                let nearest_before = positions_before
+                    .iter()
+                    .max_by(|a, b| a.y.partial_cmp(&b.y).unwrap())
+                    .unwrap();
+                let nearest_after = positions_after
+                    .iter()
+                    .min_by(|a, b| a.y.partial_cmp(&b.y).unwrap())
+                    .unwrap();
+                let gap = nearest_after.y - nearest_before.y;
+                if gap > 25.0 {
+                    // More than typical line height
+                    log::debug!(
+                        "  Large gap detected: y={:.1} to {:.1} (gap={:.1}px)",
+                        nearest_before.y,
+                        nearest_after.y,
+                        gap
+                    );
+                    log::debug!(
+                        "  Gap is between byte offsets {} and {}",
+                        nearest_before.byte_offset,
+                        nearest_after.byte_offset
+                    );
+                }
+            }
+
+            // Debug: Find where specific byte offsets are located
+            // "Detailed Troubleshooting" is at byte offset 877
+            if let Some(pos_877) = positions.iter().find(|p| p.byte_offset == 877) {
+                log::debug!(
+                    "  'Detailed Troubleshooting' (offset 877) is at y={:.1}",
+                    pos_877.y
+                );
+            }
+            if let Some(pos_402) = positions.iter().find(|p| p.byte_offset == 402) {
+                log::debug!(
+                    "  'brew install openssl' (offset 402) is at y={:.1}",
+                    pos_402.y
+                );
+            }
+        }
+
+        // Find the line containing the y coordinate
+        let line_positions: Vec<_> = positions
+            .iter()
+            .filter(|p| {
+                // Check if point is within line height
+                // Use a reasonable default that matches our text rendering
+                let line_height = match element_type {
+                    ElementType::Paragraph { line_height, .. } => *line_height,
+                    ElementType::Heading { font_size, .. } => font_size * 1.2,
+                    ElementType::CodeBlock { line_height, .. } => *line_height,
+                    _ => 20.0, // Default line height
+                };
+                point.y >= p.y && point.y < p.y + line_height
+            })
+            .collect();
+
+        if line_positions.is_empty() {
+            log::debug!("  No positions found on line at y={:.1}", point.y);
+            return None;
+        }
+
+        // Find the closest position on the line
+        let mut best_position = None;
+        let mut best_distance = f32::MAX;
+
+        for pos in &line_positions {
+            if point.x >= pos.x_start && point.x < pos.x_end {
+                // Point is within this glyph
+                let mid = (pos.x_start + pos.x_end) / 2.0;
+                if point.x < mid {
+                    return Some(ItemPosition {
+                        byte_offset: pos.byte_offset,
+                        affinity: TextAffinity::Leading,
+                    });
+                } else {
+                    // Find the next position if available
+                    let next_offset = line_positions
+                        .iter()
+                        .find(|p| p.byte_offset > pos.byte_offset)
+                        .map(|p| p.byte_offset)
+                        .unwrap_or(pos.byte_offset + 1); // Approximate
+                    return Some(ItemPosition {
+                        byte_offset: next_offset,
+                        affinity: TextAffinity::Leading,
+                    });
+                }
+            }
+
+            // Track closest position for edge cases
+            let dist_to_start = (point.x - pos.x_start).abs();
+            let dist_to_end = (point.x - pos.x_end).abs();
+
+            if dist_to_start < best_distance {
+                best_distance = dist_to_start;
+                best_position = Some(ItemPosition {
+                    byte_offset: pos.byte_offset,
+                    affinity: TextAffinity::Leading,
+                });
+            }
+
+            if dist_to_end < best_distance {
+                best_distance = dist_to_end;
+                // Use next byte offset if available
+                let next_offset = line_positions
+                    .iter()
+                    .find(|p| p.byte_offset > pos.byte_offset)
+                    .map(|p| p.byte_offset)
+                    .unwrap_or(pos.byte_offset + 1);
+                best_position = Some(ItemPosition {
+                    byte_offset: next_offset,
+                    affinity: TextAffinity::Leading,
+                });
+            }
+        }
+
+        best_position
+    }
 
     /// Get chat input border color
     pub fn get_chat_input_border_color(&self) -> LinearRgba {
@@ -2330,7 +3525,7 @@ This example demonstrates:
                     // Get the cached position data for this item
                     if let Some(position_data) = self.get_item_positions(*anchor_index) {
                         // Get the activity item bounds for absolute positioning
-                        if let Some(bounds) = self.activity_log_state.activity_item_bounds.get(anchor_index) {
+                        if let Some(bounds) = self.activity_item_bounds.get(anchor_index) {
                             let start_byte = anchor_byte.min(current_byte);
                             let end_byte = anchor_byte.max(current_byte);
 
@@ -2408,7 +3603,7 @@ This example demonstrates:
                             anchor_index
                         );
 
-                        if let Some(bounds) = self.activity_log_state.activity_item_bounds.get(anchor_index) {
+                        if let Some(bounds) = self.activity_item_bounds.get(anchor_index) {
                             if let Some(item) = self.activity_log.get(*anchor_index) {
                                 let start_byte = anchor_byte.min(current_byte);
                                 let end_byte = anchor_byte.max(current_byte);
@@ -2475,7 +3670,7 @@ This example demonstrates:
                     
                     for item_index in *start_index..=*end_index {
                         if let Some(position_data) = self.get_item_positions(item_index) {
-                            if let Some(bounds) = self.activity_log_state.activity_item_bounds.get(&item_index) {
+                            if let Some(bounds) = self.activity_item_bounds.get(&item_index) {
                                 // Determine selection range for this item
                                 let (item_start_byte, item_end_byte) = if item_index == *anchor_index {
                                     // Anchor item: from anchor_byte to end (or start if reversed)
@@ -2979,20 +4174,8 @@ This example demonstrates:
         let available_width = bounds.size.width;
 
         // Render the activity log content
-        let activity_log = ActivityLogRenderer::render_activity_log(
-            &mut self.activity_log_state,
-            &self.activity_log,
-            self.activity_filter,
-            fonts,
-            available_for_log,
-            available_width,
-            palette,
-            &mut self.position_cache,
-            &mut self.item_positions,
-            self.width,
-            &self.selection_state,
-            self.code_block_registry.clone(),
-        );
+        let activity_log =
+            self.render_activity_log(fonts, available_for_log, available_width, palette);
 
         // Wrap in a container with background color
         let container = Element::new(&fonts.body, ElementContent::Children(vec![activity_log]))
@@ -3077,7 +4260,7 @@ This example demonstrates:
     pub fn handle_filter_click(&mut self, filter: ActivityFilter) {
         if self.activity_filter != filter {
             // Clear height trackers when filter changes as item indices will change
-            self.activity_log_state.height_trackers.clear();
+            self.height_trackers.clear();
             // Keep height cache as the heights are still valid for the same items
             log::debug!("Filter changed to {:?}, cleared height trackers", filter);
         }
@@ -3165,7 +4348,7 @@ This example demonstrates:
             bounds.size.width,
             bounds.size.height
         );
-        self.activity_log_state.activity_log_scrollbar_bounds = Some(bounds);
+        self.activity_log_scrollbar_bounds = Some(bounds);
     }
 
     /// Get the bounds of the activity log viewport for clipping
@@ -3217,7 +4400,7 @@ This example demonstrates:
 
     /// Check if a mouse event is within the scrollbar bounds
     fn is_scrollbar_event(&self, event: &MouseEvent) -> bool {
-        if let Some(bounds) = &self.activity_log_state.activity_log_scrollbar_bounds {
+        if let Some(bounds) = &self.activity_log_scrollbar_bounds {
             let point = euclid::point2(event.coords.x as f32, event.coords.y as f32);
             let contains = bounds.contains(point);
             log::debug!(
@@ -3409,7 +4592,7 @@ impl Sidebar for AiSidebar {
         };
 
         super::SidebarScrollbars {
-            activity_log: self.activity_log_state.activity_log_scrollbar.clone(),
+            activity_log: self.activity_log_scrollbar.clone(),
             chat_input: chat_input_scrollbar,
         }
     }
@@ -3535,36 +4718,36 @@ impl Sidebar for AiSidebar {
             log::debug!(
                 "Scroll wheel event: amount={}, has_renderer={}",
                 amount,
-                self.activity_log_state.activity_log_scrollbar_renderer.is_some()
+                self.activity_log_scrollbar_renderer.is_some()
             );
 
             // Check if we have a scrollbar renderer to get scroll metrics
-            if let Some(renderer) = &self.activity_log_state.activity_log_scrollbar_renderer {
+            if let Some(renderer) = &self.activity_log_scrollbar_renderer {
                 let scroll_speed = 20.0; // Pixels per scroll step (roughly 1 line)
                 let scroll_amount = scroll_speed * (*amount as f32).abs();
 
-                let old_offset = self.activity_log_state.activity_log_scroll_offset;
+                let old_offset = self.activity_log_scroll_offset;
                 let new_offset = if *amount > 0 {
                     // Scroll up
-                    (self.activity_log_state.activity_log_scroll_offset - scroll_amount).max(0.0)
+                    (self.activity_log_scroll_offset - scroll_amount).max(0.0)
                 } else {
                     // Scroll down
-                    self.activity_log_state.activity_log_scroll_offset + scroll_amount
+                    self.activity_log_scroll_offset + scroll_amount
                 };
 
                 // Constrain to valid range using actual content metrics
                 let max_scroll = (renderer.total_size() - renderer.viewport_size()).max(0.0);
-                self.activity_log_state.activity_log_scroll_offset = new_offset.clamp(0.0, max_scroll);
+                self.activity_log_scroll_offset = new_offset.clamp(0.0, max_scroll);
 
-                let actually_scrolled = (self.activity_log_state.activity_log_scroll_offset - old_offset).abs() > 0.1;
+                let actually_scrolled = (self.activity_log_scroll_offset - old_offset).abs() > 0.1;
                 log::debug!(
                     "Scroll wheel: old_offset={}, new_offset={}, max_scroll={}, amount={}, scroll_amount={}, actually_moved={}",
-                    old_offset, self.activity_log_state.activity_log_scroll_offset, max_scroll, amount, scroll_amount, actually_scrolled
+                    old_offset, self.activity_log_scroll_offset, max_scroll, amount, scroll_amount, actually_scrolled
                 );
 
                 // Clear activity item bounds when scrolling - they'll be repopulated on next render
                 if actually_scrolled {
-                    self.clear_activity_item_bounds();
+                    self.activity_item_bounds.clear();
                 }
 
                 // Return true to consume the event since we're over the activity log
@@ -3600,7 +4783,7 @@ impl Sidebar for AiSidebar {
         // Check if we need to handle scrollbar events
         // Always process mouse events if the scrollbar is currently being dragged,
         // even if the mouse is outside the scrollbar bounds
-        let should_handle_scrollbar = if let Some(renderer) = &self.activity_log_state.activity_log_scrollbar_renderer
+        let should_handle_scrollbar = if let Some(renderer) = &self.activity_log_scrollbar_renderer
         {
             renderer.state().is_dragging || self.is_scrollbar_event(event)
         } else {
@@ -3608,24 +4791,24 @@ impl Sidebar for AiSidebar {
         };
 
         if should_handle_scrollbar {
-            if let Some(renderer) = &mut self.activity_log_state.activity_log_scrollbar_renderer {
-                if let Some(bounds) = &self.activity_log_state.activity_log_scrollbar_bounds {
+            if let Some(renderer) = &mut self.activity_log_scrollbar_renderer {
+                if let Some(bounds) = &self.activity_log_scrollbar_bounds {
                     // Handle the mouse event with the scrollbar renderer
                     if let Some(new_scroll_offset) = renderer.handle_mouse_event(event, *bounds) {
                         // Update scroll position with proper bounds checking
                         let max_scroll =
                             (renderer.total_size() - renderer.viewport_size()).max(0.0);
-                        self.activity_log_state.activity_log_scroll_offset = new_scroll_offset.clamp(0.0, max_scroll);
+                        self.activity_log_scroll_offset = new_scroll_offset.clamp(0.0, max_scroll);
 
                         // Clear visual anchor when user interacts with scrollbar
-                        self.activity_log_state.visual_anchor = None;
+                        self.visual_anchor = None;
 
                         // Clear activity item bounds when scrolling - they'll be repopulated on next render
-                        self.clear_activity_item_bounds();
+                        self.activity_item_bounds.clear();
 
                         log::debug!(
                             "Scrollbar updated scroll offset to: {} (max: {})",
-                            self.activity_log_state.activity_log_scroll_offset,
+                            self.activity_log_scroll_offset,
                             max_scroll
                         );
                         return Ok(true);
@@ -4068,7 +5251,7 @@ impl AiSidebar {
             ActivityItem::Goal { id, .. } => id.clone(),
         };
 
-        if let Some(cached_height) = self.activity_log_state.activity_log_height_cache.get(&id) {
+        if let Some(cached_height) = self.activity_log_height_cache.get(&id) {
             let estimated = estimate_activity_item_height(item, line_height, available_width);
             if (cached_height - estimated).abs() > 100.0 {
                 log::info!(
@@ -4106,13 +5289,13 @@ impl AiSidebar {
         use crate::termwindow::box_model::ComputedElementContent;
 
         // Remember if we were at the bottom before updating
-        let was_at_bottom = if let Some(scrollbar) = &self.activity_log_state.activity_log_scrollbar {
+        let was_at_bottom = if let Some(scrollbar) = &self.activity_log_scrollbar {
             let max_scroll = (scrollbar.content_height - scrollbar.viewport_height).max(0.0);
-            let at_bottom = max_scroll > 0.0 && self.activity_log_state.activity_log_scroll_offset >= max_scroll - 1.0;
+            let at_bottom = max_scroll > 0.0 && self.activity_log_scroll_offset >= max_scroll - 1.0;
             if at_bottom {
                 log::debug!(
                     "[VSCROLL] was_at_bottom=true (scroll={:.0}, max={:.0}, content={:.0})",
-                    self.activity_log_state.activity_log_scroll_offset,
+                    self.activity_log_scroll_offset,
                     max_scroll,
                     scrollbar.content_height
                 );
@@ -4124,7 +5307,7 @@ impl AiSidebar {
 
         // Remember the old total height
         let old_total_height = self
-            .activity_log_state.activity_log_scrollbar
+            .activity_log_scrollbar
             .as_ref()
             .map(|s| s.content_height)
             .unwrap_or(0.0);
@@ -4178,7 +5361,7 @@ impl AiSidebar {
                             log::debug!(
                                 "[VSCROLL] Found {} item elements in content area (visible range has {} items)",
                                 item_elements.len(),
-                                self.activity_log_state.activity_log_visible_range.clone().count()
+                                self.activity_log_visible_range.clone().count()
                             );
 
                             // Get the filtered items to match against
@@ -4202,11 +5385,11 @@ impl AiSidebar {
 
                             // Debug: Check if we have the expected number of elements
                             if item_elements.len()
-                                != self.activity_log_state.activity_log_visible_range.clone().count()
+                                != self.activity_log_visible_range.clone().count()
                             {
                                 log::warn!(
                                     "[VSCROLL] Mismatch: expected {} item elements, found {}",
-                                    self.activity_log_state.activity_log_visible_range.clone().count(),
+                                    self.activity_log_visible_range.clone().count(),
                                     item_elements.len()
                                 );
                             }
@@ -4215,7 +5398,7 @@ impl AiSidebar {
                             for (relative_idx, computed_item) in item_elements.iter().enumerate() {
                                 // Map relative index to actual index in visible range
                                 if let Some(visible_idx) =
-                                    self.activity_log_state.activity_log_visible_range.clone().nth(relative_idx)
+                                    self.activity_log_visible_range.clone().nth(relative_idx)
                                 {
                                     if let Some((_, item)) = filtered_items.get(visible_idx) {
                                         // Get the item ID
@@ -4353,7 +5536,7 @@ impl AiSidebar {
 
                                         // Get height tracker for this item
                                         let tracker = self
-                                            .activity_log_state.height_trackers
+                                            .height_trackers
                                             .entry(item_id.clone())
                                             .or_default();
 
@@ -4363,14 +5546,14 @@ impl AiSidebar {
                                             // the full unclipped height. This is critical for preventing jumps when
                                             // tall items go in/out of the render buffer.
                                             let old_height = self
-                                                .activity_log_state.activity_log_height_cache
+                                                .activity_log_height_cache
                                                 .get(&item_id)
                                                 .copied();
 
                                             // Only update if change is significant (hysteresis)
                                             let should_update = if let Some(old) = old_height {
-                                                let diff: f32 = old - rendered_height;
-                                                diff.abs() > HEIGHT_CHANGE_HYSTERESIS
+                                                (old - rendered_height).abs()
+                                                    > HEIGHT_CHANGE_HYSTERESIS
                                             } else {
                                                 true // Always cache if we don't have a height yet
                                             };
@@ -4388,14 +5571,14 @@ impl AiSidebar {
                                                 if item_top < 0.0
                                                     && height_diff.abs() > HEIGHT_CHANGE_HYSTERESIS
                                                 {
-                                                    self.activity_log_state.activity_log_scroll_offset += height_diff;
+                                                    self.activity_log_scroll_offset += height_diff;
                                                     log::info!(
                                                 "[VSCROLL] Adjusting scroll by {:.0}px for item {} above viewport (old={:.0}, new={:.0}, was_cached={})",
                                                 height_diff, item_id, old_height.unwrap_or(0.0), rendered_height, old_height.is_some()
                                             );
                                                 }
 
-                                                self.activity_log_state.activity_log_height_cache
+                                                self.activity_log_height_cache
                                                     .insert(item_id.clone(), rendered_height);
                                                 tracker.seen_full_height = true;
                                                 tracker.measured_height = Some(rendered_height);
@@ -4429,7 +5612,7 @@ impl AiSidebar {
                             log::debug!(
                                 "Updated {} height cache entries from rendered elements (total cache size: {})",
                                 item_elements.len(),
-                                self.activity_log_state.activity_log_height_cache.len()
+                                self.activity_log_height_cache.len()
                             );
 
                             // Drop filtered_items by ending this scope
@@ -4447,7 +5630,7 @@ impl AiSidebar {
         /*
         // Handle sticky bottom
         if sticky_bottom_needed {
-                    let viewport_height = self.activity_log_state.activity_log_scrollbar
+                    let viewport_height = self.activity_log_scrollbar
                         .as_ref()
                         .map(|s| s.viewport_height)
                         .unwrap_or(400.0);
@@ -4481,12 +5664,12 @@ impl AiSidebar {
                     );
 
                     let new_max_scroll = (new_total_height - viewport_height).max(0.0);
-            if (self.activity_log_state.activity_log_scroll_offset - new_max_scroll).abs() > 1.0 {
+            if (self.activity_log_scroll_offset - new_max_scroll).abs() > 1.0 {
                 log::warn!(
                     "[VSCROLL] STICKY BOTTOM JUMP: scroll {} -> {} (total_height={:.0}, viewport={:.0})",
-                    self.activity_log_state.activity_log_scroll_offset, new_max_scroll, new_total_height, viewport_height
+                    self.activity_log_scroll_offset, new_max_scroll, new_total_height, viewport_height
                 );
-                self.activity_log_state.activity_log_scroll_offset = new_max_scroll;
+                self.activity_log_scroll_offset = new_max_scroll;
             }
         }
         */

@@ -80,16 +80,20 @@ impl SidebarFonts {
     }
 }
 
+pub mod activity_log_renderer;
 pub mod ai_sidebar;
 pub mod animation;
 pub mod components;
 pub mod position_cache;
 pub mod settings_sidebar;
 pub mod sidebar_constants;
+pub mod text_selection;
 
-pub use ai_sidebar::{ActivityItem, AiSidebar};
+pub use activity_log_renderer::{ActivityLogRenderer, ActivityLogState, HeightTracker, VisualAnchor};
+pub use ai_sidebar::{ActivityFilter, ActivityItem, AgentMode, AiSidebar, CommandStatus};
 pub use animation::{SidebarAnimation, SidebarPositionAnimation};
 pub use components::ScrollbarInfo;
+pub use text_selection::{SelectionState, SelectionTarget, TextSelectionManager};
 pub use settings_sidebar::SettingsSidebar;
 
 /// Information about scrollbars in a sidebar that need external rendering

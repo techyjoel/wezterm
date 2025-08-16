@@ -10,7 +10,7 @@
 //! The module uses the UIItem system to track interactive elements and their bounds,
 //! routing events to the appropriate handlers based on hit testing.
 
-use crate::sidebar::ai_sidebar::SelectionTarget;
+use crate::sidebar::SelectionTarget;
 use crate::tabbar::TabBarItem;
 use crate::termwindow::{
     FocusArea, GuiWin, MouseCapture, PositionedSplit, ScrollHit, TermWindowNotif, UIItem,
