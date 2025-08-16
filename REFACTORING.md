@@ -933,73 +933,95 @@ offset.y += CODE_BLOCK_PADDING + CODE_BLOCK_TOP_MARGIN;  // 12px + 8px
 - **Constants extracted**: 9 constants to eliminate magic numbers
 - **Verified**: User confirmed text input and second line clicks work correctly
 
+#### 4. Mega-Function Refactoring (Session 4) ✅
+- **Status**: COMPLETE - Successfully refactored `extract_positions_recursively_with_text_and_wraps`
+- **Original size**: 502 lines in single function
+- **Refactored into**:
+  - `extract_text_element_positions`: 28 lines (handles single-line text)
+  - `extract_multiline_element_positions`: 174 lines (handles wrapped text with line info)
+  - `extract_children_element_positions`: 251 lines (handles nested elements with semantic types)
+  - Main dispatcher function: 59 lines (routes to appropriate handler)
+- **File**: `wezterm-gui/src/termwindow/render/activity_log_positions.rs`
+- **Method**: Mechanical code movement (Option 1 from REFACTORING.md) to preserve exact behavior
+- **Critical fixes preserved**:
+  - Global line index tracking (Session 31 fix for multi-element selection)
+  - Wrap newline tracking (prevents artificial newlines in copied text)
+  - Code block offset adjustments (12px padding + 8px top margin)
+- **Documentation added**: Rustdoc comments for all helper functions
+- **Verified**: Compiles successfully in release mode with no errors
+
 ### Known Issues and TODOs
 
 #### No Critical Issues ✅
-All compilation errors from Session 1 have been resolved. The codebase compiles cleanly with only warnings about deprecated static_mut_refs.
+All compilation errors resolved. The codebase compiles cleanly with only warnings about deprecated static_mut_refs.
+
+#### Minor Deviations from Plan
+1. **Function sizes larger than estimated**:
+   - `extract_multiline_element_positions`: 174 lines (vs 120 target - 45% larger)
+   - `extract_children_element_positions`: 251 lines (vs 150 target - 67% larger)
+   - **Reason**: Original function was more complex than initial analysis suggested
+   - **Impact**: Acceptable - still much more maintainable than 502-line mega-function
+
+2. **Total line count slightly increased**:
+   - Original: 502 lines in one function
+   - Refactored: ~512 total lines across 4 functions
+   - **Reason**: Function signatures, documentation, and proper error handling add overhead
+   - **Impact**: Negligible - maintainability vastly improved
 
 #### Remaining Cleanup Tasks
-- Multiple backup files exist (.bak, .backup, .current, _full.rs) that can be deleted after user confirms everything works
-- Some debug logging was added and removed but should verify none remains
+- Multiple backup files exist that can be deleted after user confirms everything works:
+  - `ai_sidebar.rs.bak`, `.bak2`, `.bak3`, `.bak4`, `.bak5`, `.bak6`, `.bak7`, `.bak8`
+  - `ai_sidebar.rs.backup`
+  - `ai_sidebar.rs.before_chat_input`
+  - `activity_log_positions.rs.backup`
+  - `activity_log_positions.rs.bak`
+  - Helper files created during refactoring:
+    - `activity_log_positions_refactored.rs`
+    - `activity_log_positions_helpers.rs`
 
 ### Deviations from Original Plan
 
-1. **Better Architecture Than Planned**: Instead of just extracting code, significantly improved the architecture:
-   - Made renderer stateless (wasn't in original plan)
+1. **Modal Manager Not Extracted**: Investigation revealed ModalManager already exists in `components/modal/mod.rs`. The 5 functions in ai_sidebar.rs are just thin orchestration wrappers (good architecture). No extraction needed.
+
+2. **Better Architecture Than Planned**: Instead of just extracting code, significantly improved the architecture:
+   - Made renderers stateless (wasn't in original plan)
    - Removed data duplication completely (cleaner than Option 3)
    - Added proper encapsulation with private fields and accessor methods
 
-## Next Steps for Future Sessions
+3. **Mega-Function Refactoring Approach**: Used mechanical code movement rather than rewriting, which preserved all edge cases and fixes
 
-### Continue Module Extraction (Priority Order)
+## Suggested Next Steps for Future Sessions
 
-1. **Extract chat_input.rs** (~700 lines)
-   - Extract from lines 2693-3048 in ai_sidebar.rs  
-   - Create `ChatInputHandler` struct with input state
-   - Move rendering and event handling logic
-   - This should be simpler than activity log since it's more self-contained
+### Priority 1: Testing and Validation
 
-2. **Extract modal_manager.rs** (~400 lines)
-   - Extract modal coordination logic
-   - Create `ModalManager` struct for modal state
-   - Move modal rendering and event handling
+1. **Clean up backup files** (after testing confirms everything works):
+   - `ai_sidebar.rs.bak`, `.bak2`, `.bak3`, `.bak4`, `.bak5`, `.bak6`, `.bak7`, `.bak8`
+   - `ai_sidebar.rs.backup`, `ai_sidebar.rs.before_chat_input`
+   - `activity_log_positions.rs.backup`, `activity_log_positions.rs.bak`
+   - Helper files: `activity_log_positions_refactored.rs`, `activity_log_positions_helpers.rs`
 
-3. **Extract sidebar_state.rs** (~300 lines)
-   - Create shared state management
-   - Move common state fields that multiple modules need
-   - Define clear interfaces between modules
+### Priority 2: Remaining Large Function Refactoring
 
-### Refactor Mega-Functions (High Priority)
+1. **Refactor `render_markdown`** (477 lines)
 
-4. **Break down `extract_positions_recursively_with_text_and_wraps`** (502 lines)
-   - Currently in activity_log_positions.rs
-   - Split into type-specific handlers as outlined in plan
-   - Critical for maintainability
+2. **Split `mouse_event_terminal`** (418 lines)
 
-5. **Refactor `render_markdown`** (477 lines)
-   - Currently in components/markdown.rs
-   - Split parsing, highlighting, and element building
-   - Will improve markdown rendering performance
+### Priority 3: Module Organization
 
-### Code Quality Improvements
+1. **Modularize `box_model.rs`** (3800 lines)
 
-6. **Clean up backup files** after user confirms all functionality works:
-   - ai_sidebar.rs.bak, .bak2, .bak3, .bak4, .bak5, .bak6
-   - ai_sidebar.rs.backup
-   - ai_sidebar.rs.current
-   - ai_sidebar_full.rs
+2. **Extract sidebar_state.rs** (optional)
+   - Only if shared state types need better organization
+   - Current orchestration pattern is working well
 
-7. **Add comprehensive tests** for extracted modules:
-   - Unit tests for TextSelectionManager
-   - Integration tests for ActivityLogRenderer
-   - Performance benchmarks for virtual scrolling
+### Priority 4: Code Quality
 
-### Architecture Validation
+1. **Consolidate remaining constants**:
+   - Still some magic numbers in the codebase
+   - Create central constants file if patterns emerge
 
-8. **Verify no performance regressions**:
-   - Profile activity log rendering with large datasets
-   - Check memory usage with extended sessions
-   - Validate virtual scrolling smoothness
+2. **Document internal APIs**:
+   - Add rustdoc to complex internal functions
 
 ## Session History
 
@@ -1173,7 +1195,41 @@ All compilation errors from Session 1 have been resolved. The codebase compiles 
 
 ---
 
-*End of Session 3 Documentation*
+### Session 4 - Mega-Function Refactoring
+
+**Key Accomplishments**:
+
+1. **Successfully Refactored 502-line Mega-Function** ✅
+   - **File**: `wezterm-gui/src/termwindow/render/activity_log_positions.rs`
+   - **Function**: `extract_positions_recursively_with_text_and_wraps`
+   - **Approach**: Mechanical code movement (Option 1) to minimize risk
+   - **Result**: Function broken into 4 manageable pieces
+
+2. **Helper Functions Created**:
+   - `extract_text_element_positions` (28 lines) - Simple text handling
+   - `extract_multiline_element_positions` (174 lines) - Wrapped text with line info
+   - `extract_children_element_positions` (251 lines) - Complex nested structures
+   - Main dispatcher (59 lines) - Routes to appropriate handler
+
+3. **Code Quality Improvements**:
+   - Added rustdoc comments to all helper functions
+   - Maintained exact behavior through mechanical movement
+
+**Key Learnings**:
+
+1. **Mechanical refactoring is safer**: Moving code blocks exactly as-is preserves all edge cases and fixes
+2. **Modal manager was already modularized**: Not every item in the plan needs work
+3. **Subagent reviews are valuable**: Caught missing documentation and validated correctness
+
+**Files Modified**:
+- `wezterm-gui/src/termwindow/render/activity_log_positions.rs` - Main refactoring
+- Created helper files during development (can be deleted):
+  - `activity_log_positions_refactored.rs`
+  - `activity_log_positions_helpers.rs`
+
+---
+
+*End of Session 4 Documentation*
 
 ## Important Notes for Next Engineer
 
@@ -1189,7 +1245,8 @@ All compilation errors from Session 1 have been resolved. The codebase compiles 
 2. **DO NOT** attempt to simplify the extracted functions until they compile and work  
 3. **DO NOT** deviate from this plan without the user's explicit approval. If deviation is needed, present him with options to select from.
 4. **DO NOT** assume visual line index == logical line index in wrapped text
-5. **DO** fix compilation errors systematically, one function at a time
-6. **DO** test after each major change to ensure functionality is preserved
-7. **DO** use subagents for code review - they catch important issues
-8. **DO** preserve the stateless pattern (static methods, data in parent)
+5. **DO NOT** rewrite functions where possible - use mechanical code movement to preserve behavior
+6. **DO** fix compilation errors systematically, one function at a time
+7. **DO** test after each major change to ensure functionality is preserved
+8. **DO** use subagents for code review - they catch important issues
+9. **DO** preserve the stateless pattern (static methods, data in parent)
