@@ -83,6 +83,7 @@ impl SidebarFonts {
 pub mod activity_log_renderer;
 pub mod ai_sidebar;
 pub mod animation;
+pub mod chat_input;
 pub mod components;
 pub mod position_cache;
 pub mod settings_sidebar;

@@ -917,6 +917,22 @@ offset.y += CODE_BLOCK_PADDING + CODE_BLOCK_TOP_MARGIN;  // 12px + 8px
 - **Lines impacted**: ~1200 lines properly modularized
 - **Verified**: Activity log rendering, scrolling, and selection all working
 
+#### 3. Chat Input Module Extraction ✅
+- **Status**: COMPLETE - Successfully extracted to `chat_input.rs` 
+- **Lines impact**: 415 lines removed from ai_sidebar.rs (4692 → 4277)
+- **Module size**: 561 lines (properly sized and focused)
+- **Architecture achieved**:
+  - `ChatInputHandler` is stateless with all static methods
+  - Data remains in `MultilineTextInput` within `AiSidebar`
+  - Follows same pattern as `ActivityLogRenderer`
+- **Key functionality moved**:
+  - Complex cursor positioning logic (170 lines)
+  - Click handling with visual→logical line mapping
+  - Text rendering with scrolling support
+  - All input event handling
+- **Constants extracted**: 9 constants to eliminate magic numbers
+- **Verified**: User confirmed text input and second line clicks work correctly
+
 ### Known Issues and TODOs
 
 #### No Critical Issues ✅
@@ -1092,14 +1108,88 @@ All compilation errors from Session 1 have been resolved. The codebase compiles 
 
 ---
 
-*End of Session 2 Documentation*
+### Session 3 - Chat Input Module Extraction and Critical Bug Fixes
+
+**Key Accomplishments**:
+
+1. **Successfully Extracted Chat Input Module** ✅
+   - Created `chat_input.rs` (561 lines) with `ChatInputHandler` struct
+   - Removed 415 lines from ai_sidebar.rs (4692 → 4277)
+   - Followed stateless pattern established by ActivityLogRenderer
+   - All methods are static, data remains in MultilineTextInput
+
+2. **Fixed Critical Bugs I Created During Refactoring** ✅
+   - **Text Input Bug**: Characters weren't appearing when typed
+     - Root Cause: Bypassed `MultilineTextInput::insert_char()` method
+     - Solution: Properly delegated to MultilineTextInput methods
+   - **Second Line Click Bug**: Clicks on 2nd line of chat input didn't work
+     - Root Cause: Simplified click handler assumed visual line == logical line
+     - Solution: Implemented proper visual→logical line mapping using byte offsets
+
+3. **Addressed Code Review Feedback** ✅
+   - **Completed Delegation Pattern**: Replaced 200+ lines of duplicated click handling
+   - **Extracted Constants**: Added 9 public constants to eliminate magic numbers
+   - **Moved Complex Logic**: Extracted 170-line cursor positioning function
+
+**Technical Implementation Details**:
+
+1. **Constants Extracted** (lines 21-29):
+   ```rust
+   pub const LINE_HEIGHT_MULTIPLIER: f32 = 1.1;
+   pub const ESTIMATED_LINE_HEIGHT: f32 = 20.0;
+   pub const ESTIMATED_CHAR_WIDTH: f32 = 8.5;
+   pub const SCROLLBAR_WIDTH: f32 = 6.0;
+   pub const SCROLLBAR_THUMB_HEIGHT: f32 = 40.0;
+   pub const CHAT_INPUT_PADDING: f32 = 12.0;
+   pub const CHAT_INPUT_VERTICAL_PADDING: f32 = 8.0;
+   pub const CHAT_INPUT_TEXT_PADDING: f32 = 4.0;
+   pub const CHAT_INPUT_BORDER_THICKNESS: f32 = 1.0;
+   ```
+
+2. **Critical Visual→Logical Mapping** (lines 290-409):
+   - Maps clicked visual line to document byte offset
+   - Iterates through logical lines to find containing line
+   - Converts byte offset to character index within line
+   - Handles wrapped text correctly
+
+3. **Proper Method Delegation**:
+   - All input handling now uses MultilineTextInput methods
+   - No direct field manipulation
+   - Maintains encapsulation
+
+**Known Remaining Issues** (Pre-existing, not caused by refactoring):
+1. Chat input scrollbar doesn't respond to mouse (TODO: integrate with ScrollbarRenderer)
+2. Text selection in chat input doesn't work (TODO: integrate with TextSelectionManager)
+3. Visual cursor rendering TODO at line 106
+
+**Files Modified**:
+- Created: `wezterm-gui/src/sidebar/chat_input.rs`
+- Modified: `wezterm-gui/src/sidebar/ai_sidebar.rs`
+- Modified: `wezterm-gui/src/sidebar/mod.rs`
+
+**Backup Files Created**:
+- `ai_sidebar.rs.before_chat_input`
+- Multiple `.bak7`, `.bak8` files from sed operations
+
+---
+
+*End of Session 3 Documentation*
 
 ## Important Notes for Next Engineer
 
-1. **DO NOT** delete the backup files until the refactoring is complete and tested
-2. **DO NOT** attempt to simplify the extracted functions until they compile and work
-3. **DO NOT** deviate from this plan without the user's explicit approval. If deviation is needed, present him with options to select from.
-4. **DO** fix compilation errors systematically, one function at a time
-5. **DO** test after each major change to ensure functionality is preserved
+### Critical Implementation Notes
 
-The refactoring is on the right track but needs careful completion. The text_selection.rs extraction proves the approach works. Continue with the same pattern for the remaining modules.
+1. **Delegate to Component Methods**: Never directly manipulate component fields. Always use the component's own methods (e.g., `MultilineTextInput::insert_char()` not direct field manipulation).
+
+2. **Constants Must Be Public**: When extracting modules, make constants public so they can be used by the parent module to avoid duplication.
+
+### DO's and DON'Ts
+
+1. **DO NOT** delete the backup files until the refactoring is complete and tested
+2. **DO NOT** attempt to simplify the extracted functions until they compile and work  
+3. **DO NOT** deviate from this plan without the user's explicit approval. If deviation is needed, present him with options to select from.
+4. **DO NOT** assume visual line index == logical line index in wrapped text
+5. **DO** fix compilation errors systematically, one function at a time
+6. **DO** test after each major change to ensure functionality is preserved
+7. **DO** use subagents for code review - they catch important issues
+8. **DO** preserve the stateless pattern (static methods, data in parent)

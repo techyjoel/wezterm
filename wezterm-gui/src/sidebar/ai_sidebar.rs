@@ -80,6 +80,7 @@ pub enum ActivityFilter {
 // Text selection types are now in the text_selection module
 use super::text_selection::{SelectionState, SelectionTarget, TextSelectionManager};
 use super::activity_log_renderer::{ActivityLogRenderer, ActivityLogState, HeightTracker, VisualAnchor};
+use super::chat_input::ChatInputHandler;
 
 
 /// Extract plain text from an activity item for selection
@@ -1625,83 +1626,12 @@ This example demonstrates:
         width: f32,
         viewport_height: f32,
     ) -> Element {
-        let line_height = font.metrics().cell_height.get() as f32;
-        // Use consistent 1.1x multiplier for line spacing
-        // TODO: Extract line spacing multiplier (1.1) to a constant - used throughout codebase
-        let line_height_with_spacing = line_height * 1.1;
-
-        // Use visual line count if available, otherwise fall back to logical lines
-        let line_count = if self.chat_input.visual_line_count > 0 {
-            self.chat_input.visual_line_count
-        } else {
-            self.chat_input.lines.len()
-        };
-        let total_height = line_count as f32 * line_height_with_spacing;
-
-        log::debug!(
-            "render_chat_input_text: width={:.1}, viewport_height={:.1}, line_height={:.1}, line_height_with_spacing={:.1}, lines={}, focused={}",
-            width, viewport_height, line_height, line_height_with_spacing, self.chat_input.lines.len(), self.chat_input.focused
-        );
-
-        // Calculate scroll position
-        let max_scroll = (total_height - viewport_height).max(0.0);
-        let scroll_offset = if !self.chat_input.user_has_scrolled {
-            // Auto-scroll to bottom when typing
-            max_scroll
-        } else {
-            self.chat_input.scroll_pixel_offset.min(max_scroll)
-        };
-
-        // Update scroll offset
-        self.chat_input.scroll_pixel_offset = scroll_offset;
-
-        log::debug!(
-            "Chat input scroll state: offset={:.1}, max={:.1}, lines={}, viewport_lines={}",
-            scroll_offset,
-            max_scroll,
-            self.chat_input.lines.len(),
-            self.chat_input.display_lines
-        );
-
-        // Combine all lines into a single text string with newlines
-        let mut combined_text = String::new();
-        let is_placeholder = self.chat_input.lines.len() == 1
-            && self.chat_input.lines[0].is_empty()
-            && !self.chat_input.focused;
-
-        if is_placeholder {
-            combined_text = self.chat_input.placeholder.clone();
-        } else {
-            for (idx, line) in self.chat_input.lines.iter().enumerate() {
-                if idx > 0 {
-                    combined_text.push('\n');
-                }
-                combined_text.push_str(line);
-            }
-        }
-
-        let text_color = if is_placeholder {
-            LinearRgba::with_components(0.5, 0.5, 0.5, 1.0) // Gray for placeholder
-        } else {
-            LinearRgba::with_components(0.9, 0.9, 0.9, 1.0) // Light gray for typed text
-        };
-
-        // Create a single WrappedText element containing all lines
-        Element::new(font, ElementContent::WrappedText(combined_text))
-            .colors(ElementColors {
-                text: text_color.into(),
-                bg: LinearRgba::with_components(0.0, 0.0, 0.0, 0.0).into(), // Transparent background
-                ..Default::default()
-            })
-            .max_width(Some(Dimension::Pixels(width)))
-            .display(DisplayType::Block)
-            // Use negative margin to implement scrolling
-            .margin(BoxDimension {
-                top: Dimension::Pixels(-scroll_offset),
-                ..Default::default()
-            })
-        // DO NOT add UIItemType here - clicks should be handled by the container at z-index 14
-        // DO NOT set zindex here - it's set via LayoutContext during compute_element
+        ChatInputHandler::render_chat_input_text(
+            &mut self.chat_input,
+            font,
+            width,
+            viewport_height,
+        )
     }
 
     fn render_chat_input(&mut self, fonts: &SidebarFonts) -> Element {
@@ -1778,178 +1708,11 @@ This example demonstrates:
         self.render_chat_input_text(&fonts.body, width, viewport_height)
     }
 
-    /// Calculate cursor position for rendering
+    /// Get cursor position for rendering - delegates to ChatInputHandler
     pub fn get_cursor_position(&self, font: &Rc<LoadedFont>) -> Option<(f32, f32)> {
-        if !self.chat_input.focused {
-            return None;
-        }
-        let line_height = font.metrics().cell_height.get() as f32;
-        let line_height_with_spacing = line_height * 1.1;
-
-        // First, calculate the document byte offset for the cursor position
-        let mut cursor_document_byte_offset = 0;
-
-        // Add bytes from all lines before the cursor line
-        for (line_idx, line) in self.chat_input.lines.iter().enumerate() {
-            if line_idx < self.chat_input.cursor_line {
-                cursor_document_byte_offset += line.len() + 1; // +1 for newline
-            } else if line_idx == self.chat_input.cursor_line {
-                // Add bytes up to cursor column in current line
-                let byte_in_line = line
-                    .char_indices()
-                    .nth(self.chat_input.cursor_col)
-                    .map(|(idx, _)| idx)
-                    .unwrap_or(line.len());
-                cursor_document_byte_offset += byte_in_line;
-                break;
-            }
-        }
-
-        log::debug!(
-            "Cursor at logical line {}, col {} = document byte offset {}, glyph_positions available: {}, visual_lines={}",
-            self.chat_input.cursor_line,
-            self.chat_input.cursor_col,
-            cursor_document_byte_offset,
-            !self.chat_input.exact_glyph_positions.is_empty(),
-            self.chat_input.exact_glyph_positions.len()
-        );
-
-        // Now find which visual line contains this byte offset
-        let mut visual_line_idx = None;
-        let mut cursor_x = 0.0;
-
-        for (vis_line_idx, visual_line_positions) in
-            self.chat_input.exact_glyph_positions.iter().enumerate()
-        {
-            if visual_line_positions.is_empty() {
-                continue;
-            }
-
-            // Check if this visual line contains our byte offset
-            let first_byte = visual_line_positions
-                .first()
-                .map(|(_, _, b)| *b)
-                .unwrap_or(0);
-            let last_byte = visual_line_positions
-                .last()
-                .map(|(_, _, b)| *b)
-                .unwrap_or(0);
-
-            log::debug!(
-                "Visual line {}: byte range {} - {}, cursor looking for {}, contains={}",
-                vis_line_idx,
-                first_byte,
-                last_byte,
-                cursor_document_byte_offset,
-                cursor_document_byte_offset >= first_byte
-                    && cursor_document_byte_offset <= last_byte + 1
-            );
-
-            if cursor_document_byte_offset >= first_byte
-                && cursor_document_byte_offset <= last_byte + 1
-            {
-                // Found the visual line containing our cursor
-                visual_line_idx = Some(vis_line_idx);
-
-                // Find X position within this visual line
-                if cursor_document_byte_offset == first_byte {
-                    // Cursor at start of visual line
-                    cursor_x = 0.0;
-                } else {
-                    // Find position within line
-                    let mut found = false;
-                    let mut prev_end = 0.0;
-
-                    for (x_start, x_end, byte_offset) in visual_line_positions.iter() {
-                        if *byte_offset == cursor_document_byte_offset {
-                            // Cursor is exactly at this glyph's position - put it at the start
-                            cursor_x = *x_start;
-                            found = true;
-                            break;
-                        } else if *byte_offset > cursor_document_byte_offset {
-                            // We've passed the cursor position - use the end of the previous glyph
-                            cursor_x = prev_end;
-                            found = true;
-                            break;
-                        }
-                        prev_end = *x_end;
-                    }
-
-                    // If we didn't find a position (cursor at end of line), use the last glyph's end
-                    if !found && !visual_line_positions.is_empty() {
-                        cursor_x = visual_line_positions.last().unwrap().1;
-                    }
-                }
-
-                break;
-            }
-        }
-
-        // Calculate Y position based on visual line index
-        let y = if let Some(vis_line_idx) = visual_line_idx {
-            vis_line_idx as f32 * line_height_with_spacing - self.chat_input.scroll_pixel_offset
-        } else {
-            // Fallback: use logical line if we couldn't find visual line
-            log::warn!(
-                "Could not find visual line for cursor at byte offset {}, positions_count={}, visual_lines={}",
-                cursor_document_byte_offset,
-                self.chat_input.exact_glyph_positions.len(),
-                self.chat_input.visual_line_count
-            );
-            self.chat_input.cursor_line as f32 * line_height_with_spacing
-                - self.chat_input.scroll_pixel_offset
-        };
-
-        // Use exact positions if we found them, otherwise fallback
-        let x = if visual_line_idx.is_some() {
-            cursor_x
-        } else {
-            // Fallback to character width estimation if exact positions not available
-            let line = &self.chat_input.lines[self.chat_input.cursor_line];
-            let text_before_cursor: String =
-                line.chars().take(self.chat_input.cursor_col).collect();
-            if text_before_cursor.is_empty() {
-                0.0
-            } else {
-                // Use font metrics to estimate character widths
-                let base_char_width = font.metrics().cell_width.get() as f32;
-                let char_width = base_char_width * 0.5; // Proportional font adjustment
-                let mut x_pos = 0.0;
-                for ch in text_before_cursor.chars() {
-                    // Character width estimation
-                    let ch_width = if ch.is_ascii_alphabetic() {
-                        if ch.is_ascii_uppercase() {
-                            char_width * 1.2 // Uppercase letters are wider
-                        } else {
-                            char_width // Lowercase letters
-                        }
-                    } else if ch.is_ascii_digit() {
-                        char_width * 0.9 // Numbers are slightly narrower
-                    } else if ch == ' ' {
-                        char_width * 0.4 // Spaces are narrow
-                    } else if ch.is_ascii_punctuation() {
-                        char_width * 0.5 // Punctuation varies
-                    } else {
-                        char_width // Default for other characters
-                    };
-                    x_pos += ch_width;
-                }
-                x_pos
-            }
-        };
-
-        log::debug!(
-            "Cursor position: line={}, col={}, x={:.1}, y={:.1}, visual_line={:?}, exact_positions_available={}",
-            self.chat_input.cursor_line,
-            self.chat_input.cursor_col,
-            x,
-            y,
-            visual_line_idx,
-            !self.chat_input.exact_glyph_positions.is_empty()
-        );
-
-        Some((x, y))
+        ChatInputHandler::get_cursor_position(&self.chat_input, font)
     }
+
     /// Get chat input background color for filled rectangle rendering
     pub fn get_chat_input_bg_color(&self) -> LinearRgba {
         self.chat_input_bg_color
@@ -3138,11 +2901,11 @@ This example demonstrates:
     }
 
     pub fn handle_chat_input(&mut self, c: char) {
-        self.chat_input.insert_char(c);
+        ChatInputHandler::handle_char_input(&mut self.chat_input, c);
     }
 
     pub fn handle_chat_send(&mut self) {
-        let text = self.chat_input.get_text();
+        let text = ChatInputHandler::get_text(&self.chat_input);
         if !text.trim().is_empty() {
             self.activity_log.push(ActivityItem::Chat {
                 id: format!("chat_{}", self.activity_log.len()),
@@ -3150,7 +2913,7 @@ This example demonstrates:
                 is_user: true,
                 timestamp: SystemTime::now(),
             });
-            self.chat_input.clear();
+            ChatInputHandler::clear(&mut self.chat_input);
             // Clear code block registry since content has changed
             self.clear_code_block_registry();
         }
@@ -3674,26 +3437,26 @@ impl Sidebar for AiSidebar {
                 KeyCode::Enter => {
                     // Check if Shift is held
                     if modifiers.contains(KeyModifiers::SHIFT) {
-                        // Shift+Enter should insert a newline - let MultilineTextInput handle it
-                        let result = self.chat_input.handle_key_event(key, modifiers);
+                        // Shift+Enter should insert a newline - let ChatInputHandler handle it
+                        let handled = ChatInputHandler::handle_key_event(&mut self.chat_input, key, modifiers);
                         log::debug!(
-                            "MultilineTextInput.handle_key_event (Shift+Enter) returned: {:?}",
-                            result
+                            "ChatInputHandler::handle_key_event (Shift+Enter) returned: {}",
+                            handled
                         );
-                        return result;
+                        return Ok(handled);
                     } else {
                         // Enter without shift sends the message
-                        if !self.chat_input.get_text().trim().is_empty() {
+                        if !ChatInputHandler::get_text(&self.chat_input).trim().is_empty() {
                             self.handle_chat_send();
                         }
                         return Ok(true);
                     }
                 }
                 _ => {
-                    // Let MultilineTextInput handle all other keys
-                    let result = self.chat_input.handle_key_event(key, modifiers);
-                    log::debug!("MultilineTextInput.handle_key_event returned: {:?}", result);
-                    return result;
+                    // Let ChatInputHandler handle all other keys
+                    let handled = ChatInputHandler::handle_key_event(&mut self.chat_input, key, modifiers);
+                    log::debug!("ChatInputHandler::handle_key_event returned: {}", handled);
+                    return Ok(handled);
                 }
             }
         }
@@ -3752,24 +3515,29 @@ impl AiSidebar {
         click_y: f32,
         bounds: &euclid::Rect<f32, euclid::UnknownUnit>,
     ) {
+        use crate::sidebar::chat_input::{
+            CHAT_INPUT_BORDER_THICKNESS, CHAT_INPUT_TEXT_PADDING, CHAT_INPUT_VERTICAL_PADDING,
+        };
+        
         // Focus the input
         self.focus_chat_input();
 
         // Calculate relative position within the chat input text area
-        let text_padding = 8.0;
-        let border_thickness = 1.0;
-        let vertical_padding = 6.0;
+        let relative_x = click_x - bounds.origin.x - CHAT_INPUT_BORDER_THICKNESS - CHAT_INPUT_TEXT_PADDING;
+        let relative_y = click_y - bounds.origin.y - CHAT_INPUT_BORDER_THICKNESS - CHAT_INPUT_VERTICAL_PADDING;
 
-        let relative_x = click_x - bounds.origin.x - border_thickness - text_padding;
-        let relative_y = click_y - bounds.origin.y - border_thickness - vertical_padding;
-
-        // Only position cursor if click is within the text area
+        // Delegate to ChatInputHandler for cursor positioning
         if relative_x >= 0.0 && relative_y >= 0.0 {
-            // Use estimated font metrics WITH 1.1x multiplier to match rendering
-            let line_height = 20.0 * 1.1; // Match the rendering multiplier
-            let char_width = 8.5; // More accurate monospace char width for ~12pt font
-            self.chat_input
-                .handle_click_position(relative_x, relative_y, line_height, char_width);
+            // Create empty line positions for simple click (no exact glyph positions)
+            let line_positions = vec![];
+            ChatInputHandler::handle_click(
+                &mut self.chat_input,
+                relative_x,
+                relative_y,
+                &line_positions,
+                false,  // not a drag
+                false,  // no shift held
+            );
         }
     }
 
@@ -3782,221 +3550,38 @@ impl AiSidebar {
         is_drag: bool,
         shift_held: bool,
     ) {
-        log::debug!(
-            "handle_chat_input_click_with_positions: relative_x={}, relative_y={}, line_positions_count={}, is_drag={}, shift_held={}",
-            relative_x, relative_y, line_positions.len(), is_drag, shift_held
-        );
-
-        // Debug: log what positions we received
-        for (line_idx, line_pos) in line_positions.iter().enumerate().take(2) {
-            log::debug!("  Line {} has {} positions", line_idx, line_pos.len());
-            for (i, &(x_start, x_end, byte_offset)) in line_pos.iter().enumerate().take(5) {
-                log::debug!(
-                    "    Pos[{}]: x=({:.1}, {:.1}), byte_offset={}",
-                    i,
-                    x_start,
-                    x_end,
-                    byte_offset
-                );
-            }
-        }
-
+        use crate::sidebar::chat_input::{CHAT_INPUT_TEXT_PADDING, CHAT_INPUT_VERTICAL_PADDING};
+        
         // Store the exact positions for cursor positioning
         self.chat_input.exact_glyph_positions = line_positions.clone();
-
+        
         // Focus the input
         self.focus_chat_input();
-
-        // Account for padding inside the chat input
-        // Container has 8px top padding, and we need to account for that
-        let container_padding_top = 8.0;
-        let text_padding = 4.0; // Per-line text element padding
-        let adjusted_x = relative_x - text_padding;
-        let adjusted_y = relative_y - container_padding_top - 2.0; // Container + per-line padding
-
-        log::debug!(
-            "Adjusted coordinates: x={}, y={}, text_padding={}",
+        
+        // Account for padding - delegate calculation to ChatInputHandler
+        let adjusted_x = relative_x - CHAT_INPUT_TEXT_PADDING;
+        let adjusted_y = relative_y - CHAT_INPUT_VERTICAL_PADDING - 2.0;
+        
+        // Delegate all click handling logic to ChatInputHandler
+        ChatInputHandler::handle_click(
+            &mut self.chat_input,
             adjusted_x,
             adjusted_y,
-            text_padding
+            line_positions,
+            is_drag,
+            shift_held,
         );
-
-        // Only position cursor if click is within the text area
-        if adjusted_x >= 0.0 && adjusted_y >= 0.0 {
-            // Use actual line height with spacing
-            let line_height_with_spacing = 20.0 * 1.1; // 22px as shown in logs
-
-            // Calculate which line was clicked (accounting for scroll offset)
-            let clicked_line = ((adjusted_y + self.chat_input.scroll_pixel_offset)
-                / line_height_with_spacing) as usize;
-
-            log::debug!(
-                "Line calculation: adjusted_y={}, scroll_offset={}, line_height={}, clicked_line={}",
-                adjusted_y, self.chat_input.scroll_pixel_offset, line_height_with_spacing, clicked_line
-            );
-
-            if clicked_line < line_positions.len() {
-                // Find character position in the visual line using exact glyph positions
-                let line_glyph_positions = &line_positions[clicked_line];
-
-                log::debug!(
-                    "Visual line {}: glyph_positions_count={}",
-                    clicked_line,
-                    line_glyph_positions.len()
-                );
-
-                // Debug log the glyph positions
-                if line_glyph_positions.len() > 0 {
-                    log::debug!(
-                        "First glyph position: ({}, {}), Last glyph position: ({}, {})",
-                        line_glyph_positions[0].0,
-                        line_glyph_positions[0].1,
-                        line_glyph_positions.last().unwrap().0,
-                        line_glyph_positions.last().unwrap().1
-                    );
-                }
-
-                // Find which character was clicked using exact glyph positions
-                let clicked_document_byte_offset = if line_glyph_positions.is_empty() {
-                    0
-                } else {
-                    // Find the glyph that contains the click position
-                    let mut found_offset = None;
-                    for (x_start, x_end, byte_offset) in line_glyph_positions.iter() {
-                        if adjusted_x < *x_start {
-                            // Click is before this glyph
-                            found_offset = Some(*byte_offset);
-                            break;
-                        } else if adjusted_x >= *x_start && adjusted_x <= *x_end {
-                            // Click is within this glyph - decide if it's closer to start or end
-                            let mid = (*x_start + *x_end) / 2.0;
-                            if adjusted_x < mid {
-                                found_offset = Some(*byte_offset);
-                            } else {
-                                // Find the next glyph's byte offset
-                                let next_idx = line_glyph_positions
-                                    .iter()
-                                    .position(|(s, _, _)| *s == *x_start)
-                                    .and_then(|idx| line_glyph_positions.get(idx + 1))
-                                    .map(|(_, _, next_offset)| *next_offset);
-                                found_offset = next_idx.or(Some(*byte_offset + 1));
-                            }
-                            break;
-                        }
-                    }
-
-                    // If click is past all glyphs, position at end of visual line
-                    if found_offset.is_none() {
-                        if let Some((_, _, last_offset)) = line_glyph_positions.last() {
-                            // Use the last offset + 1 for "after last character"
-                            found_offset = Some(*last_offset + 1);
-                        }
-                    }
-
-                    found_offset.unwrap_or(0)
-                };
-
-                // Now map the document byte offset to logical line and column
-                let mut current_byte = 0;
-                let mut found_logical_position = false;
-                let mut logical_line = 0;
-                let mut logical_col = 0;
-
-                for (logical_line_idx, line_text) in self.chat_input.lines.iter().enumerate() {
-                    let line_start = current_byte;
-                    let line_end = current_byte + line_text.len();
-
-                    if clicked_document_byte_offset >= line_start
-                        && clicked_document_byte_offset <= line_end
-                    {
-                        // Found the logical line containing this byte offset
-                        let line_relative_byte = clicked_document_byte_offset - line_start;
-
-                        // Convert byte offset to character index
-                        let char_index = line_text
-                            .char_indices()
-                            .take_while(|(byte_idx, _)| *byte_idx < line_relative_byte)
-                            .count();
-
-                        log::debug!(
-                            "[CLICK_DEBUG] Mapped click to logical line {}, char {}, doc_byte_offset={}",
-                            logical_line_idx,
-                            char_index,
-                            clicked_document_byte_offset
-                        );
-
-                        logical_line = logical_line_idx;
-                        logical_col = char_index;
-                        found_logical_position = true;
-                        break;
-                    }
-
-                    current_byte = line_end + 1; // +1 for newline
-                }
-
-                if found_logical_position {
-                    // Handle selection logic
-                    if is_drag {
-                        // Update selection during drag
-                        self.update_chat_input_selection(logical_line, logical_col);
-                    } else if shift_held {
-                        // Extend selection with shift+click
-                        if let Some(SelectionTarget::ChatInput { .. }) =
-                            &self.selection_state.active_selection
-                        {
-                            // Update current position to extend selection
-                            self.update_chat_input_selection(logical_line, logical_col);
-                        } else {
-                            // Start new selection from cursor to clicked position
-                            let cursor_line = self.chat_input.cursor_line;
-                            let cursor_col = self.chat_input.cursor_col;
-                            self.start_chat_input_selection(cursor_line, cursor_col);
-                            self.update_chat_input_selection(logical_line, logical_col);
-                        }
-                    } else {
-                        // Regular click - clear selection and move cursor
-                        self.selection_state.clear();
-                        self.chat_input.cursor_line = logical_line;
-                        self.chat_input.cursor_col = logical_col;
-
-                        // Start potential selection (for drag)
-                        self.selection_state.prepared_selection =
-                            Some(SelectionTarget::ChatInput {
-                                anchor_line: logical_line,
-                                anchor_byte: logical_col,
-                                current_line: logical_line,
-                                current_byte: logical_col,
-                            });
-                    }
-                } else {
-                    log::warn!(
-                        "[CLICK_DEBUG] Could not map document byte offset {} to logical line",
-                        clicked_document_byte_offset
-                    );
-                }
-            } else {
-                log::warn!(
-                    "[CLICK_DEBUG] Click outside valid lines: clicked_line={}, total_lines={}",
-                    clicked_line,
-                    self.chat_input.lines.len()
-                );
-            }
-        } else {
-            log::warn!(
-                "[CLICK_DEBUG] Click outside text area: adjusted_x={}, adjusted_y={}",
-                adjusted_x,
-                adjusted_y
-            );
-        }
     }
 
     /// Handle mouse wheel events for chat input (simplified without font access)
     pub fn handle_chat_input_wheel_simple(&mut self, amount: i16) -> bool {
+        use crate::sidebar::chat_input::{ESTIMATED_LINE_HEIGHT, LINE_HEIGHT_MULTIPLIER};
+        
         // Convert wheel amount to pixel delta
         // Negative amount means scroll up, positive means scroll down
-        let line_height = 20.0 * 1.1; // Estimated line height with rendering multiplier
+        let line_height = ESTIMATED_LINE_HEIGHT * LINE_HEIGHT_MULTIPLIER;
         let delta = amount as f32 * 3.0; // Multiply for smoother scrolling
-        self.chat_input.handle_wheel_scroll(delta, line_height)
+        ChatInputHandler::handle_wheel_scroll(&mut self.chat_input, delta, line_height)
     }
 
     /// Handle copy operation (Ctrl+C / Cmd+C)
