@@ -281,6 +281,9 @@ pub struct MultilineTextInput {
     /// A value of 0 indicates that wrapping hasn't been calculated yet or text has changed.
     /// Used for scrollbar calculations to handle wrapped text correctly.
     pub visual_line_count: usize,
+    /// Line height in pixels (populated during rendering from font metrics).
+    /// Used for accurate selection rectangle calculation.
+    pub rendered_line_height: Option<f32>,
 }
 
 impl MultilineTextInput {
@@ -300,6 +303,7 @@ impl MultilineTextInput {
             user_has_scrolled: false,
             exact_glyph_positions: Vec::new(),
             visual_line_count: 0,
+            rendered_line_height: None,
         }
     }
 

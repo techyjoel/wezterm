@@ -23,6 +23,9 @@ use crate::termwindow::render::neon::{NeonRenderer, NeonStyle};
 use crate::termwindow::render::scrollbar_renderer::ScrollbarRenderer;
 use crate::termwindow::{UIItem, UIItemType};
 use crate::utilsprites::RenderMetrics;
+use crate::sidebar::sidebar_constants::{
+    DEFAULT_SCROLLBAR_WIDTH,
+};
 use anyhow::Result;
 use config::{Dimension, DimensionContext};
 use euclid;
@@ -684,9 +687,15 @@ impl crate::TermWindow {
             // Capture bounds for suggestion and goal cards for selection rendering
             if let Ok(mut sidebar_guard) = sidebar.lock() {
                 if let Some(ai_sidebar) = sidebar_guard.as_any_mut().downcast_mut::<AiSidebar>() {
+                    // First pass: Find and process suggestion text elements
+                    self.find_and_process_suggestion_text(&computed, ai_sidebar, &fonts);
+                    
+                    // Second pass: Process other UI items
                     for ui_item in computed.ui_items() {
                         match &ui_item.item_type {
                             crate::termwindow::UIItemType::SuggestionText { .. } => {
+                                // Already processed in first pass for position extraction
+                                // Now store the bounds for hit testing
                                 let bounds = euclid::rect(
                                     ui_item.x as f32,
                                     ui_item.y as f32,
@@ -695,7 +704,7 @@ impl crate::TermWindow {
                                 );
                                 ai_sidebar.set_suggestion_bounds(bounds);
                                 log::debug!(
-                                    "Set suggestion bounds: x={}, y={}, w={}, h={}",
+                                    "Set suggestion bounds: x={}, y={}, w={}, h={} (UIItem bounds)",
                                     bounds.origin.x,
                                     bounds.origin.y,
                                     bounds.size.width,
@@ -907,7 +916,9 @@ impl crate::TermWindow {
                                 "Extracted {} lines of positions for chat input",
                                 positions.len()
                             );
-                            ai_sidebar.set_chat_input_glyph_positions(positions);
+                            // Also store the line height from font metrics for accurate selection rendering
+                            let line_height = fonts.body.metrics().cell_height.get() as f32;
+                            ai_sidebar.set_chat_input_glyph_positions(positions, line_height);
                         }
 
                         // Render the chat input text (now clipped by scissor rect)
@@ -1118,7 +1129,7 @@ impl crate::TermWindow {
                 };
 
                 if let Some(bounds) = activity_bounds {
-                    let scrollbar_width = 10.0;
+                    let scrollbar_width = DEFAULT_SCROLLBAR_WIDTH;
                     let scrollbar_x = sidebar_x + sidebar_width - scrollbar_width - 4.0;
                     let scrollbar_y = bounds.min_y();
                     let scrollbar_height = bounds.size.height;
@@ -1230,7 +1241,7 @@ impl crate::TermWindow {
                         bounds.size.height
                     );
 
-                    let scrollbar_width = 10.0;
+                    let scrollbar_width = DEFAULT_SCROLLBAR_WIDTH;
                     let scrollbar_x = sidebar_x + sidebar_width - scrollbar_width - 4.0;
                     let scrollbar_y = bounds.min_y();
                     let scrollbar_height = bounds.size.height;
@@ -1510,6 +1521,108 @@ impl crate::TermWindow {
                 .resolve_font(&code_style.make_bold().make_italic())
                 .ok(),
         )
+    }
+
+    /// Extract suggestion text positions from a computed element tree
+    fn extract_suggestion_text_positions(
+        &self,
+        computed: &ComputedElement,
+        ui_item_type: &UIItemType,
+    ) -> Option<Vec<(f32, f32, usize)>> {
+        // Check if this element has the matching UIItemType
+        if let Some(item_type) = &computed.item_type {
+            if matches!(item_type, UIItemType::SuggestionText { .. }) {
+                // Extract positions from the content - exactly like goal text does
+                if let ComputedElementContent::MultilineText { lines, .. } = &computed.content {
+                    let mut all_positions = Vec::new();
+                    let mut last_cluster_seen = 0u32;
+                    let mut line_byte_offset = 0usize;
+
+                    // Process each line of text
+                    log::debug!(
+                        "Suggestion positions: Processing {} lines of text",
+                        lines.len()
+                    );
+                    for (line_idx, cells) in lines.iter().enumerate() {
+                        let mut x_pos = 0.0;
+                        let mut line_has_clusters = false;
+
+                        // First pass: check if this line has any clusters to detect line boundaries
+                        for cell in cells {
+                            if let ElementCell::GlyphWithCluster { cluster, .. } = cell {
+                                line_has_clusters = true;
+                                // If cluster resets to a lower value, we've started a new line
+                                if *cluster < last_cluster_seen {
+                                    // Add the previous line's max cluster + 1 to account for newline
+                                    line_byte_offset += (last_cluster_seen + 1) as usize;
+                                }
+                                last_cluster_seen = *cluster;
+                                break; // Just need to check first cluster
+                            }
+                        }
+
+                        // Second pass: extract positions with proper byte offsets
+                        x_pos = 0.0;
+                        for cell in cells {
+                            match cell {
+                                ElementCell::Glyph(glyph) => {
+                                    // Regular glyph without cluster info - just advance position
+                                    x_pos += glyph.x_advance.get() as f32;
+                                }
+                                ElementCell::GlyphWithCluster { glyph, cluster } => {
+                                    let x_start = x_pos;
+                                    let x_end = x_pos + glyph.x_advance.get() as f32;
+                                    
+                                    // Calculate the absolute byte offset by adding line offset
+                                    let byte_offset = line_byte_offset + *cluster as usize;
+                                    all_positions.push((x_start, x_end, byte_offset));
+
+                                    x_pos = x_end;
+                                    last_cluster_seen = *cluster;
+                                }
+                                _ => {} // Other cell types don't have position info
+                            }
+                        }
+
+                        log::debug!(
+                            "Suggestion line {} (has_clusters={}): extracted {} positions",
+                            line_idx,
+                            line_has_clusters,
+                            all_positions.len()
+                        );
+                    }
+
+                    if !all_positions.is_empty() {
+                        log::debug!(
+                            "Total positions extracted for suggestion: {} with cluster data",
+                            all_positions.len()
+                        );
+                        // Log first and last positions for debugging
+                        if let Some(first) = all_positions.first() {
+                            log::debug!("Suggestion first position: x_start={}, x_end={}, byte={}", 
+                                first.0, first.1, first.2);
+                        }
+                        if let Some(last) = all_positions.last() {
+                            log::debug!("Suggestion last position: x_start={}, x_end={}, byte={}", 
+                                last.0, last.1, last.2);
+                        }
+                    }
+                    
+                    return Some(all_positions);
+                }
+            }
+        }
+
+        // Check children recursively
+        if let ComputedElementContent::Children(children) = &computed.content {
+            for child in children {
+                if let Some(positions) = self.extract_suggestion_text_positions(child, ui_item_type) {
+                    return Some(positions);
+                }
+            }
+        }
+
+        None
     }
 
     /// Extract goal text positions from a computed element tree
@@ -1867,6 +1980,64 @@ impl crate::TermWindow {
                     max_depth,
                 );
             }
+        }
+    }
+    
+    /// Find suggestion text elements recursively and process them
+    fn find_and_process_suggestion_text(
+        &self,
+        computed: &ComputedElement,
+        ai_sidebar: &mut AiSidebar,
+        fonts: &crate::sidebar::SidebarFonts,
+    ) {
+        // Check if this element itself is a suggestion text
+        if let Some(ref item_type) = computed.item_type {
+            if matches!(item_type, UIItemType::SuggestionText { .. }) {
+                log::debug!("Found SuggestionText element, extracting positions");
+                
+                // Extract positions from THIS specific element
+                if let Some((position_tree, _rendered_text, _wrap_newlines)) = 
+                    crate::termwindow::render::suggestion_positions::extract_suggestion_positions(
+                        computed,
+                        fonts,
+                    )
+                {
+                    log::debug!("Successfully extracted position tree for suggestion");
+                    let tree_arc = std::sync::Arc::new(position_tree);
+                    ai_sidebar.store_suggestion_position_tree(tree_arc.clone());
+                    
+                    // Also store simple positions for compatibility
+                    let mut simple_positions = Vec::new();
+                    for pos in &tree_arc.text_positions {
+                        simple_positions.push((
+                            pos.x_start,
+                            pos.x_end,
+                            pos.byte_offset,
+                        ));
+                    }
+                    
+                    if !simple_positions.is_empty() {
+                        log::debug!(
+                            "Stored {} character positions for suggestion text",
+                            simple_positions.len()
+                        );
+                        ai_sidebar.store_suggestion_positions(simple_positions);
+                    }
+                } else {
+                    log::warn!("Failed to extract position tree for suggestion text");
+                }
+                return; // Found and processed
+            }
+        }
+        
+        // Recursively search children
+        match &computed.content {
+            ComputedElementContent::Children(children) => {
+                for child in children {
+                    self.find_and_process_suggestion_text(child, ai_sidebar, fonts);
+                }
+            }
+            _ => {}
         }
     }
 }

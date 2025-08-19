@@ -52,18 +52,39 @@ pub const HEADING_H1_RATIO: f32 = 1.5;
 pub const HEADING_H2_RATIO: f32 = 1.4;
 
 /// Chat item layout constants
-pub const CHAT_ITEM_PADDING: f32 = 12.0; // Padding on all sides
+pub const CHAT_ITEM_PADDING: f32 = 10.0; // Padding on all sides
 pub const CHAT_ITEM_BOTTOM_MARGIN: f32 = 8.0; // Bottom margin between chat items
 pub const CHAT_ITEM_BORDER: f32 = 0.0; // No border for cleaner look
-pub const CHAT_ITEM_HORIZONTAL_MARGIN: f32 = 20.0; // Left margin for user messages (AI has 0)
+pub const CHAT_ITEM_HORIZONTAL_MARGIN: f32 = 20.0; // Left margin for user messages (AI has 1/2 this)
 
 /// Card component constants
-pub const CARD_CONTENT_PADDING: f32 = 12.0; // Default padding for Card content wrapper
+pub const CARD_CONTENT_PADDING: f32 = 12.0; // Default horizontal padding for Card content wrapper
+pub const CARD_CONTENT_VERTICAL_PADDING: f32 = 4.0; // Vertical padding for Card content wrapper
 pub const CARD_BORDER: f32 = 0.0; // No border for cleaner look
 pub const CARD_MARGIN: f32 = 8.0; // Default margin for Card component
 
 // Goal card constants
 pub const GOAL_CARD_PADDING: f32 = 8.0; // Padding for goal text content
 
+// Suggestion content container padding (inside the Card component)
+pub const SUGGESTION_CONTENT_HORIZONTAL_PADDING: f32 = 8.0;
+pub const SUGGESTION_CONTENT_VERTICAL_PADDING: f32 = 8.0; // Same as goal card
+
 /// Scrollbar space allocation
-pub const SCROLLBAR_SPACE: f32 = 12.0; // Space reserved for scrollbar
+pub const DEFAULT_SCROLLBAR_WIDTH: f32 = 8.0; // Space for scrollbar
+
+/// Text rendering line spacing
+pub const LINE_SPACING_MULTIPLIER: f32 = 1.1; // Multiplier for line height to add spacing between lines
+
+/// Character width estimation
+pub const CHAR_WIDTH_ESTIMATE: f32 = 8.5; // Approximate width of a single character
+pub const CHAR_WIDTH_UPPERCASE_MULTIPLIER: f32 = 1.2; // Uppercase letters are wider
+
+/// Chat input
+pub const CHAT_INPUT_HEIGHT: f32 = 100.0;  // Not used consistently everywhere yet
+
+// General
+pub const SIDEBAR_ELEMENT_MARGIN_VERTICAL: f32 = 10.0; // Vertical margin between sidebar elements
+
+// Selection
+pub const SELECTION_CLICK_TOLERANCE: f32 = 20.0; // Allow clicking up to 20px outside text to start selection

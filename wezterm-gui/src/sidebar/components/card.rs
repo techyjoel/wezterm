@@ -94,7 +94,12 @@ impl Card {
                     text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
                     ..Default::default()
                 })
-                .padding(BoxDimension::new(Dimension::Pixels(8.0)))];
+                .padding(BoxDimension {
+                    left: Dimension::Pixels(8.0),
+                    right: Dimension::Pixels(8.0),
+                    top: Dimension::Pixels(4.0),    // Reduced from 8.0
+                    bottom: Dimension::Pixels(2.0), // Reduced from 8.0
+                })];
 
             // Add expand/collapse indicator if expandable
             if self.expandable {
@@ -134,7 +139,12 @@ impl Card {
             let content_wrapper =
                 Element::new(font, ElementContent::Children(self.content.clone()))
                     .display(DisplayType::Block)
-                    .padding(BoxDimension::new(Dimension::Pixels(CARD_CONTENT_PADDING)));
+                    .padding(BoxDimension {
+                        left: Dimension::Pixels(CARD_CONTENT_PADDING),   // Keep horizontal padding
+                        right: Dimension::Pixels(CARD_CONTENT_PADDING),  // Keep horizontal padding
+                        top: Dimension::Pixels(4.0),    // Reduced from 12.0
+                        bottom: Dimension::Pixels(4.0), // Reduced from 12.0
+                    });
             children.push(content_wrapper);
         }
 

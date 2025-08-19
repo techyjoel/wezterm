@@ -9,6 +9,10 @@ use std::time::{Duration, Instant};
 
 use super::scrollbar_helpers::MIN_THUMB_SIZE;
 
+use crate::sidebar::sidebar_constants::{
+    DEFAULT_SCROLLBAR_WIDTH,
+};
+
 /// Shared scrollbar state that can be used by different components
 #[derive(Clone, Debug)]
 pub struct ScrollbarState {
@@ -305,7 +309,7 @@ pub struct ScrollbarConfig {
 impl Default for ScrollbarConfig {
     fn default() -> Self {
         Self {
-            width: 10.0,
+            width: DEFAULT_SCROLLBAR_WIDTH,
             auto_hide: true,
             auto_hide_delay: Duration::from_millis(1500),
             fade_duration: Duration::from_millis(200),

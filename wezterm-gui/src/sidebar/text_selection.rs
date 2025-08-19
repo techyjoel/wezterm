@@ -247,6 +247,8 @@ impl TextSelectionManager {
         point: Point2D<f32, PixelUnit>,
         element_type: &ElementType,
     ) -> Option<ItemPosition> {
+        log::debug!("hit_test_text_positions: point=({:.1}, {:.1}), {} positions", 
+            point.x, point.y, positions.len());
         log::debug!(
             "hit_test_text_positions: Testing point ({:.1}, {:.1}) against {} positions",
             point.x,
@@ -259,13 +261,13 @@ impl TextSelectionManager {
             let min_y = positions
                 .iter()
                 .map(|p| p.y)
-                .min_by(|a, b| a.partial_cmp(b).unwrap())
-                .unwrap();
+                .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .unwrap_or(0.0);
             let max_y = positions
                 .iter()
                 .map(|p| p.y)
-                .max_by(|a, b| a.partial_cmp(b).unwrap())
-                .unwrap();
+                .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .unwrap_or(0.0);
             log::debug!(
                 "  Position y-range: {:.1} to {:.1}, click y: {:.1}",
                 min_y,
@@ -283,7 +285,7 @@ impl TextSelectionManager {
                     ElementType::Paragraph { line_height, .. } => *line_height,
                     ElementType::Heading { font_size, .. } => font_size * 1.2,
                     ElementType::CodeBlock { line_height, .. } => *line_height,
-                    _ => 20.0, // Default line height
+                    _ => PARAGRAPH_LINE_HEIGHT, // Default line height
                 };
                 point.y >= p.y && point.y < p.y + line_height
             })
@@ -440,7 +442,7 @@ impl TextSelectionManager {
                                 // Calculate selection rectangles
                                 let padding = 8.0;
                                 let char_width = 8.5;
-                                let line_height = 20.0;
+                                let line_height = PARAGRAPH_LINE_HEIGHT;
 
                                 let start_char = suggestion.content.chars().take(*start).count();
                                 let end_char = suggestion.content.chars().take(*end).count();
@@ -508,7 +510,7 @@ impl TextSelectionManager {
                                     (start_x, end_x)
                                 };
 
-                                let line_height = 25.0;
+                                let line_height = PARAGRAPH_LINE_HEIGHT * 1.25; // Selection rectangle height
                                 let vertical_offset = 4.0;
 
                                 rects.push(euclid::rect(

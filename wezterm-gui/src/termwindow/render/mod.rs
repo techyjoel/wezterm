@@ -50,6 +50,7 @@ pub mod screen_line;
 pub mod scrollbar_renderer;
 pub mod sidebar_render;
 pub mod split;
+pub mod suggestion_positions;
 pub mod tab_bar;
 pub mod window_buttons;
 

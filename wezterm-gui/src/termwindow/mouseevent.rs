@@ -667,6 +667,12 @@ impl super::TermWindow {
                     event.mouse_buttons
                 );
             }
+            UIItemType::SuggestionText { .. } => {
+                log::debug!(
+                    "mouse_event_ui_item SuggestionText - event.mouse_buttons: {:?}",
+                    event.mouse_buttons
+                );
+            }
             _ => {}
         }
 
@@ -2105,14 +2111,60 @@ impl super::TermWindow {
         context: &dyn WindowOps,
     ) {
         context.set_cursor(Some(MouseCursor::Text));
+        
+        // Set mouse capture on press to ensure drag events work properly
+        if matches!(event.kind, WMEK::Press(MousePress::Left)) {
+            self.current_mouse_capture = Some(MouseCapture::TextSelection);
+            self.text_selection_drag_active = true;
+        }
 
         match event.kind {
             WMEK::Press(MousePress::Left) => {
+                // Set focus to sidebar for copy operations
+                self.focus_area = FocusArea::Sidebar;
+                
                 let x = event.coords.x as f32;
-                log::debug!("Suggestion text clicked at x={}", x);
+                let y = event.coords.y as f32;
+                log::debug!("Suggestion text clicked at absolute ({}, {})", x, y);
 
-                // Find the byte offset from the character positions
-                let byte_offset = find_byte_offset_from_x(x, char_positions);
+                // Get the byte offset using proper hit testing with Y coordinate
+                let byte_offset = if let Ok(mgr) = self.sidebar_manager.try_borrow() {
+                    if let Some(sidebar) = mgr.get_right_sidebar() {
+                        if let Ok(sidebar) = sidebar.lock() {
+                            if let Some(ai_sidebar) = sidebar
+                                .as_any()
+                                .downcast_ref::<crate::sidebar::ai_sidebar::AiSidebar>()
+                            {
+                                if let Some(bounds) = ai_sidebar.suggestion_bounds.as_ref() {
+                                    // Calculate relative coordinates within the suggestion text
+                                    // The bounds are in absolute window coordinates, but the position tree uses element-relative coords
+                                    let rel_x = x - bounds.origin.x;
+                                    let rel_y = y - bounds.origin.y;
+                                    log::debug!("[PADDING DEBUG] Suggestion PRESS: absolute=({}, {}), bounds origin=({}, {}), relative=({}, {})", 
+                                        x, y, bounds.origin.x, bounds.origin.y, rel_x, rel_y);
+                                    
+                                    // Use the hit test method that considers both X and Y
+                                    let result = ai_sidebar.hit_test_suggestion(rel_x, rel_y).unwrap_or(0);
+                                    log::debug!("[PADDING DEBUG] Hit test returned byte_offset={}", result);
+                                    result
+                                } else {
+                                    log::debug!("[PADDING DEBUG] No suggestion bounds available!");
+                                    0
+                                }
+                            } else {
+                                0
+                            }
+                        } else {
+                            0
+                        }
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
+                
+                log::debug!("Suggestion text clicked - calculated byte_offset: {}", byte_offset);
 
                 // Start text selection for suggestion
                 let needs_invalidate = if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
@@ -2144,8 +2196,8 @@ impl super::TermWindow {
                 }
             }
             WMEK::Move => {
-                // Only start selection if mouse button is pressed (dragging)
-                if event.mouse_buttons.contains(MouseButtons::LEFT) {
+                // Check our text selection drag state instead of relying on event.mouse_buttons
+                if self.text_selection_drag_active {
                     if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
                         if let Some(sidebar) = mgr.get_right_sidebar() {
                             if let Ok(mut sidebar) = sidebar.lock() {
@@ -2153,30 +2205,48 @@ impl super::TermWindow {
                                     .as_any_mut()
                                     .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
                                 ) {
+                                    // Only handle drag if we have a suggestion selection (active or prepared)
+                                    // This prevents dragging from other components (like goal) affecting suggestions
+                                    let is_suggestion_selection = ai_sidebar.selection_state.active_selection
+                                        .as_ref()
+                                        .map(|s| matches!(s, crate::sidebar::text_selection::SelectionTarget::Suggestion { .. }))
+                                        .unwrap_or(false)
+                                        || ai_sidebar.selection_state.prepared_selection
+                                        .as_ref()
+                                        .map(|s| matches!(s, crate::sidebar::text_selection::SelectionTarget::Suggestion { .. }))
+                                        .unwrap_or(false);
+                                    
+                                    if !is_suggestion_selection {
+                                        // Not a suggestion selection, don't handle drag here
+                                        return;
+                                    }
+                                    
                                     // Activate selection if not already active
                                     if !ai_sidebar.is_selecting() {
                                         ai_sidebar.activate_prepared_selection();
                                     }
+                                    
                                     let x = event.coords.x as f32;
-
-                                    // Transform to relative coordinates using goal bounds
-                                    let relative_x = if let Some(bounds) =
-                                        ai_sidebar.get_goal_bounds()
-                                    {
-                                        let rel_x = x - bounds.origin.x - 8.0; // Subtract padding (matches GOAL_CARD_PADDING in ai_sidebar.rs)
-                                        log::debug!("GOAL EVENT DEBUG (drag): Relative x={} (absolute {} - bounds.x {} - padding 8)", 
-                                            rel_x, x, bounds.origin.x);
-                                        rel_x
+                                    let y = event.coords.y as f32;
+                                    
+                                    // Get the byte offset using proper hit testing with Y coordinate
+                                    let byte_offset = if let Some(bounds) = ai_sidebar.suggestion_bounds.as_ref() {
+                                        let rel_x = x - bounds.origin.x;
+                                        let rel_y = y - bounds.origin.y;
+                                        
+                                        log::debug!("Suggestion drag: absolute=({}, {}), bounds=({}, {}), relative=({}, {})", 
+                                            x, y, bounds.origin.x, bounds.origin.y, rel_x, rel_y);
+                                        
+                                        // Use the hit test method that considers both X and Y
+                                        ai_sidebar.hit_test_suggestion(rel_x, rel_y).unwrap_or(0)
                                     } else {
-                                        log::debug!("GOAL EVENT DEBUG (drag): No goal bounds, using absolute x={}", x);
-                                        x
+                                        log::debug!("Suggestion drag: No suggestion bounds");
+                                        0
                                     };
-
-                                    let byte_offset =
-                                        find_byte_offset_from_x(relative_x, char_positions);
-                                    log::debug!("GOAL EVENT DEBUG (drag): Goal drag - byte_offset={} using relative_x={}", 
-                                        byte_offset, relative_x);
+                                    
+                                    log::debug!("Suggestion drag - byte_offset={}", byte_offset);
                                     ai_sidebar.update_selection_drag(byte_offset);
+                                    context.invalidate();
                                 }
                             }
                         }
@@ -2184,6 +2254,9 @@ impl super::TermWindow {
                 }
             }
             WMEK::Release(MousePress::Left) => {
+                // Clear the drag state for suggestion text
+                self.text_selection_drag_active = false;
+                
                 if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
                     if let Some(sidebar) = mgr.get_right_sidebar() {
                         if let Ok(mut sidebar) = sidebar.lock() {
@@ -2244,7 +2317,7 @@ impl super::TermWindow {
                                 .downcast_ref::<crate::sidebar::ai_sidebar::AiSidebar>(
                             ) {
                                 if let Some(bounds) = ai_sidebar.get_goal_bounds() {
-                                    let rel_x = x - bounds.origin.x - 8.0; // Subtract padding
+                                    let rel_x = x - bounds.origin.x - crate::sidebar::sidebar_constants::GOAL_CARD_PADDING;
                                     log::debug!("GOAL EVENT DEBUG: Goal bounds: origin=({}, {}), size=({}, {})",
                                         bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
                                     log::debug!("GOAL EVENT DEBUG: Relative x={} (absolute {} - bounds.x {} - padding 8)", 
@@ -2358,6 +2431,22 @@ impl super::TermWindow {
                                     .as_any_mut()
                                     .downcast_mut::<crate::sidebar::ai_sidebar::AiSidebar>(
                                 ) {
+                                    // Only handle drag if we have a goal selection (active or prepared)
+                                    // This prevents dragging from other components affecting goal
+                                    let is_goal_selection = ai_sidebar.selection_state.active_selection
+                                        .as_ref()
+                                        .map(|s| matches!(s, crate::sidebar::text_selection::SelectionTarget::Goal { .. }))
+                                        .unwrap_or(false)
+                                        || ai_sidebar.selection_state.prepared_selection
+                                        .as_ref()
+                                        .map(|s| matches!(s, crate::sidebar::text_selection::SelectionTarget::Goal { .. }))
+                                        .unwrap_or(false);
+                                    
+                                    if !is_goal_selection {
+                                        // Not a goal selection, don't handle drag here
+                                        return;
+                                    }
+                                    
                                     // Activate selection if not already active
                                     if !ai_sidebar.is_selecting() {
                                         ai_sidebar.activate_prepared_selection();
@@ -2368,7 +2457,7 @@ impl super::TermWindow {
                                     let relative_x = if let Some(bounds) =
                                         ai_sidebar.get_goal_bounds()
                                     {
-                                        let rel_x = x - bounds.origin.x - 8.0; // Subtract padding (matches GOAL_CARD_PADDING in ai_sidebar.rs)
+                                        let rel_x = x - bounds.origin.x - crate::sidebar::sidebar_constants::GOAL_CARD_PADDING;
                                         log::debug!("GOAL EVENT DEBUG (drag): Relative x={} (absolute {} - bounds.x {} - padding 8)", 
                                             rel_x, x, bounds.origin.x);
                                         rel_x
@@ -2389,6 +2478,9 @@ impl super::TermWindow {
                 }
             }
             WMEK::Release(MousePress::Left) => {
+                // Clear the drag state for goal text
+                self.text_selection_drag_active = false;
+                
                 if let Ok(mut mgr) = self.sidebar_manager.try_borrow_mut() {
                     if let Some(sidebar) = mgr.get_right_sidebar() {
                         if let Ok(mut sidebar) = sidebar.lock() {

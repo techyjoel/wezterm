@@ -19,8 +19,11 @@ use super::{Sidebar, SidebarConfig, SidebarFonts, SidebarPosition};
 use crate::color::LinearRgba;
 use crate::sidebar::position_cache::ElementType;
 use crate::sidebar::sidebar_constants::{
-    CARD_BORDER, CARD_CONTENT_PADDING, CHAT_ITEM_BORDER, CHAT_ITEM_BOTTOM_MARGIN,
-    CHAT_ITEM_HORIZONTAL_MARGIN, CHAT_ITEM_PADDING, GOAL_CARD_PADDING, SCROLLBAR_SPACE,
+    CHAT_INPUT_HEIGHT, CARD_BORDER, CARD_CONTENT_PADDING, CARD_CONTENT_VERTICAL_PADDING, 
+    CHAR_WIDTH_ESTIMATE, CHAR_WIDTH_UPPERCASE_MULTIPLIER, CHAT_ITEM_BORDER, 
+    CHAT_ITEM_BOTTOM_MARGIN, CHAT_ITEM_HORIZONTAL_MARGIN, CHAT_ITEM_PADDING, GOAL_CARD_PADDING, 
+    LINE_SPACING_MULTIPLIER, PARAGRAPH_LINE_HEIGHT, DEFAULT_SCROLLBAR_WIDTH, SELECTION_CLICK_TOLERANCE,
+    SUGGESTION_CONTENT_HORIZONTAL_PADDING, SUGGESTION_CONTENT_VERTICAL_PADDING, SIDEBAR_ELEMENT_MARGIN_VERTICAL,
 };
 use crate::termwindow::box_model::{
     BorderColor, BoxDimension, DisplayType, Element, ElementColors, ElementContent, Float,
@@ -30,7 +33,7 @@ use crate::termwindow::render::scrollbar_renderer::{ScrollbarOrientation, Scroll
 use crate::termwindow::UIItemType;
 use anyhow::Result;
 use config::{Dimension, DimensionContext};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::rc::Rc;
@@ -55,8 +58,8 @@ const CARD_DEFAULT_MARGIN: f32 = 8.0; // Default card margin (for commands/sugge
 const SUGGESTION_CHAR_WIDTH_MULTIPLIER: f32 = 0.4; // Try to get close to 2 full lines (but not beyond)
 
 // Selection rendering constants
-const SELECTION_CHAR_WIDTH: f32 = 8.5; // Approximate character width for selection
-const SELECTION_LINE_HEIGHT: f32 = 25.0; // Height of selection rectangle
+// Character width is now defined in sidebar_constants.rs as CHAR_WIDTH_ESTIMATE
+const SELECTION_LINE_HEIGHT_MULTIPLIER: f32 = 1.25; // Multiplier for selection rectangle height
 const SELECTION_VERTICAL_OFFSET: f32 = 4.0; // Offset to align selection with text
 const SELECTION_CURSOR_WIDTH: f32 = 2.0; // Width of cursor for zero-width selection
 
@@ -396,7 +399,7 @@ fn calculate_char_positions(text: &str, font: &Rc<LoadedFont>) -> Vec<(f32, f32,
         // More accurate character width estimation for Roboto proportional font
         let ch_width = if ch.is_ascii_alphabetic() {
             if ch.is_ascii_uppercase() {
-                char_width * 1.2 // Uppercase letters are wider
+                char_width * CHAR_WIDTH_UPPERCASE_MULTIPLIER // Uppercase letters are wider
             } else {
                 char_width // Lowercase letters
             }
@@ -552,6 +555,10 @@ pub struct AiSidebar {
 
     // Goal text character positions for accurate selection
     pub goal_char_positions: Option<Vec<(f32, f32, usize)>>,
+    // Character positions for the current suggestion text (legacy simple positions)
+    pub suggestion_char_positions: Option<Vec<(f32, f32, usize)>>,
+    // Position tree for proper multi-line hit testing in suggestions
+    pub suggestion_position_tree: Option<Arc<crate::sidebar::position_cache::PositionTree>>,
 }
 
 impl AiSidebar {
@@ -747,8 +754,9 @@ impl AiSidebar {
         self.selection_state.active_selection = None;
         self.selection_state.is_dragging = false;
 
-        // Return true if we cleared an existing selection
-        had_selection
+        // Return true if selection state changed (cleared or prepared new selection)
+        // This ensures UI invalidation happens when needed
+        had_selection || self.selection_state.prepared_selection.is_some()
     }
 
     /// Activate the prepared selection (on drag start)
@@ -860,6 +868,8 @@ impl AiSidebar {
             last_viewport_height: None,
             chat_input_bounds: None,
             goal_char_positions: None,
+            suggestion_char_positions: None,
+            suggestion_position_tree: None,
         }
     }
 
@@ -1411,10 +1421,12 @@ impl AiSidebar {
     }
 
     /// Update chat input with exact glyph positions from rendering
-    pub fn set_chat_input_glyph_positions(&mut self, positions: Vec<Vec<(f32, f32, usize)>>) {
+    pub fn set_chat_input_glyph_positions(&mut self, positions: Vec<Vec<(f32, f32, usize)>>, line_height: f32) {
         // Update visual line count based on actual wrapped lines
         self.chat_input.visual_line_count = positions.len();
         self.chat_input.exact_glyph_positions = positions;
+        // Store the actual line height from font metrics
+        self.chat_input.rendered_line_height = Some(line_height);
     }
 
     /// Get the exact glyph positions for chat input
@@ -1705,7 +1717,7 @@ impl AiSidebar {
             if let Some(item) = self.activity_log.get(item_index) {
                 // Only show selection if there's actual text selected
                 if start_byte != end_byte {
-                    let line_height = 20.0; // Approximate line height
+                    let line_height = PARAGRAPH_LINE_HEIGHT; // Default line height
 
                     // Get the message text to estimate selection position
                     let text = get_item_text_for_selection_with_positions(
@@ -1723,7 +1735,7 @@ impl AiSidebar {
                     };
 
                     // For now, use character-based approximation
-                    let char_width = 8.5; // Approximate character width
+                    let char_width = CHAR_WIDTH_ESTIMATE; // Approximate character width
 
                     // Calculate approximate x positions for selection
                     let start_char = text.chars().take(start_byte).count();
@@ -1761,6 +1773,7 @@ impl AiSidebar {
     }
 
     /// Calculate selection rectangles for Suggestion selections
+    // Uses position tree for proper multi-line support
     fn calculate_suggestion_selection_rectangles(
         &self,
         anchor_byte: usize,
@@ -1771,30 +1784,99 @@ impl AiSidebar {
         if let Some(bounds) = &self.suggestion_bounds {
             let start = anchor_byte.min(current_byte);
             let end = anchor_byte.max(current_byte);
+            
             if start != end {
-                if let Some(suggestion) = self.get_current_suggestion() {
-                    // Calculate more accurate selection rectangles
-                    let padding = 8.0; // Suggestion card padding
-                    let char_width = 8.5; // Approximate character width
-                    let line_height = 20.0;
-
-                    // Calculate character positions
-                    let start_char = suggestion.content.chars().take(start).count();
-                    let end_char = suggestion.content.chars().take(end).count();
-
-                    let start_x = bounds.origin.x + padding + (start_char as f32 * char_width);
-                    let end_x = bounds.origin.x + padding + (end_char as f32 * char_width);
-
-                    // Ensure we don't exceed bounds
-                    let max_x = bounds.origin.x + bounds.size.width - padding;
-                    let end_x = end_x.min(max_x);
-
-                    rects.push(euclid::rect(
-                        start_x,
-                        bounds.origin.y + padding,
-                        end_x - start_x,
-                        line_height,
-                    ));
+                // Use position tree for proper multi-line support
+                if let Some(tree) = &self.suggestion_position_tree {
+                    // Collect all positions in the selection range
+                    let selected_positions: Vec<&crate::sidebar::position_cache::TextPosition> = tree.text_positions
+                        .iter()
+                        .filter(|pos| pos.byte_offset >= start && pos.byte_offset < end)
+                        .collect();
+                    
+                    if selected_positions.is_empty() {
+                        return rects;
+                    }
+                    
+                    // Group positions by Y coordinate (line)
+                    let mut lines: std::collections::BTreeMap<i32, Vec<&crate::sidebar::position_cache::TextPosition>> = 
+                        std::collections::BTreeMap::new();
+                    for pos in &selected_positions {
+                        lines.entry(pos.y as i32).or_insert_with(Vec::new).push(pos);
+                    }
+                    
+                    // Store Y positions before consuming lines
+                    let y_positions: Vec<i32> = lines.keys().copied().collect();
+                    let num_lines = lines.len();
+                    
+                    // Create rectangles for each line
+                    for (y_pos, line_positions) in lines {
+                        if line_positions.is_empty() {
+                            continue;
+                        }
+                        
+                        // Find min and max X for this line
+                        let min_x = line_positions.iter().map(|p| p.x_start).min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)).unwrap_or(0.0);
+                        let max_x = line_positions.iter().map(|p| p.x_end).max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)).unwrap_or(0.0);
+                        
+                        // The position tree coordinates include extra padding (text at 16,16 instead of 8,8)
+                        // But visually the text is at the expected position, so use coordinates as-is
+                        let rect_y = bounds.origin.y + y_pos as f32;
+                        let rect_x = bounds.origin.x + min_x;
+                        let rect_width = max_x - min_x;
+                        
+                        // Calculate the actual line height from the position tree
+                        // Try to get the actual line spacing from Y positions if available
+                        let rect_height = if y_positions.len() >= 2 {
+                            // Multiple Y positions - calculate from actual spacing
+                            (y_positions[1] - y_positions[0]) as f32
+                        } else {
+                            // Single line selection - try to infer line height from the tree
+                            // If the tree has positions at different Y values (even if we're only selecting one line),
+                            // we can still calculate the line spacing
+                            let all_y_positions: std::collections::HashSet<i32> = tree.text_positions
+                                .iter()
+                                .map(|p| p.y as i32)
+                                .collect();
+                            let mut sorted_y: Vec<i32> = all_y_positions.into_iter().collect();
+                            sorted_y.sort();
+                            
+                            if sorted_y.len() >= 2 {
+                                // Use the actual spacing between lines in the tree
+                                (sorted_y[1] - sorted_y[0]) as f32
+                            } else {
+                                // Truly single line text - use standard line height with spacing
+                                PARAGRAPH_LINE_HEIGHT * LINE_SPACING_MULTIPLIER
+                            }
+                        };
+                        
+                        let rect = euclid::rect(rect_x, rect_y, rect_width, rect_height);
+                        rects.push(rect);
+                    }
+                } else {
+                    // Fallback to estimation if position tree not available
+                    // This should rarely be used since we have position trees
+                    // Now the UIItem includes 8px container padding
+                    let container_padding = 8.0;
+                    let horizontal_padding = container_padding;
+                    let vertical_padding = container_padding;
+                    let char_width = CHAR_WIDTH_ESTIMATE;
+                    let line_height = PARAGRAPH_LINE_HEIGHT * LINE_SPACING_MULTIPLIER; // Line height with spacing
+                    
+                    if let Some(suggestion) = self.get_current_suggestion() {
+                        let start_char = suggestion.content.chars().take(start).count();
+                        let end_char = suggestion.content.chars().take(end).count();
+                        
+                        let start_x = bounds.origin.x + horizontal_padding + (start_char as f32 * char_width);
+                        let end_x = bounds.origin.x + horizontal_padding + (end_char as f32 * char_width);
+                        
+                        rects.push(euclid::rect(
+                            start_x,
+                            bounds.origin.y + vertical_padding,
+                            end_x.min(bounds.origin.x + bounds.size.width - horizontal_padding) - start_x,
+                            line_height,
+                        ));
+                    }
                 }
             }
         }
@@ -1858,10 +1940,10 @@ impl AiSidebar {
 
                         let start_x = bounds.origin.x
                             + GOAL_CARD_PADDING
-                            + (start_char as f32 * SELECTION_CHAR_WIDTH);
+                            + (start_char as f32 * CHAR_WIDTH_ESTIMATE);
                         let end_x = bounds.origin.x
                             + GOAL_CARD_PADDING
-                            + (end_char as f32 * SELECTION_CHAR_WIDTH);
+                            + (end_char as f32 * CHAR_WIDTH_ESTIMATE);
 
                         (start_x, end_x)
                     };
@@ -1881,7 +1963,7 @@ impl AiSidebar {
                         start_x,
                         bounds.origin.y + GOAL_CARD_PADDING + SELECTION_VERTICAL_OFFSET,
                         width,
-                        SELECTION_LINE_HEIGHT,
+                        PARAGRAPH_LINE_HEIGHT * SELECTION_LINE_HEIGHT_MULTIPLIER,
                     );
 
                     // log::debug!("SELECTION DEBUG: Creating goal rectangle at x={:.1}, y={:.1}, w={:.1}, h={:.1}",
@@ -1919,8 +2001,10 @@ impl AiSidebar {
                 let start_line = anchor_line.min(current_line);
                 let end_line = anchor_line.max(current_line);
 
-                let line_height = 20.0; // TODO: Get from font metrics
-                let line_height_with_spacing = line_height * 1.1;
+                // Use the line height that was stored during rendering
+                let line_height = self.chat_input.rendered_line_height
+                    .unwrap_or(PARAGRAPH_LINE_HEIGHT); // Fallback if not yet rendered
+                let line_height_with_spacing = line_height * LINE_SPACING_MULTIPLIER;
 
                 // Account for padding and border
                 let text_padding = 8.0;
@@ -2128,6 +2212,80 @@ impl AiSidebar {
     pub fn store_goal_positions(&mut self, positions: Vec<(f32, f32, usize)>) {
         self.goal_char_positions = Some(positions);
     }
+    
+    /// Store extracted character positions for suggestion text
+    pub fn store_suggestion_positions(&mut self, positions: Vec<(f32, f32, usize)>) {
+        self.suggestion_char_positions = Some(positions);
+    }
+    
+    /// Store the position tree for multi-line suggestion selection
+    pub fn store_suggestion_position_tree(&mut self, tree: Arc<crate::sidebar::position_cache::PositionTree>) {
+        self.suggestion_position_tree = Some(tree);
+    }
+    
+    /// Hit test suggestion text at the given coordinates
+    pub fn hit_test_suggestion(&self, x: f32, y: f32) -> Option<usize> {
+        if let Some(tree) = &self.suggestion_position_tree {
+            
+            // With the double padding bug fixed, position tree should now have text at (8, 8)
+            // No adjustment needed - coordinates should align properly
+            let adjusted_x = x;
+            let adjusted_y = y;
+            
+            
+            // The coordinates should now be relative to the suggestion text content area
+            let point = crate::sidebar::position_cache::ItemCoord(
+                euclid::Point2D::new(adjusted_x, adjusted_y)
+            );
+            
+            // Check if the point is within bounds after adjustment
+            if !tree.bounds.contains(point.0) {
+                log::debug!("Point ({}, {}) not within tree bounds {:?} after adjustment", x, adjusted_y, tree.bounds);
+                
+                // If we're close to the bounds, snap to the nearest edge
+                // This allows starting selection from padding area
+                let tolerance = SELECTION_CLICK_TOLERANCE;
+                
+                if adjusted_x < tree.bounds.min_x() && adjusted_x >= tree.bounds.min_x() - tolerance {
+                    // Click is to the left of text but within tolerance - snap to start
+                    return Some(0);
+                } else if adjusted_x > tree.bounds.max_x() && adjusted_x <= tree.bounds.max_x() + tolerance {
+                    // Click is to the right of text but within tolerance - snap to end
+                    if let Some(last) = tree.text_positions.last() {
+                        return Some(last.byte_offset + 1);
+                    }
+                }
+                // Still outside tolerance - fall through to regular hit test which will fail
+            }
+            
+            // Use the same hit testing logic as activity items
+            // This properly handles multi-line text with line-aware hit testing
+            if let Some(position) = self.hit_test_item(tree, point) {
+                log::debug!("Suggestion hit test found byte offset {} at ({}, {})", 
+                    position.byte_offset, x, adjusted_y);
+                return Some(position.byte_offset);
+            } else {
+                log::debug!("Suggestion hit test failed to find position at ({}, {})", x, adjusted_y);
+                
+                // As a fallback, if we're within Y bounds, handle clicks before/after text
+                if adjusted_y >= tree.bounds.min_y() && adjusted_y <= tree.bounds.max_y() {
+                    if adjusted_x < tree.bounds.min_x() {
+                        // Click before text - return start position
+                        return Some(0);
+                    } else if adjusted_x > tree.bounds.max_x() {
+                        // Click after text - return end position
+                        if let Some(last) = tree.text_positions.last() {
+                            return Some(last.byte_offset + 1);
+                        }
+                    }
+                }
+            }
+        } else {
+            log::debug!("No suggestion position tree available for hit testing");
+        }
+        
+        None  // No fallback - require proper position tree for multi-line support
+    }
 
     /// Get the stored goal character positions
     pub fn get_goal_positions(&self) -> Option<&Vec<(f32, f32, usize)>> {
@@ -2222,7 +2380,7 @@ impl AiSidebar {
 
         // The activity log height is the bounds height
         let available_for_log = bounds.size.height;
-        let available_width = bounds.size.width;
+        let available_width = bounds.size.width - DEFAULT_SCROLLBAR_WIDTH;
 
         // Render the activity log content
         let activity_log = ActivityLogRenderer::render_activity_log(
@@ -2244,10 +2402,10 @@ impl AiSidebar {
         let container = Element::new(&fonts.body, ElementContent::Children(vec![activity_log]))
             .display(DisplayType::Block)
             .colors(ElementColors {
-                bg: LinearRgba::with_components(0.03, 0.03, 0.035, 1.0).into(), // Slightly lighter than sidebar
+                bg: LinearRgba::with_components(0.04, 0.04, 0.045, 1.0).into(), // Slightly lighter than sidebar
                 ..Default::default()
             })
-            .min_width(Some(Dimension::Pixels(bounds.size.width)))
+            .min_width(Some(Dimension::Pixels(available_width)))
             .min_height(Some(Dimension::Pixels(bounds.size.height)))
             .item_type(UIItemType::ActivityLogBackground);
 
@@ -2288,9 +2446,8 @@ impl AiSidebar {
         // Total height = sum of all components
         // We already have: header + status + filters + goal + suggestion = bounds.origin.y
         // We need: spacer + chat_input = window_height - bounds.origin.y
-        // Chat input needs: 2 lines (~60px) + padding (16px top + 16px bottom) + some margin
-        let chat_input_height = 120.0; // Increased to properly show 2 lines with padding
-        let spacer_height = (window_height - bounds.origin.y - chat_input_height).max(0.0);
+        let chat_input_height = CHAT_INPUT_HEIGHT; 
+        let spacer_height = (window_height - bounds.origin.y + SIDEBAR_ELEMENT_MARGIN_VERTICAL - chat_input_height).max(0.0);
 
         log::debug!(
             "Sidebar layout: window_height={}, content_above_log={}, spacer_height={}, chat_height={}",
@@ -2430,23 +2587,23 @@ impl AiSidebar {
 
         // Add goal card height if present
         if self.current_goal.is_some() {
-            top += 201.0;
+            top += (140.0 + SIDEBAR_ELEMENT_MARGIN_VERTICAL);
         }
 
         // Add suggestion card height if present
         if self.current_suggestion.is_some() {
             // Setting to match visual observation
-            top += 201.0;
+            top += (210.0 + SIDEBAR_ELEMENT_MARGIN_VERTICAL);
         }
 
         // Add padding between last card and activity log for visual separation
-        top += 10.0; // Increased for better visual separation
+        top += SIDEBAR_ELEMENT_MARGIN_VERTICAL; // Increased for better visual separation
 
         // Bottom calculation
         // Leave space for chat input at the bottom
-        let bottom = window_height - 120.0; // Match chat_input_height in render_content
+        let bottom = window_height - CHAT_INPUT_HEIGHT - SIDEBAR_ELEMENT_MARGIN_VERTICAL;
         let left = 16.0; // Padding
-        let right = self.width as f32 - 16.0; // Right padding for scrollbar
+        let right = self.width as f32 - DEFAULT_SCROLLBAR_WIDTH; // Right spacing for scrollbar
 
         log::debug!(
             "Activity log bounds: top={}, bottom={}, left={}, right={}, height={}",
@@ -2601,10 +2758,9 @@ impl Sidebar for AiSidebar {
         // (not just when focused, to provide visual feedback)
         let chat_input_scrollbar = {
             // Calculate using actual font metrics
-            // The logs show line_height is 20px, with 1.1x multiplier = 22px
-            let line_height = 20.0;
-            // TODO: Extract line spacing multiplier (1.1) to a constant - used throughout codebase
-            let line_height_with_spacing = line_height * 1.1;
+            // The logs show line_height is 20px, with LINE_SPACING_MULTIPLIER = 22px
+            let line_height = PARAGRAPH_LINE_HEIGHT;
+            let line_height_with_spacing = line_height * LINE_SPACING_MULTIPLIER;
             let viewport_height = self.chat_input.display_lines as f32 * line_height_with_spacing;
 
             // Use visual line count if available (from text wrapping), otherwise fall back to logical lines
@@ -2896,7 +3052,46 @@ impl AiSidebar {
                             // which calls update_activity_log_selection_drag
                         }
                         SelectionTarget::Suggestion { .. } => {
-                            // TODO: Handle suggestion drag
+                            // Handle suggestion text drag - track mouse even outside bounds
+                            if let Some(bounds) = self.suggestion_bounds {
+                                // Calculate relative coordinates within the suggestion text
+                                let relative_x = event.coords.x as f32 - bounds.origin.x;
+                                let relative_y = event.coords.y as f32 - bounds.origin.y;
+                                
+                                // Clamp coordinates to reasonable values when outside bounds
+                                // This allows dragging beyond the text to select to start/end
+                                let clamped_x = if relative_x < 0.0 {
+                                    0.0 // Dragging left of text - select to start
+                                } else if relative_x > bounds.size.width {
+                                    bounds.size.width // Dragging right of text - select to end
+                                } else {
+                                    relative_x
+                                };
+                                
+                                let clamped_y = if relative_y < 0.0 {
+                                    0.0 // Dragging above text
+                                } else if relative_y > bounds.size.height {
+                                    bounds.size.height // Dragging below text
+                                } else {
+                                    relative_y
+                                };
+                                
+                                // Use the same hit testing as the Press event - with both X and Y
+                                let current_byte = self.hit_test_suggestion(clamped_x, clamped_y)
+                                    .unwrap_or_else(|| {
+                                        // If hit test fails, determine based on position
+                                        if clamped_x <= 0.0 {
+                                            0 // Start of text
+                                        } else if let Some(suggestion) = &self.current_suggestion {
+                                            suggestion.content.len() // End of text
+                                        } else {
+                                            0
+                                        }
+                                    });
+                                
+                                self.update_selection_drag(current_byte);
+                                return Ok(true); // Event handled
+                            }
                         }
                         SelectionTarget::ChatInput { .. } => {
                             // Chat input has its own handling
@@ -2943,7 +3138,7 @@ impl AiSidebar {
 
             // Check if we have a scrollbar renderer to get scroll metrics
             if let Some(renderer) = &self.activity_log_state.activity_log_scrollbar_renderer {
-                let scroll_speed = 20.0; // Pixels per scroll step (roughly 1 line)
+                let scroll_speed = PARAGRAPH_LINE_HEIGHT; // Pixels per scroll step (roughly 1 line)
                 let scroll_amount = scroll_speed * (*amount as f32).abs();
 
                 let old_offset = self.activity_log_state.activity_log_scroll_offset;
@@ -3132,7 +3327,7 @@ impl AiSidebar {
         // Only position cursor if click is within the text area
         if adjusted_x >= 0.0 && adjusted_y >= 0.0 {
             // Use actual line height with spacing
-            let line_height_with_spacing = 20.0 * 1.1; // 22px as shown in logs
+            let line_height_with_spacing = PARAGRAPH_LINE_HEIGHT * LINE_SPACING_MULTIPLIER;
 
             // Calculate which line was clicked (accounting for scroll offset)
             let clicked_line = ((adjusted_y + self.chat_input.scroll_pixel_offset)
@@ -3302,15 +3497,13 @@ impl AiSidebar {
     pub fn handle_chat_input_wheel_simple(&mut self, amount: i16) -> bool {
         // Convert wheel amount to pixel delta
         // Negative amount means scroll up, positive means scroll down
-        let line_height = 20.0 * 1.1; // Estimated line height with rendering multiplier
+        let line_height = PARAGRAPH_LINE_HEIGHT * LINE_SPACING_MULTIPLIER; // Line height with spacing
         let delta = amount as f32 * 3.0; // Multiply for smoother scrolling
         ChatInputHandler::handle_wheel_scroll(&mut self.chat_input, delta, line_height)
     }
 
     /// Handle copy operation (Ctrl+C / Cmd+C)
     pub fn handle_copy(&mut self, window: &dyn window::WindowOps) -> bool {
-        println!("🔔🔔🔔 handle_copy called!");
-        eprintln!("🔔🔔🔔 handle_copy called!");
         // Check if chat input has focus and selection
         if self.chat_input.focused {
             if let Some(text) = self.chat_input.get_selected_text() {
@@ -3320,38 +3513,11 @@ impl AiSidebar {
         }
 
         // Check sidebar selection state
-        eprintln!(
-            "🔔 COPY: Checking selection state, item_positions.len()={}",
-            self.item_positions.len()
-        );
         if let Some(text) = self.selection_state.get_selected_text(self) {
-            eprintln!(
-                "🔔 COPY: Got text: {} chars, preview: '{}'",
-                text.len(),
-                &text.chars().take(50).collect::<String>()
-            );
             window.set_clipboard(window::Clipboard::Clipboard, text);
             return true;
         }
-        eprintln!("🔔 COPY: No selection text found");
-
         false
-    }
-
-    /// Get the vertical spacing (padding + margin + border) for an activity item
-    fn get_activity_item_spacing(item: &ActivityItem) -> f32 {
-        match item {
-            ActivityItem::Chat { .. } => {
-                // Top padding + bottom padding + bottom margin + top border + bottom border
-                CHAT_ITEM_PADDING * 2.0 + CHAT_ITEM_BOTTOM_MARGIN + CHAT_ITEM_BORDER * 2.0
-            }
-            ActivityItem::Command { .. }
-            | ActivityItem::Suggestion { .. }
-            | ActivityItem::Goal { .. } => {
-                // Cards have default margin on all sides but we only count vertical
-                CARD_DEFAULT_MARGIN * 2.0 // Top and bottom margin
-            }
-        }
     }
 
     /// Check if any animations need frame updates
@@ -3364,48 +3530,6 @@ impl AiSidebar {
     /// Get a mutable reference to the modal manager for animation updates
     pub fn modal_manager_mut(&mut self) -> &mut ModalManager {
         &mut self.modal_manager
-    }
-
-    /// Get the height of an activity item (cached or estimated)
-    fn get_activity_item_height(
-        &self,
-        item: &ActivityItem,
-        line_height: f32,
-        available_width: f32,
-    ) -> f32 {
-        let id = match item {
-            ActivityItem::Command { id, .. } => id.clone(),
-            ActivityItem::Chat { id, .. } => id.clone(),
-            ActivityItem::Suggestion { id, .. } => id.clone(),
-            ActivityItem::Goal { id, .. } => id.clone(),
-        };
-
-        if let Some(cached_height) = self.activity_log_state.activity_log_height_cache.get(&id) {
-            let estimated = estimate_activity_item_height(item, line_height, available_width);
-            if (cached_height - estimated).abs() > 100.0 {
-                log::info!(
-                    "[VSCROLL] Large height difference for {}: cached={:.0} vs estimated={:.0} (delta={:.0})",
-                    id, cached_height, estimated, cached_height - estimated
-                );
-            }
-            *cached_height
-        } else {
-            estimate_activity_item_height(item, line_height, available_width)
-        }
-    }
-
-    /// Calculate total content height
-    fn calculate_total_activity_log_height(
-        &self,
-        filtered_items: &[(usize, &ActivityItem)],
-        line_height: f32,
-        available_width: f32,
-    ) -> f32 {
-        filtered_items
-            .iter()
-            .map(|(_, item)| self.get_activity_item_height(item, line_height, available_width))
-            .sum::<f32>()
-        // Removed +20px hack - virtual scrolling with accurate height caching handles this correctly
     }
 
     /// Check if the activity log was at the bottom before an update
@@ -3802,253 +3926,6 @@ impl AiSidebar {
 
         // Traverse the element tree and process activity items
         self.traverse_and_process_activity_items(activity_log_computed, viewport_height);
-
-        // STICKY BOTTOM DISABLED - This feature was causing scroll jumps because:
-        // 1. It uses hardcoded line_height (20.0) vs actual font metrics
-        // 2. It recalculates total height with different parameters than render_activity_log
-        // 3. This causes massive jumps (3000+ pixels) when heights don't match
-        // 4. It doesn't have access to proper font metrics to calculate correctly
-        /*
-        // Handle sticky bottom
-        if sticky_bottom_needed {
-                    let viewport_height = self.activity_log_state.activity_log_scrollbar
-                        .as_ref()
-                        .map(|s| s.viewport_height)
-                        .unwrap_or(400.0);
-
-                    // Recalculate filtered items for total height
-                    let filtered_items: Vec<(usize, &ActivityItem)> = self
-                        .activity_log
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, item)| match self.activity_filter {
-                            ActivityFilter::All => true,
-                            ActivityFilter::Commands => matches!(item, ActivityItem::Command { .. }),
-                            ActivityFilter::Chat => matches!(item, ActivityItem::Chat { .. }),
-                            ActivityFilter::Suggestions => matches!(item, ActivityItem::Suggestion { .. }),
-                        })
-                        .collect();
-
-                    // CRITICAL: These values MUST match what's used in render_activity_log!
-                    let line_height = 20.0; // This might not match the actual line height!
-                    let available_width = self.activity_log_last_width.unwrap_or(300.0);
-
-                    log::debug!(
-                        "[VSCROLL] Sticky bottom params: line_height={:.0}, width={:.0}, items={}",
-                        line_height, available_width, filtered_items.len()
-                    );
-
-                    let new_total_height = self.calculate_total_activity_log_height(
-                        &filtered_items,
-                        line_height,
-                        available_width
-                    );
-
-                    let new_max_scroll = (new_total_height - viewport_height).max(0.0);
-            if (self.activity_log_state.activity_log_scroll_offset - new_max_scroll).abs() > 1.0 {
-                log::warn!(
-                    "[VSCROLL] STICKY BOTTOM JUMP: scroll {} -> {} (total_height={:.0}, viewport={:.0})",
-                    self.activity_log_state.activity_log_scroll_offset, new_max_scroll, new_total_height, viewport_height
-                );
-                self.activity_log_state.activity_log_scroll_offset = new_max_scroll;
-            }
-        }
-        */
     }
 }
 
-// Static helper functions for virtual scrolling
-
-/// Render an activity item (static version for use in closures)
-fn render_activity_item_static(
-    item: &ActivityItem,
-    fonts: &SidebarFonts,
-    idx: usize,
-    palette: &wezterm_term::color::ColorPalette,
-) -> Element {
-    // This is a static version of render_activity_item that doesn't need &mut self
-    match item {
-        ActivityItem::Command {
-            command,
-            status,
-            output,
-            expanded,
-            ..
-        } => {
-            let status_icon = match status {
-                CommandStatus::Running => "▶",
-                CommandStatus::Success => "✓",
-                CommandStatus::Failed(_) => "✗",
-            };
-
-            let status_color = match status {
-                CommandStatus::Running => LinearRgba::with_components(1.0, 1.0, 0.0, 1.0),
-                CommandStatus::Success => LinearRgba::with_components(0.0, 1.0, 0.0, 1.0),
-                CommandStatus::Failed(_) => LinearRgba::with_components(1.0, 0.0, 0.0, 1.0),
-            };
-
-            let mut children = vec![Element::new(
-                &fonts.body,
-                ElementContent::Text(format!("{} $ {}", status_icon, command)),
-            )
-            .colors(ElementColors {
-                text: status_color.into(),
-                ..Default::default()
-            })
-            .display(DisplayType::Block)];
-
-            if *expanded {
-                if let Some(output) = output {
-                    children.push(
-                        Element::new(&fonts.body, ElementContent::WrappedText(output.clone()))
-                            .colors(ElementColors {
-                                text: LinearRgba::with_components(0.7, 0.7, 0.7, 1.0).into(),
-                                ..Default::default()
-                            })
-                            .padding(BoxDimension {
-                                left: Dimension::Pixels(16.0),
-                                ..Default::default()
-                            })
-                            .display(DisplayType::Block),
-                    );
-                }
-            }
-
-            Element::new(&fonts.body, ElementContent::Children(children))
-                .display(DisplayType::Block)
-                .padding(BoxDimension::new(Dimension::Pixels(8.0)))
-        }
-        ActivityItem::Chat {
-            message, is_user, ..
-        } => {
-            if *is_user {
-                Element::new(&fonts.body, ElementContent::WrappedText(message.clone()))
-                    .colors(ElementColors {
-                        text: LinearRgba::with_components(0.9, 0.9, 0.9, 1.0).into(),
-                        bg: LinearRgba::with_components(0.2, 0.2, 0.3, 0.3).into(),
-                        ..Default::default()
-                    })
-                    .padding(BoxDimension::new(Dimension::Pixels(8.0)))
-                    .display(DisplayType::Block)
-                    .margin(BoxDimension {
-                        left: Dimension::Pixels(40.0),
-                        right: Dimension::Pixels(8.0),
-                        top: Dimension::Pixels(4.0),
-                        bottom: Dimension::Pixels(4.0),
-                    })
-            } else {
-                // AI messages - render with markdown
-                MarkdownRenderer::render_with_fonts(
-                    message, fonts, None, // max_width
-                    None, // registry
-                    None, // context
-                    None, // palette - not available in this helper
-                )
-                .padding(BoxDimension::new(Dimension::Pixels(8.0)))
-                .display(DisplayType::Block)
-                .margin(BoxDimension {
-                    left: Dimension::Pixels(8.0),
-                    right: Dimension::Pixels(40.0),
-                    top: Dimension::Pixels(4.0),
-                    bottom: Dimension::Pixels(4.0),
-                })
-            }
-        }
-        ActivityItem::Suggestion { title, content, .. } => {
-            MarkdownRenderer::render_with_fonts(
-                &format!("**{}**\n\n{}", title, content),
-                fonts,
-                None, // max_width
-                None, // registry
-                None, // context
-                None, // palette - not available in this helper
-            )
-            .padding(BoxDimension::new(Dimension::Pixels(8.0)))
-        }
-        ActivityItem::Goal { text, .. } => Element::new(
-            &fonts.body,
-            ElementContent::WrappedText(format!("Goal: {}", text)),
-        )
-        .colors(ElementColors {
-            text: LinearRgba::with_components(0.8, 0.8, 0.8, 1.0).into(),
-            ..Default::default()
-        })
-        .padding(BoxDimension::new(Dimension::Pixels(8.0))),
-    }
-}
-
-/// Estimate the height of an activity item
-fn estimate_activity_item_height(
-    item: &ActivityItem,
-    line_height: f32,
-    available_width: f32,
-) -> f32 {
-    // Get the correct spacing for this item type
-    let spacing = AiSidebar::get_activity_item_spacing(item);
-
-    match item {
-        ActivityItem::Command {
-            output, expanded, ..
-        } => {
-            // Command line height + spacing
-            let mut height = line_height + spacing;
-
-            // Add output height if expanded
-            if *expanded {
-                if let Some(output) = output {
-                    let lines = output.lines().count() as f32;
-                    height += lines * line_height + 16.0; // Extra padding for output
-                }
-            }
-
-            height
-        }
-        ActivityItem::Chat {
-            message, is_user, ..
-        } => {
-            // Estimate wrapped text height
-            let horizontal_margin = CHAT_ITEM_HORIZONTAL_MARGIN; // Only one side has margin
-            let horizontal_padding = CHAT_ITEM_PADDING * 2.0; // Left + right padding
-            let border_width = CHAT_ITEM_BORDER * 2.0; // Left + right border
-            let effective_width =
-                available_width - horizontal_margin - horizontal_padding - border_width;
-            let avg_char_width = line_height * 0.6; // Approximate
-
-            let lines = crate::termwindow::box_model::estimate_wrapped_lines(
-                message,
-                effective_width,
-                avg_char_width,
-            );
-
-            lines * line_height + spacing
-        }
-        ActivityItem::Suggestion { content, .. } => {
-            // Suggestions can be quite long with markdown
-            let effective_width = available_width - spacing;
-            let avg_char_width = line_height * 0.6;
-
-            let lines = crate::termwindow::box_model::estimate_wrapped_lines(
-                content,
-                effective_width,
-                avg_char_width,
-            );
-
-            // Add extra for markdown formatting overhead
-            lines * line_height * 1.2 + spacing
-        }
-        ActivityItem::Goal { text, .. } => {
-            // Simple text with "Goal: " prefix
-            let effective_width = available_width - spacing;
-            let avg_char_width = line_height * 0.6;
-            let full_text = format!("Goal: {}", text);
-
-            let lines = crate::termwindow::box_model::estimate_wrapped_lines(
-                &full_text,
-                effective_width,
-                avg_char_width,
-            );
-
-            lines * line_height + spacing
-        }
-    }
-}

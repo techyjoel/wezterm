@@ -162,7 +162,10 @@ pub fn render_current_suggestion(
 
     let mut content_elements = vec![];
 
-    if needs_more_link {
+    // Calculate available width for suggestion text
+    let suggestion_content_width = sidebar_width - 40.0; // Account for padding
+
+    let text_element = if needs_more_link {
         // Truncate to fit within 2 lines using shared function
         let font_metrics = fonts.body.metrics();
         let avg_char_width =
@@ -179,43 +182,20 @@ pub fn render_current_suggestion(
         // Add ellipsis
         let display_text = format!("{}...", truncated_text);
 
-        // Use plain text for truncated content
-        content_elements.push(
-            Element::new(&fonts.body, ElementContent::WrappedText(display_text))
-                .colors(ElementColors {
-                    text: LinearRgba(0.9, 0.9, 0.9, 1.0).into(),
-                    ..Default::default()
-                })
-                .display(DisplayType::Block)
-                .min_height(Some(Dimension::Pixels(
-                    2.0 * fonts.body.metrics().cell_height.get() as f32,
-                ))), // Fixed height for 2 lines
-        );
+        // Create element with truncated text
+        Element::new(&fonts.body, ElementContent::WrappedText(display_text))
     } else {
-        // Check if this suggestion has a selection
-        let selection = match &selection_state.active_selection {
-            Some(SelectionTarget::Suggestion {
-                anchor_byte,
-                current_byte,
-            }) => Some((
-                *anchor_byte.min(current_byte),
-                *anchor_byte.max(current_byte),
-            )),
-            _ => None,
-        };
-
-        // For short content, still use fixed height
-        // Selection is now rendered as an overlay, not inline styles
-        let elem = Element::new(
+        // Create element with full text
+        Element::new(
             &fonts.body,
             ElementContent::WrappedText(suggestion.content.clone()),
-        );
+        )
+    };
 
-        // Calculate available width for suggestion text
-        let suggestion_content_width = sidebar_width - 40.0; // Account for padding
-
-        content_elements.push(
-            elem.item_type(UIItemType::SuggestionText {
+    // Apply UIItemType and padding directly to text element (like goal card)
+    content_elements.push(
+        text_element
+            .item_type(UIItemType::SuggestionText {
                 char_positions: Vec::new(), // Position data extracted after rendering
             })
             .colors(ElementColors {
@@ -224,16 +204,13 @@ pub fn render_current_suggestion(
             })
             .display(DisplayType::Block)
             .max_width(Some(Dimension::Pixels(suggestion_content_width)))
-            .min_height(Some(Dimension::Pixels(
-                2.0 * fonts.body.metrics().cell_height.get() as f32,
-            ))), // Fixed height for 2 lines
-        );
-    }
+            .padding(BoxDimension::new(Dimension::Pixels(8.0))), // Add padding like goal card
+    );
 
+    // Simple container without UIItemType
     let content_container =
         Element::new(&fonts.body, ElementContent::Children(content_elements))
-            .display(DisplayType::Block)
-            .padding(BoxDimension::new(Dimension::Pixels(8.0)));
+            .display(DisplayType::Block);
 
     let mut actions = vec![];
 
@@ -295,6 +272,7 @@ pub fn render_current_suggestion(
         .with_title(suggestion.title.clone())
         .with_content(vec![content_container])
         .with_actions(actions)
+        .pass_through_events(true) // Allow child UIItemTypes (SuggestionText) to be detected
         .render(&fonts.heading);
 
     Some(

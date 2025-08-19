@@ -1029,24 +1029,19 @@ All compilation errors resolved. The codebase compiles cleanly with only warning
 
 3. **Mega-Function Refactoring Approach**: Used mechanical code movement rather than rewriting, which preserved all edge cases and fixes
 
-## Suggested Next Steps for Future Sessions
+## Next Steps and Implementation Plans for Future Sessions
 
-### Priority 1: Testing and Validation
+### Priority 2: Clean Up Backup Files
 
-1. **Test current refactoring thoroughly**:
-   - Verify goal/suggestion rendering works correctly
-   - Test all mouse event handlers (modal, selection, scroll, scrollbar)
-   - Confirm selection calculations still work properly
-   - Check that code compiles in release mode
+**Clean up any remaining backup files** (after testing confirms everything works):
+- Session 9 backups: Any new `.bak` files created
+- Session 6 backups: `ai_sidebar.rs.bak9`, `.bak10`, `.before_height_cache_refactor`
+- Previous session backups: `.bak`, `.bak2`, `.bak3`, `.bak4`, `.bak5`, `.bak6`, `.bak7`, `.bak8`
+- Other backups: `ai_sidebar.rs.backup`, `.before_chat_input`
+- Helper files: `activity_log_positions.rs.backup`, `.bak`
+- Temporary files: `activity_log_positions_refactored.rs`, `activity_log_positions_helpers.rs`
 
-2. **Clean up backup files** (after testing confirms everything works):
-   - Session 6 backups: `ai_sidebar.rs.bak9`, `.bak10`, `.before_height_cache_refactor`
-   - Previous session backups: `.bak`, `.bak2`, `.bak3`, `.bak4`, `.bak5`, `.bak6`, `.bak7`, `.bak8`
-   - Other backups: `ai_sidebar.rs.backup`, `.before_chat_input`
-   - Helper files: `activity_log_positions.rs.backup`, `.bak`
-   - Temporary files: `activity_log_positions_refactored.rs`, `activity_log_positions_helpers.rs`
-
-### Priority 2: Continue File Size Reduction
+### Priority 3: Continue File Size Reduction
 
 **Current Status**: ai_sidebar.rs at 4,054 lines (target: ~1,500 lines)
 
@@ -1059,35 +1054,25 @@ All compilation errors resolved. The codebase compiles cleanly with only warning
    - `calculate_chat_input_selection_rectangles` (156 lines) - acceptable size
    - Other large functions already refactored
 
-### Priority 3: Remaining MUST Refactors
-
-1. **Refactor `render_markdown`** (477 lines in components/markdown.rs)
-   - Break into parsing, element building, and syntax highlighting
-   - Follow pattern from REFACTORING.md lines 385-494
-
-2. **Split `mouse_event_terminal`** (418 lines in termwindow/mouseevent.rs)
-   - Break into event type handlers
-   - Follow pattern from REFACTORING.md lines 500-573
-
 ### Priority 4: High Priority Module Organization
 
 1. **Modularize `box_model.rs`** (3800 lines!)
    - **Critical**: `shape_line_with_styles` alone is ~1310 lines
    - Split into layout.rs, wrapping.rs, shaping.rs modules
-   - See REFACTORING.md lines 575-615 for detailed plan
+   - See earlier in document for detailed plan
 
 2. **Split `termwindow/mod.rs`** (3948 lines)
    - Separate event handling, state management, rendering coordination
-   - See REFACTORING.md lines 616-629
+   - See earlier in document for detailed plan
 
 ### Priority 5: Code Quality Improvements
 
 1. **Performance optimizations**:
-   - Implement dirty tracking (REFACTORING.md lines 634-664)
-   - Add position tree caching
+   - Implement dirty tracking for position caches
+   - Add position tree caching for unchanged content
 
 2. **Consolidate remaining constants**:
-   - Review for magic numbers
+   - Review for any remaining magic numbers
    - Add to sidebar_constants.rs
 
 3. **Add comprehensive testing**:
@@ -1385,6 +1370,181 @@ All compilation errors resolved. The codebase compiles cleanly with only warning
 - Helper methods properly placed in non-trait impl block to avoid trait pollution
 
 
+### Session 7 - Text Selection Enhancement for Suggestion Cards
+
+**Key Accomplishments**:
+
+1. **Enhanced Text Selection for Suggestion Cards** ✅
+   - Added proper position tracking: `suggestion_char_positions` field and storage methods
+   - Implemented `extract_suggestion_text_positions()` function using exact same pattern as goal text
+   - Fixed UIItemType assignment for truncated suggestions (>2 lines now get proper mouse events)
+   - Added `pass_through_events(true)` to suggestion Card to allow child UIItemType detection
+
+2. **Fixed Critical Mouse Event Bugs** ✅
+   - **Bug 1**: Suggestion text Move handler was using `get_goal_bounds()` instead of suggestion bounds
+   - **Bug 2**: Truncated suggestions (>2 lines) weren't getting UIItemType assignment
+   - **Solution**: Fixed coordinate transformation and ensured all suggestions get UIItemType
+
+3. **Improved Selection Rectangle Calculation** ✅
+   - Rewrote `calculate_suggestion_selection_rectangles` to use actual glyph positions
+   - Added multi-line support with proper line break detection
+   - Fixed Y-offset issues with proper padding calculations
+   - Made line break threshold font-relative (line_height * 0.5 instead of hardcoded 10.0)
+
+4. **Code Quality Improvements** ✅
+   - Extracted `LINE_SPACING_MULTIPLIER` constant (1.1) to sidebar_constants.rs
+   - Added `rendered_line_height` field to MultilineTextInput for accurate font metrics
+   - Added documentation for padding differences between goal (8.0) and suggestion (12.0) cards
+   - Added TODO for future extraction of shared selection rectangle logic
+
+**Known Issues and Bugs**:
+
+1. **Cross-Component Selection Bug** 🔴
+   - **Issue**: After selecting/deselecting in goal card, mousing over suggestion card causes selection to appear in goal card
+   - **Status**: NOT FIXED - deferred to next session due to context limits
+   - **Impact**: Minor UI glitch, doesn't affect functionality
+
+2. **Multi-line Selection in Suggestions** 🟡
+   - **Issue**: Can't select text on 2nd+ lines of wrapped suggestion text
+   - **Root Cause**: Suggestion cards lack hierarchical hit testing like activity log items
+   - **Status**: Partially addressed but needs complete implementation
+   - **Fix Required**: Implement proper position tree and hit testing for suggestions
+
+3. **TODOs Added**:
+   - Line 1770: Extract shared logic between suggestion and goal selection rectangle calculation
+   - Both methods have ~80 lines of nearly identical selection logic. Originally the goal card was (and still is) single-line selection, so for reference on multi-line suggestion we should look at the activity log. There may be activity log selection logic that we can use for all selection (including these cards).
+
+### Session 8 - Multi-line Selection Fix for Suggestions (Part 1)
+
+**Key Accomplishments**:
+
+1. **Fixed Cross-Component Selection Bug** ✅
+   - **Root Cause**: Both goal and suggestion handlers shared global `text_selection_drag_active` flag
+   - **Solution**: Added selection type checking in Move handlers to prevent cross-component interference
+   - Both handlers now check if active/prepared selection matches their component type before handling drag
+   - Added proper cleanup of `text_selection_drag_active` flag on mouse release
+
+2. **Attempted Multi-line Selection Fix for Suggestions** 🟡
+   - **Approach 1**: Created `suggestion_positions.rs` using WrappedLine-based extraction (like activity logs)
+   - **Approach 2**: Added `suggestion_position_tree` storage and proper position extraction
+   - **Approach 3**: Fixed position tree storage by finding correct element in hierarchy
+   - **Result**: Position tree now properly extracted and stored with correct Y values (0, 30)
+   - **Remaining Issue**: Coordinate transformation mismatch - relative Y=51 when clicking line 2, but positions expect Y=30-60
+
+3. **Architecture Analysis Completed** ✅
+   - Had principal engineer subagent review proposed generic trait architecture
+   - **Key Finding**: Generic traits would violate UIItem architecture and add unnecessary complexity
+   - **Decision**: Keep type-specific handlers, complete existing pattern instead of replacing
+   - **Rationale**: Activity logs and cards have fundamentally different coordinate systems
+
+4. **Identified Root Issue** ✅
+   - **Problem**: Y coordinate mismatch between mouse events and position tree
+   - **Cause**: Suggestion bounds include padding, but position tree starts at Y=0 for text content
+   - **Evidence**: Click on line 2 gives relative Y=51, but line 2 positions are at Y=30
+   - **Solution Needed**: Proper coordinate transformation accounting for text content offset within suggestion bounds
+
+**Deviations from Original Approach**:
+
+1. **Abandoned Y-clamping workaround**: User correctly identified this as a hack
+2. **Abandoned generic trait architecture**: Principal engineer review showed it would violate existing patterns
+3. **Focused on proper coordinate transformation**: The real issue, not position extraction
+
+**Known Remaining Issues**:
+
+1. **Multi-line Selection Still Broken** 🔴
+   - Position extraction works correctly (verified by logs)
+   - Coordinate transformation has ~10-20px offset error
+   - Need to properly account for padding between suggestion bounds and text content
+   - Should follow activity log's 3-stage transformation pattern
+
+2. **Hardcoded Line Heights** 🟡
+   - Found multiple places using hardcoded 20.0, 25.0, 30.0 line heights
+   - Should use font metrics (`context.height.pixel_cell`)
+   - Added to TODO list for cleanup
+
+**Key Learnings**:
+
+1. **Coordinate systems are complex**: Activity logs use 3-stage transformation, cards only 2-stage
+2. **Position extraction was correct**: The bug was in coordinate transformation, not position data
+3. **Principal engineer reviews valuable**: Prevented implementing overly-generic solution
+4. **UIItem architecture is mandatory**: Can't bypass it with manual coordinate handling
+
+### Session 9 - Multi-line Selection Completion and Code Cleanup
+
+**Key Accomplishments**:
+
+1. **Fixed Multi-line Selection in Suggestions** ✅
+   - **Root Cause**: Double padding calculation in `suggestion_positions.rs`
+   - **Bug Location**: Line 220 - padding was added to offset twice (content_offset already included padding)
+   - **Solution**: Removed redundant `element_padding` calculation, use `content_offset` directly
+   - **Result**: Multi-line selection now works perfectly - can select across lines in suggestions
+
+2. **Fixed Drag Handler Y Coordinate Bug** ✅
+   - **Issue**: Both goal and suggestion drag handlers only used X coordinate, ignored Y
+   - **Solution**: Updated both handlers to use proper `hit_test_*` functions with both X and Y
+   - **Result**: Can now properly drag-select across multiple lines
+
+3. **Reduced Card Padding** ✅
+   - **Change**: Reduced vertical padding in Card component from 8px to 4px (title) and 2px (bottom)
+   - **Files**: `components/card.rs` - modified title and content wrapper padding
+   - **Result**: Cards are more compact, better use of vertical space
+
+4. **Made Selection Start from Padding Area** ✅
+   - **Issue**: Could only start selection by clicking exactly on text characters
+   - **Solution**: Made suggestion card structure match goal card - applied UIItemType to text element with padding
+   - **Result**: Can now start selection from padding area like goal cards
+
+5. **Fixed Selection Rectangle Height** ✅
+   - **Issue**: Selection rectangles didn't match actual line height
+   - **Solution**: Calculate line height from actual Y spacing in position tree
+   - **Result**: Selection rectangles now perfectly match text line height
+
+6. **Code Cleanup** ✅
+   - **Removed all debug logging**: All `[PADDING DEBUG]` statements removed
+   - **Replaced magic numbers**: Created constants for character width (8.5), uppercase multiplier (1.2), activity log heights (201.0)
+   - **Added missing imports**: Fixed compilation by importing new constants
+   - **Result**: Code compiles cleanly with no errors
+
+**Known Issues**:
+
+1. **Activity Log and Chat Input Positioning** 🟡
+   - Still using hardcoded `ACTIVITY_LOG_HEIGHT` (201px) instead of dynamic heights
+   - After padding reduction, actual card heights are smaller than 201px
+   - Causes activity log to start too low with unnecessary gaps
+   - Deferred to next session as it requires sophisticated architectural changes
+
+**Technical Details of Fixes**:
+
+1. **Double Padding Bug** (suggestion_positions.rs:220):
+   ```rust
+   // BEFORE (WRONG - double padding):
+   let element_padding = Point2D::new(
+       computed.content_rect.min_x() - computed.bounds.min_x(),
+       computed.content_rect.min_y() - computed.bounds.min_y(),
+   );
+   let text_offset = offset + element_padding;
+   
+   // AFTER (FIXED):
+   let text_offset = offset; // content_offset already includes padding
+   ```
+
+2. **Drag Handler Fix** (ai_sidebar.rs):
+   ```rust
+   // BEFORE (WRONG - only X):
+   let current_byte = /* complex calculation using only X */;
+   
+   // AFTER (FIXED - both X and Y):
+   let current_byte = self.hit_test_suggestion(relative_x, relative_y).unwrap_or(0);
+   ```
+
+**Key Learnings**:
+1. **Subagent fresh perspective valuable**: Fresh eyes spotted the double padding bug we'd been debugging for hours
+2. **Coordinate systems are tricky**: Content offset vs bounds offset easily confused
+3. **Test both axes**: Drag handlers must use both X and Y for multi-line support
+4. **Padding affects usability**: Too much padding makes selection start areas unclear
+
+
+
 ## Important Notes for Next Engineer
 
 ### Critical Implementation Notes
@@ -1395,11 +1555,88 @@ All compilation errors resolved. The codebase compiles cleanly with only warning
    - Pass state as parameters, never store it
    - NO mutable parameter passing (breaks architecture)
 
+2. **Text Selection Architecture**:
+   - Goal cards: Single-line, simple position array works fine
+   - Activity log: Multi-line with hierarchical position tree and hit testing
+   - Suggestions: Multi-line but using simple position array (needs upgrade to position tree)
+   - Chat input: Multi-line with stored glyph positions per line
+
 3. **Function Size Guidelines** (from Session 6 learnings):
    - 200-300 line functions are acceptable to the user
    - Focus on reducing total file size over perfect function sizes
    - Extract to modules for major size reduction
    - Use helper methods for modest improvements
+
+4. **Padding Differences** (Session 7 discovery):
+   - Goal cards use GOAL_CARD_PADDING (8.0)
+   - Suggestion cards use CARD_CONTENT_PADDING (12.0)
+   - This is due to Card component structure differences
+
+### Additional Implementation Notes
+
+#### Clean Up Hardcoded Line Heights 🟡
+
+**Problem**: Multiple hardcoded line heights (20.0, 25.0, 30.0) instead of using font metrics.
+
+**Implementation Steps**:
+
+1. **Step 1: Get actual line height from fonts** (20 minutes)
+   ```rust
+   // Create a helper function in sidebar_constants.rs:
+   pub fn get_line_height(font: &Rc<LoadedFont>) -> f32 {
+       font.metrics().cell_height.get()
+   }
+   
+   // Or if we have a RenderContext:
+   pub fn get_line_height_from_context(context: &RenderContext) -> f32 {
+       context.height.pixel_cell
+   }
+   ```
+
+2. **Step 2: Replace hardcoded values** (30 minutes)
+   
+   Files to update (grep for these patterns):
+   - `ai_sidebar.rs`: Lines 1717, 1859, 2746, 3300, 3470, 3972, 3998
+   - `text_selection.rs`: Lines 445, 513
+   - `activity_log_renderer.rs`: Line 1106
+   
+   Replace patterns like:
+   ```rust
+   // OLD:
+   let line_height = 20.0;
+   
+   // NEW:
+   let line_height = fonts.body.metrics().cell_height.get();
+   ```
+
+3. **Step 3: Update constants that depend on line height** (15 minutes)
+   ```rust
+   // In sidebar_constants.rs, make these font-relative:
+   pub const SELECTION_LINE_HEIGHT: f32 = 25.0; // Should be font-relative
+   pub const PARAGRAPH_LINE_HEIGHT: f32 = 20.0; // Should be font-relative
+   ```
+
+#### Consider Activity Log Pattern for "View More" Modal
+
+**Future Planning**: The fixed suggestion selection can be extended to the "View More" modal:
+
+1. **Key Differences for Modal**:
+   - Modal will have scrolling (negative Y offsets possible)
+   - Need to track scroll_offset like activity logs do
+   - Will need viewport clipping for selection rectangles
+
+2. **Reusable Components from This Work**:
+   - `suggestion_positions.rs` extraction logic
+   - Position tree hit testing
+   - Multi-line selection rectangle calculation
+   - Dynamic height calculation pattern from activity log fix
+
+3. **Additional Requirements for Modal**:
+   - Track modal scroll offset
+   - Implement viewport → content transformation
+   - Clip selection rectangles to visible area
+   - Use same compute-first pattern for modal sizing
+
 
 ### DO's and DON'Ts
 
@@ -1408,8 +1645,8 @@ All compilation errors resolved. The codebase compiles cleanly with only warning
 3. **DO NOT** deviate from this plan without the user's explicit approval
 4. **DO NOT** assume visual line index == logical line index in wrapped text
 5. **DO NOT** rewrite functions where possible - use mechanical code movement
-6. **DO** use subagents for thorough code review - they catch critical issues
-7. **DO** test compilation after EVERY change (catches issues early)
-8. **DO** preserve the stateless pattern (static methods, data in parent)
-9. **DO** focus on file size reduction as primary goal
-10. **DO** check that helper methods are in correct impl block
+6. **DO NOT** change selection behavior without thorough testing (Session 7 lesson)
+7. **DO** use subagents for thorough code review - they catch critical issues
+8. **DO** test compilation after EVERY change (catches issues early)
+9. **DO** preserve the stateless pattern (static methods, data in parent)
+10. **DO** focus on file size reduction as a primary goal

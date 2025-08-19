@@ -6,6 +6,9 @@
 use crate::color::LinearRgba;
 use crate::sidebar::components::forms::MultilineTextInput;
 use crate::sidebar::SidebarFonts;
+use crate::sidebar::sidebar_constants::{
+    DEFAULT_SCROLLBAR_WIDTH,
+};
 use crate::termwindow::box_model::{
     BorderColor, BoxDimension, ComputedElement, Corners, DisplayType, Element, ElementColors,
     ElementContent, LayoutContext, SizedPoly, StyleSpan,
@@ -21,7 +24,7 @@ use window::PixelUnit;
 pub const LINE_HEIGHT_MULTIPLIER: f32 = 1.1; // Consistent line spacing multiplier
 pub const ESTIMATED_LINE_HEIGHT: f32 = 20.0; // Default line height for estimations
 pub const ESTIMATED_CHAR_WIDTH: f32 = 8.5; // Default character width for estimations
-pub const SCROLLBAR_WIDTH: f32 = 6.0; // Width of the scrollbar
+pub const SCROLLBAR_WIDTH: f32 = DEFAULT_SCROLLBAR_WIDTH; // Width of the scrollbar
 pub const SCROLLBAR_THUMB_HEIGHT: f32 = 40.0; // Height of scrollbar thumb
 pub const CHAT_INPUT_PADDING: f32 = 12.0; // Horizontal padding in chat input
 pub const CHAT_INPUT_VERTICAL_PADDING: f32 = 8.0; // Vertical padding in chat input
@@ -136,7 +139,7 @@ impl ChatInputHandler {
 
         // Calculate viewport height based on display lines
         let viewport_height =
-            chat_input.display_lines as f32 * line_height * LINE_HEIGHT_MULTIPLIER;
+            (chat_input.display_lines as f32 * line_height * LINE_HEIGHT_MULTIPLIER) + CHAT_INPUT_VERTICAL_PADDING;
 
         // Store line positions for click detection
         let line_positions = vec![];

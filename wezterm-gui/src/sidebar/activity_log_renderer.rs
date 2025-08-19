@@ -361,26 +361,6 @@ impl ActivityLogRenderer {
 
         state.activity_log_visible_range = start_idx..end_idx;
 
-        // DEBUG: Enhanced visible range logging
-        log::debug!(
-            "[VSCROLL] Visible range: {:?} ({}..{}), First visible: {:?}, Last visible: {:?}",
-            state.activity_log_visible_range,
-            start_idx,
-            end_idx,
-            first_visible,
-            last_visible
-        );
-
-        log::debug!(
-            "[VSCROLL] Rendering {} items (indices {}..{}) of {} total, viewport: {:.0}-{:.0} pixels",
-            end_idx - start_idx,
-            start_idx,
-            end_idx,
-            filtered_items.len(),
-            viewport_start,
-            viewport_end
-        );
-
         // Only render visible items
         let mut rendered_items: Vec<Element> = Vec::new();
 
@@ -432,7 +412,7 @@ impl ActivityLogRenderer {
                     *orig_idx,
                     palette,
                     document_byte_offset,
-                    width,
+                    available_width,
                     selection_state,
                     code_block_registry.clone(),
                 );
@@ -493,25 +473,6 @@ impl ActivityLogRenderer {
             .unwrap_or(0.0);
 
         let height_changing = (old_height - total_content_height).abs() > 1.0;
-
-        // TEMPORARILY DISABLED: Visual anchor system to fix scrolling jumps
-        // if height_changing {
-        //     // Calculate anchor before any changes
-        //     state.visual_anchor = self.calculate_visual_anchor(
-        //         &filtered_items,
-        //         line_height,
-        //         available_width,
-        //         available_height
-        //     );
-        //
-        //     log::info!(
-        //         "Total content height changing: {} -> {} (delta: {}, cache size: {})",
-        //         old_height,
-        //         total_content_height,
-        //         total_content_height - old_height,
-        //         state.activity_log_height_cache.len()
-        //     );
-        // }
 
         // DEBUG: Log comprehensive state information
         log::debug!(
@@ -685,7 +646,7 @@ impl ActivityLogRenderer {
         item_index: usize,
         palette: &wezterm_term::color::ColorPalette,
         global_byte_offset: usize,
-        width: u16,
+        available_width: f32,
         selection_state: &crate::sidebar::text_selection::SelectionState,
         code_block_registry: Option<Arc<Mutex<HashMap<String, CodeBlockContainer>>>>,
     ) -> Element {
@@ -711,12 +672,10 @@ impl ActivityLogRenderer {
                 };
 
                 // Calculate available width for command content
-                let sidebar_width = width as f32;
-                let content_width = sidebar_width
+                let content_width = available_width
                     - CHAT_ITEM_HORIZONTAL_MARGIN
                     - (CHAT_ITEM_PADDING * 2.0)
-                    - (CHAT_ITEM_BORDER * 2.0)
-                    - SCROLLBAR_SPACE;
+                    - (CHAT_ITEM_BORDER * 2.0);
 
                 // Create command element with status icon
                 // Commands don't contribute to selection offset, so don't set global_byte_offset
@@ -765,15 +724,16 @@ impl ActivityLogRenderer {
                 message, is_user, ..
             } => {
                 // Calculate available width for chat content
-                let sidebar_width = width as f32;
-                let content_width = sidebar_width
-                    - CHAT_ITEM_HORIZONTAL_MARGIN
+                let content_width = available_width
                     - (CHAT_ITEM_PADDING * 2.0)
                     - (CHAT_ITEM_BORDER * 2.0)
-                    - SCROLLBAR_SPACE;
-
+                    - if *is_user {
+                        CHAT_ITEM_HORIZONTAL_MARGIN
+                    } else {
+                        CHAT_ITEM_HORIZONTAL_MARGIN / 2.0 + 20.0 // 20 extra should not be needed, TODO to fix
+                    };
                 let bg_color = if *is_user {
-                    LinearRgba::with_components(0.05, 0.15, 0.25, 1.0) // 50% darker, full opacity
+                    LinearRgba::with_components(0.05, 0.15, 0.25, 1.0)
                 } else {
                     LinearRgba::with_components(0.15, 0.15, 0.17, 1.0)
                 };
@@ -834,49 +794,14 @@ impl ActivityLogRenderer {
                         .global_byte_offset(0) // Use item-relative offset, not document-global
                 } else {
                     // AI messages - use markdown rendering
-                    // Selection is now rendered as an overlay, not inline styles
-                    if selection.is_some() {
-                        // When there's a selection, we still use markdown but the selection
-                        // will be rendered as an overlay
-                        MarkdownRenderer::render_with_fonts(
-                            message,
-                            fonts,
-                            Some(content_width),
-                            code_block_registry.clone(),
-                            Some(&format!("activity_{}", item_index)),
-                            Some(palette),
-                        )
-                    } else {
-                        // AI messages use markdown rendering with code font support
-                        // Need to add width constraint for proper text wrapping
-                        let sidebar_width = width as f32;
-                        // Calculate available width accounting for all padding/margins:
-                        // - Activity log container: no explicit padding
-                        // - Chat message margin: CHAT_ITEM_HORIZONTAL_MARGIN on one side
-                        // - Chat message padding: CHAT_ITEM_PADDING * 2
-                        // - Chat message border: CHAT_ITEM_BORDER * 2
-                        // - Scrollbar space: SCROLLBAR_SPACE
-                        let spacing = CHAT_ITEM_HORIZONTAL_MARGIN
-                            + (CHAT_ITEM_PADDING * 2.0)
-                            + (CHAT_ITEM_BORDER * 2.0)
-                            + SCROLLBAR_SPACE;
-                        let content_width = sidebar_width - spacing;
-                        log::debug!(
-                            "Rendering markdown in activity log: sidebar_width={}, content_width={}",
-                            sidebar_width,
-                            content_width
-                        );
-
-                        // Use registry if available for horizontal scrolling support
-                        MarkdownRenderer::render_with_fonts(
-                            message,
-                            fonts,
-                            Some(content_width),
-                            code_block_registry.clone(),
-                            Some(&format!("activity_{}", item_index)),
-                            Some(palette),
-                        )
-                    }
+                    MarkdownRenderer::render_with_fonts(
+                        message,
+                        fonts,
+                        Some(content_width),
+                        code_block_registry.clone(),
+                        Some(&format!("activity_{}", item_index)),
+                        Some(palette),
+                    )
                 };
 
                 Element::new(&fonts.body, ElementContent::Children(vec![content]))
@@ -890,9 +815,9 @@ impl ActivityLogRenderer {
                         left: if *is_user {
                             Dimension::Pixels(CHAT_ITEM_HORIZONTAL_MARGIN)
                         } else {
-                            Dimension::Pixels(0.0)
+                            Dimension::Pixels(CHAT_ITEM_HORIZONTAL_MARGIN / 2.0)
                         },
-                        right: Dimension::Pixels(0.0), // No right margin for either
+                        right: Dimension::Pixels(DEFAULT_SCROLLBAR_WIDTH),
                         bottom: Dimension::Pixels(CHAT_ITEM_BOTTOM_MARGIN),
                         ..Default::default()
                     })
@@ -903,14 +828,13 @@ impl ActivityLogRenderer {
             }
             ActivityItem::Suggestion { title, content, .. } => {
                 // Add width constraint for proper text wrapping
-                let sidebar_width = width as f32;
                 // Calculate available width for suggestion card content:
                 // - Card margin: 8px each side = 16px
                 // - Card padding: 12px each side = 24px
                 // - Card border: 1px each side = 2px
                 // - Scrollbar space: ~12px
                 // Total: 16 + 24 + 2 + 12 = 54px
-                let content_width = sidebar_width - 54.0;
+                let content_width = available_width - 54.0;
                 let markdown_content = MarkdownRenderer::render_with_fonts(
                     content,
                     fonts,
@@ -1103,7 +1027,7 @@ fn calculate_total_activity_log_height(
     filtered_items: &[(usize, &ActivityItem)],
     viewport_width: f32,
 ) -> f32 {
-    let line_height = 25.0; // Default line height
+    let line_height = PARAGRAPH_LINE_HEIGHT * 1.25; // Estimated line height for sizing
     filtered_items
         .iter()
         .map(|(index, item)| {
