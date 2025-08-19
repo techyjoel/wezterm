@@ -1254,7 +1254,7 @@ impl MarkdownRenderer {
         // Simply wrap the line elements in the code block container
         // No horizontal scrolling needed since we're wrapping
         let computed_height = line_count as f32 * code_line_height as f32;
-        let code_block = Element::new(font, ElementContent::Children(line_elements))
+        let mut code_block = Element::new(font, ElementContent::Children(line_elements))
             .with_computed_height(computed_height)
             .semantic_type(crate::termwindow::box_model::SemanticType::CodeBlock {
                 language: language.map(|s| s.to_string()),
@@ -1272,6 +1272,13 @@ impl MarkdownRenderer {
                 ..Default::default()
             })
             .display(DisplayType::Block);
+        
+        // Set both min and max width to create a fixed-width code block
+        if let Some(width) = max_width {
+            code_block = code_block
+                .max_width(Some(Dimension::Pixels(width)))
+                .min_width(Some(Dimension::Pixels(width)));
+        }
         // Removed UIItemType to allow text selection in code blocks
 
         // Add a copy button above the code block (always visible)

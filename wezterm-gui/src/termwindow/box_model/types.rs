@@ -52,6 +52,12 @@ thread_local! {
     /// Thread-local width correction factor for text wrapping calculations
     /// Default is 1.02 (2% extra width)
     ///
+    /// The 1.02 factor was empirically determined to prevent text overflow
+    /// in most cases while minimizing wasted space. It compensates for:
+    /// - Kerning and ligatures that affect actual glyph positioning
+    /// - Rounding errors in width calculations
+    /// - Variations in character distribution vs. the sample text used for averaging
+    ///
     /// Note: We use thread-local storage here because box_model doesn't have access
     /// to the config directly, and LayoutContext doesn't carry config data.
     /// This is set by the sidebar renderer before rendering markdown content.

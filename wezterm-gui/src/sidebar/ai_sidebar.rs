@@ -2380,7 +2380,7 @@ impl AiSidebar {
 
         // The activity log height is the bounds height
         let available_for_log = bounds.size.height;
-        let available_width = bounds.size.width - DEFAULT_SCROLLBAR_WIDTH;
+        let available_width = bounds.size.width;
 
         // Render the activity log content
         let activity_log = ActivityLogRenderer::render_activity_log(

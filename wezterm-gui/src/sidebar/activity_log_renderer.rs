@@ -452,6 +452,7 @@ impl ActivityLogRenderer {
 
         // Calculate total content height
         let total_content_height = Self::calculate_total_activity_log_height(
+            state,
             &filtered_items,
             line_height,
             available_width,
@@ -723,15 +724,20 @@ impl ActivityLogRenderer {
             ActivityItem::Chat {
                 message, is_user, ..
             } => {
-                // Calculate available width for chat content
-                let content_width = available_width
-                    - (CHAT_ITEM_PADDING * 2.0)
-                    - (CHAT_ITEM_BORDER * 2.0)
+                // Calculate the full width for the container (including padding/border)
+                // and the content width (excluding padding/border)
+                let container_width = available_width
                     - if *is_user {
                         CHAT_ITEM_HORIZONTAL_MARGIN
                     } else {
-                        CHAT_ITEM_HORIZONTAL_MARGIN / 2.0 + 20.0 // 20 extra should not be needed, TODO to fix
-                    };
+                        CHAT_ITEM_HORIZONTAL_MARGIN / 2.0
+                    }
+                    - DEFAULT_SCROLLBAR_WIDTH;  // Account for scrollbar
+                
+                // Content width is container width minus padding and border
+                let content_width = container_width
+                    - (CHAT_ITEM_PADDING * 2.0)
+                    - (CHAT_ITEM_BORDER * 2.0);
                 let bg_color = if *is_user {
                     LinearRgba::with_components(0.05, 0.15, 0.25, 1.0)
                 } else {
@@ -817,10 +823,12 @@ impl ActivityLogRenderer {
                         } else {
                             Dimension::Pixels(CHAT_ITEM_HORIZONTAL_MARGIN / 2.0)
                         },
-                        right: Dimension::Pixels(DEFAULT_SCROLLBAR_WIDTH),
+                        right: Dimension::Pixels(0.0),  // Scrollbar space handled by max_width
                         bottom: Dimension::Pixels(CHAT_ITEM_BOTTOM_MARGIN),
                         ..Default::default()
                     })
+                    .max_width(Some(Dimension::Pixels(container_width)))  // Set explicit container width
+                    .min_width(Some(Dimension::Pixels(container_width)))  // Make width fixed, not content-based
                     .item_type(UIItemType::ActivityItemText {
                         index: item_index,
                         char_positions: Vec::new(), // Position data extracted after rendering
@@ -898,13 +906,27 @@ impl ActivityLogRenderer {
     }
 
     fn calculate_total_activity_log_height(
+        state: &ActivityLogState,
         filtered_items: &[(usize, &ActivityItem)],
         line_height: f32,
         available_width: f32,
     ) -> f32 {
         filtered_items
             .iter()
-            .map(|(_, item)| estimate_activity_item_height(item, line_height, available_width))
+            .map(|(_, item)| {
+                let item_id = match item {
+                    ActivityItem::Command { id, .. } => id.clone(),
+                    ActivityItem::Chat { id, .. } => id.clone(),
+                    ActivityItem::Suggestion { id, .. } => id.clone(),
+                    ActivityItem::Goal { id, .. } => id.clone(),
+                };
+                
+                // Use cached height if available, otherwise estimate
+                state.activity_log_height_cache
+                    .get(&item_id)
+                    .copied()
+                    .unwrap_or_else(|| estimate_activity_item_height(item, line_height, available_width))
+            })
             .sum::<f32>()
         // Removed +20px hack - virtual scrolling with accurate height caching handles this correctly
     }

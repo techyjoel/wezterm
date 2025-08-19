@@ -140,11 +140,15 @@ impl crate::TermWindow {
         // The global_byte_offset is set on the Element, not on individual lines
         let mut byte_offset = 0;
 
+        // Calculate the average character width for this font once, to use for wrapping estimates
+        let avg_char_width = self.calculate_average_char_width(font, context, style)?;
+
         log::debug!(
-            "wrap_text_into_lines: text='{}', text.len()={}, max_width={}",
+            "wrap_text_into_lines: text='{}', text.len()={}, max_width={}, avg_char_width={}",
             text.replace('\n', "\\n"),
             text.len(),
-            max_width
+            max_width,
+            avg_char_width
         );
 
         // Split by newlines first to preserve line structure
@@ -233,11 +237,18 @@ impl crate::TermWindow {
                 for (idx, ch) in line_text[current_pos..].char_indices() {
                     let char_pos = current_pos + idx;
 
-                    // Estimate character width (this is just for wrapping decisions)
+                    // Estimate character width using the calculated average for this font
+                    // This gives much more accurate wrapping for proportional fonts
+                    // These multipliers are based on typical proportional font metrics:
+                    // - Spaces are ~30-40% of average width in most fonts (we use 0.6 to be conservative)
+                    // - Uppercase letters and punctuation are ~10-20% wider than average
+                    // - Lowercase letters and digits cluster around the average
                     let char_width = if ch == ' ' {
-                        font.metrics().cell_width.get() as f32 * 0.3
+                        avg_char_width * 0.6  // Spaces are typically narrower
+                    } else if ch.is_uppercase() || ch.is_ascii_punctuation() {
+                        avg_char_width * 1.1  // Uppercase and punctuation are typically wider
                     } else {
-                        font.metrics().cell_width.get() as f32 * 0.5
+                        avg_char_width        // Use the calculated average for most characters
                     };
 
                     // Check if adding this character would exceed width
